@@ -107,7 +107,7 @@ def check_and_save_info(
 
     with open("info.txt", "w") as f:
         f.write(
-            "########################## eduPIC simulation report ############################\n"
+            "########################## PyPIC simulation report ############################\n"
         )
         f.write("Simulation parameters:\n")
         f.write(f"Gap distance                          = {cfg.sim.L:12.3e} [m]\n")
@@ -165,9 +165,9 @@ def check_and_save_info(
             f.write(
                 "--------------------------------------------------------------------------------\n"
             )
-            print(">> eduPIC: ERROR: STABILITY AND ACCURACY CONDITION(S) VIOLATED!")
+            print(">> PyPIC: ERROR: STABILITY AND ACCURACY CONDITION(S) VIOLATED!")
             print(
-                ">> eduPIC: for details see 'info.txt' and refine simulation settings!"
+                ">> PyPIC: for details see 'info.txt' and refine simulation settings!"
             )
             return
 
@@ -181,7 +181,7 @@ def check_and_save_info(
             "--------------------------------------------------------------------------------\n"
         )
 
-        print(">> eduPIC: saving diagnostics data")
+        print(">> PyPIC: saving diagnostics data")
         save_density(state, no_of_cycles)
         save_eepf(state)
         mean_i_energy_pow, mean_i_energy_gnd = save_ifed(state)
