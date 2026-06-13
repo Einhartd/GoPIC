@@ -72,3 +72,23 @@ x_i: particle_vector            = [0.0] * MAX_N_P           #   coordinates of i
 vx_i: particle_vector           = [0.0] * MAX_N_P           #   coordinates of ions (one spatial, three velocity components)
 vy_i: particle_vector           = [0.0] * MAX_N_P           #   coordinates of ions (one spatial, three velocity components)
 vz_i: particle_vector           = [0.0] * MAX_N_P           #   coordinates of ions (one spatial, three velocity components)
+
+type xvector                    = list[float]               #   array for quantities defined at gird points
+efield                          = [0.0] * N_G               #   electric field
+pot                             = [0.0] * N_G               #   potential
+e_density                       = [0.0] * N_G               #   electron densities
+i_density                       = [0.0] * N_G               #   ion densities
+cumul_e_density                 = [0.0] * N_G               #   cumulative electron densities
+cumul_i_density                 = [0.0] * N_G               #   cumulative ion densities
+
+N_e_abs_pow                     = 0                         #   counter for electrons absorbed at the powered electrode
+N_e_abs_gnd                     = 0                         #   counter for electrons absorbed at the grounded electrode
+N_i_abs_pow                     = 0                         #   counter for ions absorbed at the powered electrode
+N_i_abs_gnd                     = 0                         #   counter for ions absorbed at the grounded electrode
+
+#   ELECTRON ENERGY PROBABILITY FUNCTION
+
+N_EEPF                          = 2000                      #   number of energy bins in Electron Energy Probability Function (EEPF)
+DE_EEPF                         = 0.05                      #   resolution of EEPF [eV]
+type eepf_vector                = list[float]               #   array for EEPF
+eepf: eepf_vector               = [0.0] * N_EEPF            #   time integrated EEPF in the center of the plasma
