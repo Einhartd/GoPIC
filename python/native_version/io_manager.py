@@ -141,3 +141,41 @@ def save_xt_1(distr: list[list[float]], fname: str):
                 f.write(f"{distr[i][j]:e}  ")
             
             f.write("\n")
+
+
+def norm_all_xt(sim: SimulationState):
+    """
+    Normalizacja danych XT
+    """
+    f1: float = float(cs.N_XT) / float(sim.no_of_cycles * cs.N_T)
+    f2: float = cs.WEIGHT / (cs.ELECTRODE_AREA * cs.DX) / (sim.no_of_cycles * (cs.PERIOD / float(cs.N_XT)))
+
+    for i in range(cs.N_G):
+        for j in range(cs.N_XT):
+            sim.pot_xt[i][j]    *= f1
+            sim.efield_xt[i][j] *= f1
+            sim.ne_xt[i][j]     *= f1
+            sim.ni_xt[i][j]     *= f1
+
+            if sim.counter_e_xt[i][j] > 0:
+                sim.ue_xt[i][j] = sim.ue_xt[i][j] / sim.counter_e_xt[i][j]
+                sim.je_xt[i][j] = -sim.ue_xt[i][j] * sim.ne_xt[i][j] * cs.E_CHARGE
+                sim.meanee_xt[i][j] =  sim.meanee_xt[i][j] / sim.counter_e_xt[i][j]
+                sim.ioniz_rate_xt[i][j] *= f2
+            else:
+                sim.ue_xt[i][j]         = 0.0
+                sim.je_xt[i][j]         = 0.0
+                sim.meanee_xt[i][j]     = 0.0
+                sim.ioniz_rate_xt[i][j] = 0.0
+
+            if sim.counter_i_xt[i][j] > 0:
+                sim.ui_xt[i][j]     = sim.ui_xt[i][j] / sim.counter_i_xt[i][j]
+                sim.ji_xt[i][j]     = sim.ui_xt[i][j] * sim.ni_xt[i][j] * cs.E_CHARGE
+                sim.meanei_xt[i][j] = sim.meanei_xt[i][j] / sim.counter_i_xt[i][j]
+            else:
+                sim.ui_xt[i][j]     = 0.0
+                sim.ji_xt[i][j]     = 0.0
+                sim.meanei_xt[i][j] = 0.0
+
+            sim.powere_xt[i][j] = sim.je_xt[i][j] * sim.efield_xt[i][j]
+            sim.poweri_xt[i][j] = sim.ji_xt[i][j] * sim.efield_xt[i][j]
