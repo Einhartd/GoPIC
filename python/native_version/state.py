@@ -69,9 +69,9 @@ class SimulationState:
         """IFED at the powered electrode"""
         self.ifed_gnd: cs.ifed_vector        = [0] * cs.N_IFED
         """IFED at the grounded electrode"""
-        self.mean_i_energy_pow: float
+        self.mean_i_energy_pow: float        = 0
         """mean ion energy at the powered electrode"""
-        self.mean_i_energy_gnd: float
+        self.mean_i_energy_gnd: float        = 0
         """mean ion energy at the grounded electrode"""
         
         #   SPATIO-TEMPORAL (XT) DISTRIBUTIONS

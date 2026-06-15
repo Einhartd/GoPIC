@@ -56,7 +56,7 @@ def set_ion_cross_sections_ar(sim: SimulationState):
 
     print(f">> PyPIC: Setting Ar+ / Ar cross sections\n")
     for i in range(cs.CS_RANGES):
-        e_com = cs.DE_CS if i==0 else e_com = cs.DE_CS * i
+        e_com = cs.DE_CS if i==0 else cs.DE_CS * i
         e_lab = 2.0 * e_com
         qmom = 1.15e-18 * (e_lab ** -0.1) * ((1.0 + 0.015 / e_lab)**0.6)
         qiso = 2e-19 * (e_lab ** -0.5) / (1.0 + e_lab) + 3e-19 * e_lab / ((1.0 + e_lab / 3.0) ** 2.0)

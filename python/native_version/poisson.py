@@ -33,6 +33,8 @@ def solve_poisson(sim: SimulationState, rho1: cs.xvector, tt: float):
         g[i] = (f[i] - cs.A * g[i - 1]) / (cs.B - cs.A * w[i - 1])
 
     sim.pot[cs.N_G - 2] = g[cs.N_G - 2]
+    for i in range(cs.N_G - 3, 0, -1):
+        sim.pot[i] = g[i] - w[i] * sim.pot[i+1]
 
     #   compute electric field
     for i in range(1, cs.N_G - 1):

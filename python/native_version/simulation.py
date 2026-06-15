@@ -155,26 +155,27 @@ def do_one_cycle(sim: SimulationState, datafile_path: str = "conv.dat"):
                     energy_index = int(energy / cs.DE_IFED)
                     if energy_index < cs.N_IFED:
                         sim.ifed_pow[energy_index] += 1  
-            if sim.x_i[k] > cs.L:
-                sim.N_i_abs_gnd += 1
-                out = True
-                v_sqr = sim.vx_i[k]**2 + sim.vy_i[k]**2 + sim.vz_i[k]**2
-                energy = 0.5 * cs.AR_MASS * v_sqr / cs.EV_TO_J
-                energy_index = int(energy / cs.DE_IFED)
-                if energy_index < cs.N_IFED:
-                    sim.ifed_gnd[energy_index] += 1
-                    
-            if out:
-                sim.x_i[k]  = sim.x_i[sim.N_i - 1]
-                sim.vx_i[k] = sim.vx_i[sim.N_i - 1]
-                sim.vy_i[k] = sim.vy_i[sim.N_i - 1]
-                sim.vz_i[k] = sim.vz_i[sim.N_i - 1]
-                sim.N_i -= 1
-            else:
-                k += 1
+                if sim.x_i[k] > cs.L:
+                    sim.N_i_abs_gnd += 1
+                    out = True
+                    v_sqr = sim.vx_i[k]**2 + sim.vy_i[k]**2 + sim.vz_i[k]**2
+                    energy = 0.5 * cs.AR_MASS * v_sqr / cs.EV_TO_J
+                    energy_index = int(energy / cs.DE_IFED)
+                    if energy_index < cs.N_IFED:
+                        sim.ifed_gnd[energy_index] += 1
+                        
+                if out:
+                    sim.x_i[k]  = sim.x_i[sim.N_i - 1]
+                    sim.vx_i[k] = sim.vx_i[sim.N_i - 1]
+                    sim.vy_i[k] = sim.vy_i[sim.N_i - 1]
+                    sim.vz_i[k] = sim.vz_i[sim.N_i - 1]
+                    sim.N_i -= 1
+                else:
+                    k += 1
 
         #   --- STEP 6: COLLISIONS ---
-        for k in range(sim.N_e):
+        k = 0
+        while k < sim.N_e:
             v_sqr = sim.vx_e[k]**2 + sim.vy_e[k]**2 + sim.vz_e[k]**2
             velocity = math.sqrt(v_sqr)
             energy = 0.5 * cs.E_MASS * v_sqr / cs.EV_TO_J
@@ -185,9 +186,12 @@ def do_one_cycle(sim: SimulationState, datafile_path: str = "conv.dat"):
             if sim.rng.random() < p_coll:
                 collisions.collision_electron(sim, k, energy_index)
                 sim.N_e_coll += 1
+                
+            k += 1
         
         if (t % cs.N_SUB) == 0:
-            for k in range(sim.N_i):
+            k = 0
+            while k < sim.N_i:
                 vx_a = sim.rng.gauss(0.0, cs.NORMAL_DISTRIBUTION)
                 vy_a = sim.rng.gauss(0.0, cs.NORMAL_DISTRIBUTION)
                 vz_a = sim.rng.gauss(0.0, cs.NORMAL_DISTRIBUTION)
@@ -206,6 +210,8 @@ def do_one_cycle(sim: SimulationState, datafile_path: str = "conv.dat"):
                 if sim.rng.random() < p_coll:
                     collisions.collision_ion(sim, k, vx_a, vy_a, vz_a, energy_index)
                     sim.N_i_coll += 1
+                
+                k += 1
         
         if sim.measurement_mode:
             for p in range(cs.N_G):
