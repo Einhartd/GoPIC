@@ -38,7 +38,7 @@ def save_particle_data(sim: SimulationState):
         f.write(struct.pack(f"{sim.N_i}d", *sim.vy_i[:sim.N_i]))
         f.write(struct.pack(f"{sim.N_i}d", *sim.vz_i[:sim.N_i]))
     
-    print(f">> PyPIC: data saved: {sim.N_e} electrons {sim.N_i} ions, {sim.cycles_done} cycles completed, time: {sim.Time} [s]\n")
+    print(f">> PyPIC: data saved: {sim.N_e} electrons {sim.N_i} ions, {sim.cycles_done} cycles completed, time: {sim.Time} [s]")
 
 
 def load_particle_data(sim: SimulationState):
@@ -46,7 +46,7 @@ def load_particle_data(sim: SimulationState):
     Wczytuje stan z pliku binarnego.
     """
     if not os.path.exists("picdata.bin"):
-        print(f">> PyPIC: ERROR: No particle data file found, try running initial cycle using argument '0'\n")
+        print(f">> PyPIC: ERROR: No particle data file found, try running initial cycle using argument '0'")
         exit(0)
     
     with open("picdata.bin", "rb") as f:

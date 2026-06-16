@@ -14,7 +14,7 @@ def set_electron_cross_sections_ar(sim: SimulationState):
     qexc: float
     qion: float
 
-    print(f">> PyPIC: Setting e- / Ar cross sections\n")
+    print(f">> PyPIC: Setting e- / Ar cross sections")
     for i in range(cs.CS_RANGES):
         en = cs.DE_CS if i==0 else cs.DE_CS * i
 
@@ -54,7 +54,7 @@ def set_ion_cross_sections_ar(sim: SimulationState):
     qback: float
     qiso: float
 
-    print(f">> PyPIC: Setting Ar+ / Ar cross sections\n")
+    print(f">> PyPIC: Setting Ar+ / Ar cross sections")
     for i in range(cs.CS_RANGES):
         e_com = cs.DE_CS if i==0 else cs.DE_CS * i
         e_lab = 2.0 * e_com
