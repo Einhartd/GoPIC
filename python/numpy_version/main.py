@@ -1,5 +1,6 @@
 def main():
-    return 1
+    print("Hello from numpy-version!")
+
 
 if __name__ == "__main__":
     main()
