@@ -508,13 +508,12 @@ void solve_Poisson (xvector rho1, double tt){
 // simulation of one radiofrequency cycle                              //
 //---------------------------------------------------------------------//
 
-void step1_compute_densities(int t){
+void step1_compute_electron_density(void){
     int k, p;
     double c0;
 
-    // step 1: compute densities at grid points
-    
-    for(p=0; p<N_G; p++) e_density[p] = 0;                             // electron density - computed in every time step
+    // step 1a: compute electron density at grid points - computed in every time step
+    for(p=0; p<N_G; p++) e_density[p] = 0;
     for(k=0; k<N_e; k++){
         c0 = x_e[k] * INV_DX;
         p  = int(c0);
@@ -524,18 +523,24 @@ void step1_compute_densities(int t){
     e_density[0]     *= 2.0;
     e_density[N_G-1] *= 2.0;
     for(p=0; p<N_G; p++) cumul_e_density[p] += e_density[p];
+}
+
+void step1_compute_ion_density(int t){
+    if ((t % N_SUB) != 0) return;
     
-    if ((t % N_SUB) == 0) {                                            // ion density - computed in every N_SUB-th time steps (subcycling)
-        for(p=0; p<N_G; p++) i_density[p] = 0;
-        for(k=0; k<N_i; k++){
-            c0 = x_i[k] * INV_DX;
-            p  = int(c0);
-            i_density[p]   += (p + 1 - c0) * FACTOR_W;  
-            i_density[p+1] += (c0 - p) * FACTOR_W;
-        }
-        i_density[0]     *= 2.0;
-        i_density[N_G-1] *= 2.0;
+    int k, p;
+    double c0;
+
+    // step 1b: compute ion density at grid points - computed in every N_SUB-th time step (subcycling)
+    for(p=0; p<N_G; p++) i_density[p] = 0;
+    for(k=0; k<N_i; k++){
+        c0 = x_i[k] * INV_DX;
+        p  = int(c0);
+        i_density[p]   += (p + 1 - c0) * FACTOR_W;  
+        i_density[p+1] += (c0 - p) * FACTOR_W;
     }
+    i_density[0]     *= 2.0;
+    i_density[N_G-1] *= 2.0;
     for(p=0; p<N_G; p++) cumul_i_density[p] += i_density[p];
 }
 
@@ -592,7 +597,7 @@ void step3_move_electrons(int t_index){
 }
 
 void step4_move_ions(int t_index, int t){
-    if ((t % N_SUB) == 0) return;
+    if ((t % N_SUB) != 0) return;
 
     int k, p;
     double c0, c1, c2, e_x, mean_v, v_sqr, energy;
@@ -641,7 +646,7 @@ void step5_check_boundaries_electrons(){
 }
 
 void step6_check_boundaries_ions(int t){
-    if ((t % N_SUB) == 0) return;
+    if ((t % N_SUB) != 0) return;
 
     int k = 0;
     bool out;
@@ -696,7 +701,7 @@ void step7_collisions_electrons(){
 }
 
 void step8_collision_ions(int t){
-    if ((t % N_SUB) == 0) return;
+    if ((t % N_SUB) != 0) return;
 
     int k, energy_index;
     double vx_a, vy_a, vz_a, gx, gy, gz, g_sqr, g, energy, nu, p_coll;
@@ -744,7 +749,8 @@ void do_one_cycle (void){
         Time += DT_E;               // update of the total simulated time
         t_index = t / N_BIN;        // index for XT distributions        
 
-        step1_compute_densities(t);
+        step1_compute_electron_density();
+        step1_compute_ion_density(t);
         step2_solve_poisson(Time);
 
         step3_move_electrons(t_index);
