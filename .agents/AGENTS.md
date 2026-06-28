@@ -6,14 +6,14 @@ This workspace is dedicated to the Go and Python reimplementations of the **eduP
 
 ### 1. Consult the Custom Skill
 * For any task involving PIC simulation mechanics, algorithms, physical constants, or boundary conditions, you **MUST** consult and follow the instructions in the custom workspace skill:
-  * [SKILL.md](file:///mnt/c/Documents%20and%20Settings/E14/Documents/GitHub/GoPIC/.agents/skills/edupic_assistant/SKILL.md) — main skill (physics, algorithm, implementation rules)
-  * [cpp_reference.md](file:///mnt/c/Documents%20and%20Settings/E14/Documents/GitHub/GoPIC/.agents/skills/edupic_assistant/references/cpp_reference.md) — full C++ code structure & function details
-  * [project_map.md](file:///mnt/c/Documents%20and%20Settings/E14/Documents/GitHub/GoPIC/.agents/skills/edupic_assistant/references/project_map.md) — repository layout & file paths
+  * [SKILL.md](file:///home/oliwier/Dev/GoPIC/.agents/skills/edupic_assistant/SKILL.md) — main skill (physics, algorithm, implementation rules)
+  * [cpp_reference.md](file:///home/oliwier/Dev/GoPIC/.agents/skills/edupic_assistant/references/cpp_reference.md) — full C++ code structure & function details
+  * [project_map.md](file:///home/oliwier/Dev/GoPIC/.agents/skills/edupic_assistant/references/project_map.md) — repository layout & file paths
 
 ### 2. Ground Truth Reference
 * The **original, unmodified** C++ source is the ground truth:
-  * [eduPIC/C/eduPIC.cc](file:///mnt/c/Documents%20and%20Settings/E14/Documents/GitHub/GoPIC/eduPIC/C/eduPIC.cc) — original reference (do NOT modify)
-  * [C/eduPIC.cc](file:///mnt/c/Documents%20and%20Settings/E14/Documents/GitHub/GoPIC/C/eduPIC.cc) — working copy (may be refactored)
+  * [eduPIC/C/eduPIC.cc](file:///home/oliwier/Dev/GoPIC/eduPIC/C/eduPIC.cc) — original reference (do NOT modify)
+  * [C/eduPIC.cc](file:///home/oliwier/Dev/GoPIC/C/eduPIC.cc) — working copy (may be refactored)
 
 ### 3. Code Translation & Reference Checks
 * When refactoring, translating, or writing code:
@@ -38,4 +38,4 @@ This workspace is dedicated to the Go and Python reimplementations of the **eduP
   * Always use `np.add.at()` for density scatter-add — never `array[p] += value` with array indices.
   * Operate on active particle slices: `sim.x_e[:sim.N_e]`.
   * Use `scipy.linalg.solve_banded` with pre-built `sim._thomas_ab`.
-  * See [AGENT_IMPLEMENTATION_SPEC.md](file:///mnt/c/Documents%20and%20Settings/E14/Documents/GitHub/GoPIC/python/numpy_version/AGENT_IMPLEMENTATION_SPEC.md) for complete code templates.
+  * See [AGENT_IMPLEMENTATION_SPEC.md](file:///home/oliwier/Dev/GoPIC/python/numpy_version/AGENT_IMPLEMENTATION_SPEC.md) for complete code templates.

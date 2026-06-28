@@ -1,7 +1,7 @@
 # eduPIC — Project Structure & Reimplementation Map
 
 Source project: GoPIC  
-Repository: `/mnt/c/Documents and Settings/E14/Documents/GitHub/GoPIC`
+Repository: `/home/oliwier/Dev/GoPIC`
 
 ---
 
@@ -120,11 +120,11 @@ Single-file implementation. Mirrors C++ structure with:
 
 | File | Absolute Path |
 |:-----|:-------------|
-| Original C++ | `/mnt/c/Documents and Settings/E14/Documents/GitHub/GoPIC/eduPIC/C/eduPIC.cc` |
-| Working C++ | `/mnt/c/Documents and Settings/E14/Documents/GitHub/GoPIC/C/eduPIC.cc` |
-| Python native simulation | `/mnt/c/Documents and Settings/E14/Documents/GitHub/GoPIC/python/native_version/simulation.py` |
-| Python native state | `/mnt/c/Documents and Settings/E14/Documents/GitHub/GoPIC/python/native_version/state.py` |
-| Python numpy spec | `/mnt/c/Documents and Settings/E14/Documents/GitHub/GoPIC/python/numpy_version/AGENT_IMPLEMENTATION_SPEC.md` |
-| Go main | `/mnt/c/Documents and Settings/E14/Documents/GitHub/GoPIC/Go/main.go` |
-| Article PDF | `/mnt/c/Documents and Settings/E14/Documents/GitHub/GoPIC/eduPIC/edupic-article.pdf` |
-| Manual PDF | `/mnt/c/Documents and Settings/E14/Documents/GitHub/GoPIC/eduPIC/C/eduPIC_manual.pdf` |
+| Original C++ | `/home/oliwier/Dev/GoPIC/eduPIC/C/eduPIC.cc` |
+| Working C++ | `/home/oliwier/Dev/GoPIC/C/eduPIC.cc` |
+| Python native simulation | `/home/oliwier/Dev/GoPIC/python/native_version/simulation.py` |
+| Python native state | `/home/oliwier/Dev/GoPIC/python/native_version/state.py` |
+| Python numpy spec | `/home/oliwier/Dev/GoPIC/python/numpy_version/AGENT_IMPLEMENTATION_SPEC.md` |
+| Go main | `/home/oliwier/Dev/GoPIC/Go/main.go` |
+| Article PDF | `/home/oliwier/Dev/GoPIC/eduPIC/edupic-article.pdf` |
+| Manual PDF | `/home/oliwier/Dev/GoPIC/eduPIC/C/eduPIC_manual.pdf` |
