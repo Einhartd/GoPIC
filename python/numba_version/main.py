@@ -13,12 +13,12 @@ def init(sim: SimulationState, nseed: int):
     Inicjalizacja symulacji poprzez umieszczenie danej ilosci
     elektronow i jonow w losowych pozycjach miedzy elektrodami
     """
-    sim.x_e[:nseed] = cs.L * sim.rng.random(nseed)
+    sim.x_e[:nseed]  = np.random.uniform(0.0, cs.L, nseed)
     sim.vx_e[:nseed] = 0.0
     sim.vy_e[:nseed] = 0.0
     sim.vz_e[:nseed] = 0.0
 
-    sim.x_i[:nseed] = cs.L * sim.rng.random(nseed)
+    sim.x_i[:nseed]  = np.random.uniform(0.0, cs.L, nseed)
     sim.vx_i[:nseed] = 0.0
     sim.vy_i[:nseed] = 0.0
     sim.vz_i[:nseed] = 0.0

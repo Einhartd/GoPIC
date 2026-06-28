@@ -1,0 +1,11 @@
+[project]
+name = "numba-version"
+version = "0.1.0"
+description = "Numba JIT optimized eduPIC simulation"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "numpy>=1.22",
+    "numba>=0.59",
+    "scipy>=1.18.0",
+]
