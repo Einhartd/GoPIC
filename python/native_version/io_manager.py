@@ -274,7 +274,7 @@ def check_and_save_info(sim: SimulationState):
             f.write("** STABILITY AND ACCURACY CONDITION(S) VIOLATED - REFINE SIMULATION SETTINGS! **\n")                                                                                
             f.write("--------------------------------------------------------------------------------\n")                                                                                
             print(">> PyPIC: ERROR: STABILITY AND ACCURACY CONDITION(S) VIOLATED!")                                                                                                     
-            print(">> PyPIC: for details see 'info.txt' and refine simulation settings!")                                                                                               
+            print(">> PyPIC: for details see 'results/info.txt' and refine simulation settings!")                                                                                               
         else:                                                                                                                                                                            
             # Obliczenie Courant-Friedrichs-Lewy (CFL)                                                                                                                                   
             v_max = cs.DX / cs.DT_E                                                                                                                                                      
