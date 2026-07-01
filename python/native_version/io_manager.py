@@ -10,7 +10,7 @@ def save_particle_data(sim: SimulationState):
     """
     Zapisuje stan symulacji do pliku binarnego.
     """
-    with open(os.path.join("results", "picdata.bin"), "wb") as f:
+    with open("picdata.bin", "wb") as f:
         #   Zapis zmiennych pojedynczych
         """
         struct.pack() pakuje zmienne z formatu Pythona do C
@@ -45,11 +45,11 @@ def load_particle_data(sim: SimulationState):
     """
     Wczytuje stan z pliku binarnego.
     """
-    if not os.path.exists(os.path.join("results", "picdata.bin")):
+    if not os.path.exists("picdata.bin"):
         print(f">> PyPIC: ERROR: No particle data file found, try running initial cycle using argument '0'")
         exit(0)
     
-    with open(os.path.join("results", "picdata.bin"), "rb") as f:
+    with open("picdata.bin", "rb") as f:
         #   Wczytywanie 8 bajtów (rozmiar 'double' w C)
         sim.Time = struct.unpack("d", f.read(8))[0]
         sim.cycles_done = int(struct.unpack("d", f.read(8))[0])
@@ -83,7 +83,7 @@ def save_density(sim: SimulationState):
     
     c = 1.0 / float(sim.no_of_cycles) / float(cs.N_T)
 
-    with open(os.path.join("results", "density.dat"), "w") as f:
+    with open("density.dat", "w") as f:
         for m in range(cs.N_G):
             x_pos = m * cs.DX
             e_den = sim.cumul_e_density[m] * c
@@ -102,7 +102,7 @@ def save_eepf(sim: SimulationState):
 
     h *= cs.DE_EEPF
 
-    with open(os.path.join("results", "eepf.dat"), "w") as f:
+    with open("eepf.dat", "w") as f:
         for i in range(cs.N_EEPF):
             energy = (i + 0.5) * cs.DE_EEPF
             
@@ -123,7 +123,7 @@ def save_ifed(sim: SimulationState):
     h_gnd *= cs.DE_IFED
     sim.mean_i_energy_pow = 0.0
     sim.mean_i_energy_gnd = 0.0
-    with open(os.path.join("results", "ifed.dat"), "w") as f:
+    with open("ifed.dat", "w") as f:
         for i in range(cs.N_IFED):
             energy = (i + 0.5) * cs.DE_IFED
             f.write(f"{energy:6.2f} {float(sim.ifed_pow[i]/h_pow):10.6f} {float(sim.ifed_gnd[i])/h_gnd}\n")
@@ -136,7 +136,7 @@ def save_xt_1(distr: list[list[float]], fname: str):
     Zapisuje dwuwymiarowy rozkład czasowo-przestrzenny (XT) do pliku tekstowego.
     Przyjmuje tablicę 2D oraz docelową nazwę pliku.
     """
-    with open(os.path.join("results", fname), "w") as f:
+    with open(fname, "w") as f:
         for i in range(cs.N_G):
             for j in range(cs.N_XT):
                 f.write(f"{distr[i][j]:e}  ")
@@ -222,7 +222,7 @@ def check_and_save_info(sim: SimulationState):
                                                                                                                                                                                             
     debye_length = math.sqrt(cs.EPSILON0 * kT / density) / cs.E_CHARGE if density > 0 else 0.0                                                                                           
                                                                                                                                                                                             
-    with open(os.path.join("results", "info.txt"), "w") as f:                                                                                                                                                     
+    with open("info.txt", "w") as f:                                                                                                                                                     
         f.write("########################## PyPIC simulation report ############################\n")                                                                                    
         f.write("Simulation parameters:\n")                                                                                                                                              
         f.write(f"Gap distance                          = {cs.L:12.3e} [m]\n")                                                                                                           

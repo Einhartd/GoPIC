@@ -68,7 +68,7 @@ def main():
 
     if arg1 == 0:
         # Zabezpieczenie przed przypadkowym nadpisaniem
-        if os.path.exists(os.path.join("results", "picdata.bin")):
+        if os.path.exists("picdata.bin"):
             print(">> PyPIC: Warning: Data from previous calculation are detected.")
             print("           To start a new simulation from the beginning, please delete all output files before running python main.py 0")
             sys.exit(0)
@@ -78,7 +78,7 @@ def main():
         init(sim, cs.N_INIT)
         print(">> PyPIC: running initializing cycle")
         sim.Time = 0.0
-        simulation.do_one_cycle(sim, os.path.join("results", "conv.dat"))
+        simulation.do_one_cycle(sim, "conv.dat")
         sim.cycles_done = 1
     else:
         sim.no_of_cycles = arg1
@@ -91,7 +91,7 @@ def main():
         end_cycle = sim.cycles_done + sim.no_of_cycles
         for cycle in range(start_cycle, end_cycle + 1):
             sim.cycle = cycle
-            simulation.do_one_cycle(sim, os.path.join("results", "conv.dat"))
+            simulation.do_one_cycle(sim, "conv.dat")
 
         sim.cycles_done += sim.no_of_cycles
 
