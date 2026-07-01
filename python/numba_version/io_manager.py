@@ -251,7 +251,7 @@ def check_and_save_info(sim: SimulationState):
             f.write("** STABILITY AND ACCURACY CONDITION(S) VIOLATED - REFINE SIMULATION SETTINGS! **\n")                                                                                
             f.write("--------------------------------------------------------------------------------\n")                                                                                
             print(">> PyPIC: ERROR: STABILITY AND ACCURACY CONDITION(S) VIOLATED!")                                                                                                     
-            print(">> PyPIC: for details see 'results/info.txt' and refine simulation settings!")                                                                                               
+            print(">> PyPIC: for details see 'info.txt' and refine simulation settings!")                                                                                               
         else:                                                                                                                                                                            
             v_max = cs.DX / cs.DT_E                                                                                                                                                      
             e_max = 0.5 * cs.E_MASS * v_max * v_max / cs.EV_TO_J                                                                                                                         

@@ -34,7 +34,6 @@ def main():
     [2]: "m" - uruchomienie trybu diagnostycznego
     """
     print(">> PyPIC: starting...")
-    os.makedirs("results", exist_ok=True)
 
     if len(sys.argv) < 2:
         print(">> PyPIC: Error = need starting_cycle argument")
