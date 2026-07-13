@@ -23,21 +23,21 @@ def step1_compute_electron_density(sim: SimulationState):
 
 
 def step1_compute_ion_density(sim: SimulationState, t: int):
-    if t % cs.N_SUB != 0:
-        return
+    
+    if t % cs.N_SUB == 0:
     
     #   --- STEP 1B: COMPUTE ION DENSITY AT GRID POINTS (SUBCYCLING) ---
-    for p in range(cs.N_G):
-        sim.i_density[p] = 0.0
+        for p in range(cs.N_G):
+            sim.i_density[p] = 0.0
 
-    for k in range(sim.N_i):
-        c0: float = sim.x_i[k] * cs.INV_DX
-        p: int = int(c0)
-        sim.i_density[p] += (p + 1.0 - c0) * cs.FACTOR_W
-        sim.i_density[p+1] += (c0 - p) * cs.FACTOR_W
-    
-    sim.i_density[0] *= 2.0
-    sim.i_density[cs.N_G-1] *= 2.0
+        for k in range(sim.N_i):
+            c0: float = sim.x_i[k] * cs.INV_DX
+            p: int = int(c0)
+            sim.i_density[p] += (p + 1.0 - c0) * cs.FACTOR_W
+            sim.i_density[p+1] += (c0 - p) * cs.FACTOR_W
+        
+        sim.i_density[0] *= 2.0
+        sim.i_density[cs.N_G-1] *= 2.0
 
     for p in range(cs.N_G):
         sim.cumul_i_density[p] += sim.i_density[p]

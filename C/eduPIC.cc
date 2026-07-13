@@ -484,16 +484,20 @@ void solve_Poisson (xvector rho1, double tt){
     pot[N_G-1] = 0.0;                               // potential at the grounded electrode
     
     // solve Poisson equation
-    
+    //  Przygotowanie prawej strony ukladu rownan
     for(i=1; i<=N_G-2; i++) f[i] = ALPHA * rho1[i];
     f[1] -= pot[0];
     f[N_G-2] -= pot[N_G-1];
+
+    //  Faza 1 - eliminacja w przod
     w[1] = C/B;
     g[1] = f[1]/B;
     for(i=2; i<=N_G-2; i++){
         w[i] = C / (B - A * w[i-1]);
         g[i] = (f[i] - A * g[i-1]) / (B - A * w[i-1]);
     }
+
+    //  Faza 2 - podstawienie wsteczne
     pot[N_G-2] = g[N_G-2];
     for (i=N_G-3; i>0; i--) pot[i] = g[i] - w[i] * pot[i+1];            // potential at the grid points between the electrodes
     
@@ -513,34 +517,38 @@ void step1_compute_electron_density(void){
     double c0;
 
     // step 1a: compute electron density at grid points - computed in every time step
+    //  Zerowanie tablicy gestosci
     for(p=0; p<N_G; p++) e_density[p] = 0;
+
+    //  Depozycja: kazdy elektron dodaje ladunek do dwoch sasiednich wezlow
     for(k=0; k<N_e; k++){
         c0 = x_e[k] * INV_DX;
         p  = int(c0);
         e_density[p]   += (p + 1 - c0) * FACTOR_W;
         e_density[p+1] += (c0 - p) * FACTOR_W;
     }
+    //  Korekcja brzegowa
     e_density[0]     *= 2.0;
     e_density[N_G-1] *= 2.0;
+    //  Akumulacja dla usredniania
     for(p=0; p<N_G; p++) cumul_e_density[p] += e_density[p];
 }
 
-void step1_compute_ion_density(int t){
-    if ((t % N_SUB) != 0) return;
-    
+void step1_compute_ion_density(int t){    
     int k, p;
     double c0;
 
-    // step 1b: compute ion density at grid points - computed in every N_SUB-th time step (subcycling)
-    for(p=0; p<N_G; p++) i_density[p] = 0;
-    for(k=0; k<N_i; k++){
-        c0 = x_i[k] * INV_DX;
-        p  = int(c0);
-        i_density[p]   += (p + 1 - c0) * FACTOR_W;  
-        i_density[p+1] += (c0 - p) * FACTOR_W;
+    if ((t % N_SUB) == 0) {                                            // ion density - computed in every N_SUB-th time steps (subcycling)
+        for(p=0; p<N_G; p++) i_density[p] = 0;
+        for(k=0; k<N_i; k++){
+            c0 = x_i[k] * INV_DX;
+            p  = int(c0);
+            i_density[p]   += (p + 1 - c0) * FACTOR_W;  
+            i_density[p+1] += (c0 - p) * FACTOR_W;
+        }
+        i_density[0]     *= 2.0;
+        i_density[N_G-1] *= 2.0;
     }
-    i_density[0]     *= 2.0;
-    i_density[N_G-1] *= 2.0;
     for(p=0; p<N_G; p++) cumul_i_density[p] += i_density[p];
 }
 
@@ -558,12 +566,15 @@ void step3_move_electrons(int t_index){
     double c0, c1, c2, e_x, mean_v, v_sqr, energy, velocity, rate;
 
     for(k=0; k<N_e; k++){                       // move all electrons in every time step
+
+        //  Interpolacja pola E na pozycje elektronu
         c0  = x_e[k] * INV_DX;
         p   = int(c0);
         c1  = p + 1.0 - c0;
         c2  = c0 - p;
         e_x = c1 * efield[p] + c2 * efield[p+1];
     
+        //  Diagnostyki
         if (measurement_mode) {
             
             // measurements: 'x' and 'v' are needed at the same time, i.e. old 'x' and mean 'v'
@@ -590,6 +601,7 @@ void step3_move_electrons(int t_index){
                 mean_energy_counter_center++;
             }
         }
+        
         // update velocity and position
         vx_e[k] -= e_x * FACTOR_E;
         x_e[k]  += vx_e[k] * DT_E;
@@ -636,6 +648,7 @@ void step5_check_boundaries_electrons(){
         if (x_e[k] < 0) {N_e_abs_pow++; out = true;}    // the electron is out at the powered electrode
         if (x_e[k] > L) {N_e_abs_gnd++; out = true;}    // the electron is out at the grounded electrode
         if (out) {                                      // remove the electron, if out
+            //  Algorytm 'swap z ostatnim'
             x_e [k] = x_e [N_e-1];
             vx_e[k] = vx_e[N_e-1];
             vy_e[k] = vy_e[N_e-1];

@@ -1223,6 +1223,7 @@ func main() {
 
 	st0 = os.Args[1]
 	arg1 = atoi(st0)
+
 	if len(os.Args) > 2 {
 		if strings.TrimSpace(os.Args[2]) == "m" {
 			measurement_mode = true // measurements will be done
@@ -1235,10 +1236,12 @@ func main() {
 	} else {
 		fmt.Println(">> GoPIC: measurement mode: off")
 	}
+
 	setElectronCrossSectionsAr()
 	setIonCrossSectionsAr()
 	calcTotalCrossSections()
 	//testCrossSections(); return
+
 	datafile = openAppend("conv.dat")
 	defer datafile.Close()
 

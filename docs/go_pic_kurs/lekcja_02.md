@@ -138,20 +138,108 @@ var (
 > w czasie kompilacji. `ELECTRODE_AREA * DX` zawiera `DX`, które samo jest `const`,
 > więc mogłoby być `const`. Autor wybrał `var` — to działa tak samo.
 
-### FACTOR_E i FACTOR_I — kluczowe czynniki
+### FACTOR_E i FACTOR_I — pełny wywód: od fizyki do linii kodu
 
-Te dwa czynniki to "jak mocno pole elektryczne przyspiesza cząstkę w jednym kroku":
+Zamiast przyjmować `FACTOR_E` na wiarę, wyprowadźmy go krok po kroku z praw Newtona.
+
+#### Krok 1: Siła na ładunek w polu elektrycznym
+
+Elektron ma ładunek `q = -e` (ujemny!). W polu elektrycznym `E` działa na niego siła:
 
 ```
-FACTOR_E = DT_E / m_e × e  →  [s] / [kg] × [C] = [C·s/kg] = [(m/s) / (V/m)]
+F = q × E = -e × E
 ```
 
-W pętli ruchu elektronów:
+Przykład: jeśli `E = 1000 V/m`, siła na elektron wynosi:
+```
+F = -1.6×10⁻¹⁹ C × 1000 V/m = -1.6×10⁻¹⁶ N
+```
+(Minus oznacza: siła skierowana przeciwnie do pola E.)
+
+#### Krok 2: Drugie prawo Newtona — przyspieszenie
+
+```
+F = m × a   →   a = F / m = (-e × E) / m_e
+```
+
+Podstawiając wartości:
+```
+a = -1.6×10⁻¹⁶ N / 9.1×10⁻³¹ kg ≈ -1.76×10¹⁴ m/s²
+```
+
+(To monstrualne przyspieszenie — elektrony są ekstremalnie lekkie!)
+
+#### Krok 3: Zmiana prędkości w kroku czasowym DT_E
+
+W każdym kroku symulacji czas przesuwa się o `DT_E ≈ 18.4 ps`. Zmiana prędkości:
+
+```
+Δv = a × DT_E = (-e/m_e) × E × DT_E
+```
+
+Przestawiając czynniki:
+
+```
+Δv = -E × (e × DT_E / m_e) = -E × FACTOR_E
+```
+
+gdzie:
+
+```
+FACTOR_E = e × DT_E / m_e = DT_E / m_e × e
+```
+
+#### Krok 4: To dokładnie definicja z kodu
+
 ```go
-vx_e[k] -= e_x * FACTOR_E   // v_nowe = v_stare - E × (e·DT_E/m_e)
+FACTOR_E float64 = DT_E / E_MASS * E_CHARGE
+//                  ≈ 18.4e-12 / 9.1e-31 × 1.6e-19
+//                  ≈ 3.24×10⁶  [(m/s) per (V/m)]
 ```
 
-Znak **minus** dla elektronów (ładunek ujemny), **plus** dla jonów. To fundamentalne!
+I użycie w pętli ruchu (krok 3):
+```go
+vx_e[k] -= e_x * FACTOR_E
+//  Δvx = -E_x × FACTOR_E = -E_x × (e × DT_E / m_e)
+```
+
+Co dosłownie odpowiada: `Δv = a × Δt = (-e/m_e) × E × DT_E`. ✓
+
+#### Dlaczego minus (`-=`) a nie plus?
+
+Elektron ma **ładunek ujemny** (`q = -e`). Siła na elektron jest **przeciwna** do pola E.
+Jeśli pole E wskazuje w prawo (`e_x > 0`), elektron przyspiesza w **lewo** (`vx_e maleje`).
+Stąd `vx_e[k] -= e_x * FACTOR_E`.
+
+Gdybyś przez pomyłkę napisał `+=`, elektrony leciałyby w złym kierunku — plazma nie mogłaby istnieć.
+
+#### A co z jonem?
+
+Jon Ar⁺ ma ładunek **dodatni** (`q = +e`), więc:
+
+```
+Δv = +E × (e × DT_I / m_Ar) = +E × FACTOR_I
+```
+
+```go
+FACTOR_I float64 = DT_I / AR_MASS * E_CHARGE   // DT_I bo jony mają inny krok czasowy!
+
+vx_i[k] += e_x * FACTOR_I   // ← PLUS
+```
+
+Zwróć uwagę: `FACTOR_I` używa `DT_I = 20 × DT_E`, bo jony są aktualizowane co 20 kroków elektronowych.
+
+#### Tabela porównawcza
+
+| Wielkość | Elektron | Jon Ar⁺ |
+|:---------|:---------|:--------|
+| Ładunek | `-e = -1.6×10⁻¹⁹ C` | `+e = +1.6×10⁻¹⁹ C` |
+| Masa | `m_e = 9.1×10⁻³¹ kg` | `m_Ar = 6.6×10⁻²⁶ kg` |
+| Krok czasowy | `DT_E ≈ 18.4 ps` | `DT_I = 20 × DT_E ≈ 368 ps` |
+| FACTOR | `DT_E × e / m_e ≈ 3.24×10⁶` | `DT_I × e / m_Ar ≈ 887` |
+| Znak w kodzie | `vx -= E × FACTOR_E` | `vx += E × FACTOR_I` |
+
+`FACTOR_E` jest ~3650× większy niż `FACTOR_I` — elektrony są o wiele łatwiej przyspieszane (bo są lżejsze i mają większy krok czasowy w stosunku do jonu).
 
 ---
 

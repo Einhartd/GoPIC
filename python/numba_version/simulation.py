@@ -154,7 +154,7 @@ def step4_move_ions(x_i, vx_i, vy_i, vz_i, N_i, efield,
 
 @numba.njit(cache=True)
 def step5_check_boundaries_electrons(x_e, vx_e, vy_e, vz_e, N_e, L):
-    """Sequential swap-with-last — cannot use prange (mutates N_e)."""
+
     N_e_abs_pow = 0
     N_e_abs_gnd = 0
     k = 0
