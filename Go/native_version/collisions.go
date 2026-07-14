@@ -1,4 +1,4 @@
-package main
+package gopic
 
 import (
 	"math"
@@ -8,7 +8,7 @@ import (
 // e / Ar collision  (cold gas approximation)                           //
 //----------------------------------------------------------------------//
 
-func collisionElectron(xe float64, vxe, vye, vze *float64, eindex int) {
+func (sim *SimulationState) CollisionElectron(xe float64, vxe, vye, vze *float64, eindex int) {
 	const F1 float64 = E_MASS / (E_MASS + AR_MASS)
 	const F2 float64 = AR_MASS / (E_MASS + AR_MASS)
 	var t0, t1, t2, rnd float64
@@ -51,30 +51,30 @@ func collisionElectron(xe float64, vxe, vye, vze *float64, eindex int) {
 	// generate scattering and azimuth angles
 	// in case of ionization handle the 'new' electron
 
-	t0 = sigma[E_ELA][eindex]
-	t1 = t0 + sigma[E_EXC][eindex]
-	t2 = t1 + sigma[E_ION][eindex]
-	rnd = R01()
+	t0 = sim.Sigma[E_ELA][eindex]
+	t1 = t0 + sim.Sigma[E_EXC][eindex]
+	t2 = t1 + sim.Sigma[E_ION][eindex]
+	rnd = sim.R01()
 	if rnd < (t0 / t2) { // elastic scattering
-		chi = math.Acos(1.0 - 2.0*R01()) // isotropic scattering
-		eta = TWO_PI * R01()             // azimuthal angle
+		chi = math.Acos(1.0 - 2.0*sim.R01()) // isotropic scattering
+		eta = TWO_PI * sim.R01()             // azimuthal angle
 	} else if rnd < (t1 / t2) { // excitation
 		energy = 0.5 * E_MASS * g * g
 		energy = math.Abs(energy - E_EXC_TH*EV_TO_J) // subtract energy loss for excitation
 		g = math.Sqrt(2.0 * energy / E_MASS)         // relative velocity after energy loss
-		chi = math.Acos(1.0 - 2.0*R01())             // isotropic scattering
-		eta = TWO_PI * R01()                         // azimuthal angle
+		chi = math.Acos(1.0 - 2.0*sim.R01())         // isotropic scattering
+		eta = TWO_PI * sim.R01()                     // azimuthal angle
 	} else { // ionization
 		energy = 0.5 * E_MASS * g * g
-		energy = math.Abs(energy - E_ION_TH*EV_TO_J)                           // subtract energy loss of ionization
-		e_ej = 10.0 * math.Tan(R01()*math.Atan(energy/EV_TO_J/20.0)) * EV_TO_J // energy of the ejected electron
-		e_sc = math.Abs(energy - e_ej)                                         // energy of scattered electron after the collision
-		g = math.Sqrt(2.0 * e_sc / E_MASS)                                     // relative velocity of scattered electron
-		g2 = math.Sqrt(2.0 * e_ej / E_MASS)                                    // relative velocity of ejected electron
-		chi = math.Acos(math.Sqrt(e_sc / energy))                              // scattering angle for scattered electron
-		chi2 = math.Acos(math.Sqrt(e_ej / energy))                             // scattering angle for ejected electrons
-		eta = TWO_PI * R01()                                                   // azimuthal angle for scattered electron
-		eta2 = eta + PI                                                        // azimuthal angle for ejected electron
+		energy = math.Abs(energy - E_ION_TH*EV_TO_J)                               // subtract energy loss of ionization
+		e_ej = 10.0 * math.Tan(sim.R01()*math.Atan(energy/EV_TO_J/20.0)) * EV_TO_J // energy of the ejected electron
+		e_sc = math.Abs(energy - e_ej)                                             // energy of scattered electron after the collision
+		g = math.Sqrt(2.0 * e_sc / E_MASS)                                         // relative velocity of scattered electron
+		g2 = math.Sqrt(2.0 * e_ej / E_MASS)                                        // relative velocity of ejected electron
+		chi = math.Acos(math.Sqrt(e_sc / energy))                                  // scattering angle for scattered electron
+		chi2 = math.Acos(math.Sqrt(e_ej / energy))                                 // scattering angle for ejected electrons
+		eta = TWO_PI * sim.R01()                                                   // azimuthal angle for scattered electron
+		eta2 = eta + PI                                                            // azimuthal angle for ejected electron
 		sc = math.Sin(chi2)
 		cc = math.Cos(chi2)
 		se = math.Sin(eta2)
@@ -82,16 +82,16 @@ func collisionElectron(xe float64, vxe, vye, vze *float64, eindex int) {
 		gx = g2 * (ct*cc - st*sc*ce)
 		gy = g2 * (st*cp*cc + ct*cp*sc*ce - sp*sc*se)
 		gz = g2 * (st*sp*cc + ct*sp*sc*ce + cp*sc*se)
-		x_e[N_e] = xe // add new electron
-		vx_e[N_e] = wx + F2*gx
-		vy_e[N_e] = wy + F2*gy
-		vz_e[N_e] = wz + F2*gz
-		N_e++
-		x_i[N_i] = xe     // add new ion
-		vx_i[N_i] = RMB() // velocity is sampled from background thermal distribution
-		vy_i[N_i] = RMB()
-		vz_i[N_i] = RMB()
-		N_i++
+		sim.X_e[sim.N_e] = xe // add new electron
+		sim.Vx_e[sim.N_e] = wx + F2*gx
+		sim.Vy_e[sim.N_e] = wy + F2*gy
+		sim.Vz_e[sim.N_e] = wz + F2*gz
+		sim.N_e++
+		sim.X_i[sim.N_i] = xe         // add new ion
+		sim.Vx_i[sim.N_i] = sim.RMB() // velocity is sampled from background thermal distribution
+		sim.Vy_i[sim.N_i] = sim.RMB()
+		sim.Vz_i[sim.N_i] = sim.RMB()
+		sim.N_i++
 	}
 
 	// scatter the primary electron
@@ -118,7 +118,7 @@ func collisionElectron(xe float64, vxe, vye, vze *float64, eindex int) {
 // Ar+ / Ar collision                                                   //
 //----------------------------------------------------------------------//
 
-func collisionIon(vx_1, vy_1, vz_1, vx_2, vy_2, vz_2 *float64, e_index int) {
+func (sim *SimulationState) CollisionIon(vx_1, vy_1, vz_1, vx_2, vy_2, vz_2 *float64, e_index int) {
 	var g, gx, gy, gz, wx, wy, wz, rnd float64
 	var theta, phi, chi, eta, st, ct, sp, cp, sc, cc, se, ce, t1, t2 float64
 
@@ -152,15 +152,15 @@ func collisionIon(vx_1, vy_1, vz_1, vx_2, vy_2, vz_2 *float64, e_index int) {
 
 	// determine the type of collision based on cross sections and generate scattering angle
 
-	t1 = sigma[I_ISO][e_index]
-	t2 = t1 + sigma[I_BACK][e_index]
-	rnd = R01()
+	t1 = sim.Sigma[I_ISO][e_index]
+	t2 = t1 + sim.Sigma[I_BACK][e_index]
+	rnd = sim.R01()
 	if rnd < (t1 / t2) { // isotropic scattering
-		chi = math.Acos(1.0 - 2.0*R01()) // scattering angle
+		chi = math.Acos(1.0 - 2.0*sim.R01()) // scattering angle
 	} else { // backward scattering
 		chi = PI // scattering angle
 	}
-	eta = TWO_PI * R01() // azimuthal angle
+	eta = TWO_PI * sim.R01() // azimuthal angle
 	sc = math.Sin(chi)
 	cc = math.Cos(chi)
 	se = math.Sin(eta)

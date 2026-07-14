@@ -1,4 +1,4 @@
-module edupic
+module gopic
 
 go 1.25.9
 

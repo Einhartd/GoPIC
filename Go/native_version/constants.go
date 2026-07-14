@@ -1,4 +1,4 @@
-package main
+package gopic
 
 // constants
 
@@ -68,9 +68,9 @@ const (
 
 // type definitions
 
-type cross_section [CS_RANGES]float64 // cross section array
-type particle_vector [MAX_N_P]float64 // array for particle properties
-type xvector [N_G]float64             // array for quantities defined at gird points
-type eepf_vector [N_EEPF]float64      // array for EEPF
-type ifed_vector [N_IFED]int          // array for IFEDs
-type xt_distr [N_G][N_XT]float64      // array for XT distributions (decimal numbers)
+type CrossSection [CS_RANGES]float64 // cross section array
+type ParticleVector [MAX_N_P]float64 // array for particle properties
+type Xvector [N_G]float64            // array for quantities defined at gird points
+type EepfVector [N_EEPF]float64      // array for EEPF
+type IfedVector [N_IFED]int          // array for IFEDs
+type XtDistr [N_G][N_XT]float64      // array for XT distributions (decimal numbers)

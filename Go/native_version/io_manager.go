@@ -1,4 +1,4 @@
-package main
+package gopic
 
 import (
 	"bufio"
@@ -12,7 +12,7 @@ import (
 // save particle coordinates                                           //
 //---------------------------------------------------------------------//
 
-func saveParticleData() {
+func (sim *SimulationState) SaveParticleData() {
 	f, err := os.Create("picdata.bin")
 	if err != nil {
 		panic(err)
@@ -22,65 +22,65 @@ func saveParticleData() {
 	buf := bufio.NewWriter(f)
 	defer buf.Flush()
 
-	writeFloat64(buf, Time)
-	writeFloat64(buf, float64(cycles_done))
-	writeFloat64(buf, float64(N_e))
-	writeFloat64Slice(buf, x_e[:N_e])
-	writeFloat64Slice(buf, vx_e[:N_e])
-	writeFloat64Slice(buf, vy_e[:N_e])
-	writeFloat64Slice(buf, vz_e[:N_e])
-	writeFloat64(buf, float64(N_i))
-	writeFloat64Slice(buf, x_i[:N_i])
-	writeFloat64Slice(buf, vx_i[:N_i])
-	writeFloat64Slice(buf, vy_i[:N_i])
-	writeFloat64Slice(buf, vz_i[:N_i])
+	writeFloat64(buf, sim.Time)
+	writeFloat64(buf, float64(sim.Cycles_done))
+	writeFloat64(buf, float64(sim.N_e))
+	writeFloat64Slice(buf, sim.X_e[:sim.N_e])
+	writeFloat64Slice(buf, sim.Vx_e[:sim.N_e])
+	writeFloat64Slice(buf, sim.Vy_e[:sim.N_e])
+	writeFloat64Slice(buf, sim.Vz_e[:sim.N_e])
+	writeFloat64(buf, float64(sim.N_i))
+	writeFloat64Slice(buf, sim.X_i[:sim.N_i])
+	writeFloat64Slice(buf, sim.Vx_i[:sim.N_i])
+	writeFloat64Slice(buf, sim.Vy_i[:sim.N_i])
+	writeFloat64Slice(buf, sim.Vz_i[:sim.N_i])
 
-	fmt.Printf(">> eduPIC: data saved : %d electrons %d ions, %d cycles completed, time is %e [s]\n", N_e, N_i, cycles_done, Time)
+	fmt.Printf(">> gopic: data saved : %d electrons %d ions, %d cycles completed, time is %e [s]\n", sim.N_e, sim.N_i, sim.Cycles_done, sim.Time)
 }
 
 //---------------------------------------------------------------------//
 // load particle coordinates                                           //
 //---------------------------------------------------------------------//
 
-func loadParticleData() {
+func (sim *SimulationState) LoadParticleData() {
 	f, err := os.Open("picdata.bin")
 	if err != nil {
-		fmt.Println(">> eduPIC: ERROR: No particle data file found, try running initial cycle using argument '0'")
+		fmt.Println(">> gopic: ERROR: No particle data file found, try running initial cycle using argument '0'")
 		os.Exit(0)
 	}
 	defer f.Close()
 
 	buf := bufio.NewReader(f)
-	Time = readFloat64(buf)
-	cycles_done = int(readFloat64(buf))
-	N_e = int(readFloat64(buf))
-	readFloat64Slice(buf, x_e[:N_e])
-	readFloat64Slice(buf, vx_e[:N_e])
-	readFloat64Slice(buf, vy_e[:N_e])
-	readFloat64Slice(buf, vz_e[:N_e])
-	N_i = int(readFloat64(buf))
-	readFloat64Slice(buf, x_i[:N_i])
-	readFloat64Slice(buf, vx_i[:N_i])
-	readFloat64Slice(buf, vy_i[:N_i])
-	readFloat64Slice(buf, vz_i[:N_i])
+	sim.Time = readFloat64(buf)
+	sim.Cycles_done = int(readFloat64(buf))
+	sim.N_e = int(readFloat64(buf))
+	readFloat64Slice(buf, sim.X_e[:sim.N_e])
+	readFloat64Slice(buf, sim.Vx_e[:sim.N_e])
+	readFloat64Slice(buf, sim.Vy_e[:sim.N_e])
+	readFloat64Slice(buf, sim.Vz_e[:sim.N_e])
+	sim.N_i = int(readFloat64(buf))
+	readFloat64Slice(buf, sim.X_i[:sim.N_i])
+	readFloat64Slice(buf, sim.Vx_i[:sim.N_i])
+	readFloat64Slice(buf, sim.Vy_i[:sim.N_i])
+	readFloat64Slice(buf, sim.Vz_i[:sim.N_i])
 
-	fmt.Printf(">> eduPIC: data loaded : %d electrons %d ions, %d cycles completed before, time is %e [s]\n", N_e, N_i, cycles_done, Time)
+	fmt.Printf(">> gopic: data loaded : %d electrons %d ions, %d cycles completed before, time is %e [s]\n", sim.N_e, sim.N_i, sim.Cycles_done, sim.Time)
 }
 
 //---------------------------------------------------------------------//
 // save density data                                                   //
 //---------------------------------------------------------------------//
 
-func saveDensity() {
+func (sim *SimulationState) SaveDensity() {
 	f, err := os.Create("density.dat")
 	if err != nil {
 		panic(err)
 	}
 	defer f.Close()
 
-	c := 1.0 / float64(no_of_cycles) / float64(N_T)
+	c := 1.0 / float64(sim.No_of_cycles) / float64(N_T)
 	for m := 0; m < N_G; m++ {
-		fmt.Fprintf(f, "%8.5f  %12e  %12e\n", float64(m)*DX, cumul_e_density[m]*c, cumul_i_density[m]*c)
+		fmt.Fprintf(f, "%8.5f  %12e  %12e\n", float64(m)*DX, sim.Cumul_e_density[m]*c, sim.Cumul_i_density[m]*c)
 	}
 }
 
@@ -88,10 +88,10 @@ func saveDensity() {
 // save EEPF data                                                      //
 //---------------------------------------------------------------------//
 
-func saveEEPF() {
+func (sim *SimulationState) SaveEEPF() {
 	h := 0.0
 	for i := 0; i < N_EEPF; i++ {
-		h += eepf[i]
+		h += sim.Eepf[i]
 	}
 	h *= DE_EEPF
 	f, err := os.Create("eepf.dat")
@@ -101,7 +101,7 @@ func saveEEPF() {
 	defer f.Close()
 	for i := 0; i < N_EEPF; i++ {
 		energy := (float64(i) + 0.5) * DE_EEPF
-		fmt.Fprintf(f, "%e  %e\n", energy, eepf[i]/h/math.Sqrt(energy))
+		fmt.Fprintf(f, "%e  %e\n", energy, sim.Eepf[i]/h/math.Sqrt(energy))
 	}
 }
 
@@ -109,17 +109,17 @@ func saveEEPF() {
 // save IFED data                                                      //
 //---------------------------------------------------------------------//
 
-func saveIFED() {
+func (sim *SimulationState) SaveIFED() {
 	h_pow := 0.0
 	h_gnd := 0.0
 	for i := 0; i < N_IFED; i++ {
-		h_pow += float64(ifed_pow[i])
-		h_gnd += float64(ifed_gnd[i])
+		h_pow += float64(sim.Ifed_pow[i])
+		h_gnd += float64(sim.Ifed_gnd[i])
 	}
 	h_pow *= DE_IFED
 	h_gnd *= DE_IFED
-	mean_i_energy_pow = 0.0
-	mean_i_energy_gnd = 0.0
+	sim.Mean_i_energy_pow = 0.0
+	sim.Mean_i_energy_gnd = 0.0
 	f, err := os.Create("ifed.dat")
 	if err != nil {
 		panic(err)
@@ -127,9 +127,9 @@ func saveIFED() {
 	defer f.Close()
 	for i := 0; i < N_IFED; i++ {
 		energy := (float64(i) + 0.5) * DE_IFED
-		fmt.Fprintf(f, "%6.2f %10.6f %10.6f\n", energy, float64(ifed_pow[i])/h_pow, float64(ifed_gnd[i])/h_gnd)
-		mean_i_energy_pow += energy * float64(ifed_pow[i]) / h_pow
-		mean_i_energy_gnd += energy * float64(ifed_gnd[i]) / h_gnd
+		fmt.Fprintf(f, "%6.2f %10.6f %10.6f\n", energy, float64(sim.Ifed_pow[i])/h_pow, float64(sim.Ifed_gnd[i])/h_gnd)
+		sim.Mean_i_energy_pow += energy * float64(sim.Ifed_pow[i]) / h_pow
+		sim.Mean_i_energy_gnd += energy * float64(sim.Ifed_gnd[i]) / h_gnd
 	}
 }
 
@@ -137,7 +137,7 @@ func saveIFED() {
 // save XT data                                                       //
 //--------------------------------------------------------------------//
 
-func saveXT1(distr xt_distr, fname string) {
+func (sim *SimulationState) SaveXT1(distr XtDistr, fname string) {
 	f, err := os.Create(fname)
 	if err != nil {
 		panic(err)
@@ -151,76 +151,76 @@ func saveXT1(distr xt_distr, fname string) {
 	}
 }
 
-func normAllXT() {
+func (sim *SimulationState) NormAllXT() {
 	var f1, f2 float64
 
 	// normalize all XT data
 
-	f1 = float64(N_XT) / float64(no_of_cycles*N_T)
-	f2 = WEIGHT / (ELECTRODE_AREA * DX) / (float64(no_of_cycles) * (PERIOD / float64(N_XT)))
+	f1 = float64(N_XT) / float64(sim.No_of_cycles*N_T)
+	f2 = WEIGHT / (ELECTRODE_AREA * DX) / (float64(sim.No_of_cycles) * (PERIOD / float64(N_XT)))
 
 	for i := 0; i < N_G; i++ {
 		for j := 0; j < N_XT; j++ {
-			pot_xt[i][j] *= f1
-			efield_xt[i][j] *= f1
-			ne_xt[i][j] *= f1
-			ni_xt[i][j] *= f1
-			if counter_e_xt[i][j] > 0 {
-				ue_xt[i][j] = ue_xt[i][j] / counter_e_xt[i][j]
-				je_xt[i][j] = -ue_xt[i][j] * ne_xt[i][j] * E_CHARGE
-				meanee_xt[i][j] = meanee_xt[i][j] / counter_e_xt[i][j]
-				ioniz_rate_xt[i][j] *= f2
+			sim.Pot_xt[i][j] *= f1
+			sim.Efield_xt[i][j] *= f1
+			sim.Ne_xt[i][j] *= f1
+			sim.Ni_xt[i][j] *= f1
+			if sim.Counter_e_xt[i][j] > 0 {
+				sim.Ue_xt[i][j] = sim.Ue_xt[i][j] / sim.Counter_e_xt[i][j]
+				sim.Je_xt[i][j] = -sim.Ue_xt[i][j] * sim.Ne_xt[i][j] * E_CHARGE
+				sim.Meanee_xt[i][j] = sim.Meanee_xt[i][j] / sim.Counter_e_xt[i][j]
+				sim.Ioniz_rate_xt[i][j] *= f2
 			} else {
-				ue_xt[i][j] = 0.0
-				je_xt[i][j] = 0.0
-				meanee_xt[i][j] = 0.0
-				ioniz_rate_xt[i][j] = 0.0
+				sim.Ue_xt[i][j] = 0.0
+				sim.Je_xt[i][j] = 0.0
+				sim.Meanee_xt[i][j] = 0.0
+				sim.Ioniz_rate_xt[i][j] = 0.0
 			}
-			if counter_i_xt[i][j] > 0 {
-				ui_xt[i][j] = ui_xt[i][j] / counter_i_xt[i][j]
-				ji_xt[i][j] = ui_xt[i][j] * ni_xt[i][j] * E_CHARGE
-				meanei_xt[i][j] = meanei_xt[i][j] / counter_i_xt[i][j]
+			if sim.Counter_i_xt[i][j] > 0 {
+				sim.Ui_xt[i][j] = sim.Ui_xt[i][j] / sim.Counter_i_xt[i][j]
+				sim.Ji_xt[i][j] = sim.Ui_xt[i][j] * sim.Ni_xt[i][j] * E_CHARGE
+				sim.Meanei_xt[i][j] = sim.Meanei_xt[i][j] / sim.Counter_i_xt[i][j]
 			} else {
-				ui_xt[i][j] = 0.0
-				ji_xt[i][j] = 0.0
-				meanei_xt[i][j] = 0.0
+				sim.Ui_xt[i][j] = 0.0
+				sim.Ji_xt[i][j] = 0.0
+				sim.Meanei_xt[i][j] = 0.0
 			}
-			powere_xt[i][j] = je_xt[i][j] * efield_xt[i][j]
-			poweri_xt[i][j] = ji_xt[i][j] * efield_xt[i][j]
+			sim.Powere_xt[i][j] = sim.Je_xt[i][j] * sim.Efield_xt[i][j]
+			sim.Poweri_xt[i][j] = sim.Ji_xt[i][j] * sim.Efield_xt[i][j]
 		}
 	}
 }
 
-func saveAllXT() {
-	saveXT1(pot_xt, "pot_xt.dat")
-	saveXT1(efield_xt, "efield_xt.dat")
-	saveXT1(ne_xt, "ne_xt.dat")
-	saveXT1(ni_xt, "ni_xt.dat")
-	saveXT1(je_xt, "je_xt.dat")
-	saveXT1(ji_xt, "ji_xt.dat")
-	saveXT1(powere_xt, "powere_xt.dat")
-	saveXT1(poweri_xt, "poweri_xt.dat")
-	saveXT1(meanee_xt, "meanee_xt.dat")
-	saveXT1(meanei_xt, "meanei_xt.dat")
-	saveXT1(ioniz_rate_xt, "ioniz_xt.dat")
+func (sim *SimulationState) SaveAllXT() {
+	sim.SaveXT1(sim.Pot_xt, "pot_xt.dat")
+	sim.SaveXT1(sim.Efield_xt, "efield_xt.dat")
+	sim.SaveXT1(sim.Ne_xt, "ne_xt.dat")
+	sim.SaveXT1(sim.Ni_xt, "ni_xt.dat")
+	sim.SaveXT1(sim.Je_xt, "je_xt.dat")
+	sim.SaveXT1(sim.Ji_xt, "ji_xt.dat")
+	sim.SaveXT1(sim.Powere_xt, "powere_xt.dat")
+	sim.SaveXT1(sim.Poweri_xt, "poweri_xt.dat")
+	sim.SaveXT1(sim.Meanee_xt, "meanee_xt.dat")
+	sim.SaveXT1(sim.Meanei_xt, "meanei_xt.dat")
+	sim.SaveXT1(sim.Ioniz_rate_xt, "ioniz_xt.dat")
 }
 
 //---------------------------------------------------------------------//
 // simulation report including stability and accuracy conditions       //
 //---------------------------------------------------------------------//
 
-func checkAndSaveInfo() {
+func (sim *SimulationState) CheckAndSaveInfo() {
 	var plas_freq, meane, kT, debye_length, density, ecoll_freq, icoll_freq, sim_time, e_max, v_max, power_e, power_i, c float64
 	var conditions_OK bool
 
-	density = cumul_e_density[N_G/2] / float64(no_of_cycles) / float64(N_T) // e density @ center
-	plas_freq = E_CHARGE * math.Sqrt(density/EPSILON0/E_MASS)               // e plasma frequency @ center
-	meane = mean_energy_accu_center / float64(mean_energy_counter_center)   // e mean energy @ center
-	kT = 2.0 * meane * EV_TO_J / 3.0                                        // k T_e @ center (approximate)
-	sim_time = float64(no_of_cycles) / FREQUENCY                            // simulated time
-	ecoll_freq = float64(N_e_coll) / sim_time / float64(N_e)                // e collision frequency
-	icoll_freq = float64(N_i_coll) / sim_time / float64(N_i)                // ion collision frequency
-	debye_length = math.Sqrt(EPSILON0*kT/density) / E_CHARGE                // e Debye length @ center
+	density = sim.Cumul_e_density[N_G/2] / float64(sim.No_of_cycles) / float64(N_T) // e density @ center
+	plas_freq = E_CHARGE * math.Sqrt(density/EPSILON0/E_MASS)                       // e plasma frequency @ center
+	meane = sim.Mean_energy_accu_center / float64(sim.Mean_energy_counter_center)   // e mean energy @ center
+	kT = 2.0 * meane * EV_TO_J / 3.0                                                // k T_e @ center (approximate)
+	sim_time = float64(sim.No_of_cycles) / FREQUENCY                                // simulated time
+	ecoll_freq = float64(sim.N_e_coll) / sim_time / float64(sim.N_e)                // e collision frequency
+	icoll_freq = float64(sim.N_i_coll) / sim_time / float64(sim.N_i)                // ion collision frequency
+	debye_length = math.Sqrt(EPSILON0*kT/density) / E_CHARGE                        // e Debye length @ center
 
 	f, err := os.Create("info.txt")
 	if err != nil {
@@ -228,7 +228,7 @@ func checkAndSaveInfo() {
 	}
 	defer f.Close()
 
-	fmt.Fprintln(f, "########################## eduPIC simulation report ############################")
+	fmt.Fprintln(f, "########################## gopic simulation report ############################")
 	fmt.Fprintln(f, "Simulation parameters:")
 	fmt.Fprintf(f, "Gap distance                          = %12.3e [m]\n", L)
 	fmt.Fprintf(f, "# of grid divisions                   = %12d\n", N_G)
@@ -239,7 +239,7 @@ func checkAndSaveInfo() {
 	fmt.Fprintf(f, "Pressure (Ar)                         = %12.3e [Pa]\n", PRESSURE)
 	fmt.Fprintf(f, "Temperature                           = %12.3e [K]\n", TEMPERATURE)
 	fmt.Fprintf(f, "Superparticle weight                  = %12.3e\n", WEIGHT)
-	fmt.Fprintf(f, "# of simulation cycles in this run    = %12d\n", no_of_cycles)
+	fmt.Fprintf(f, "# of simulation cycles in this run    = %12d\n", sim.No_of_cycles)
 	fmt.Fprintln(f, "--------------------------------------------------------------------------------")
 	fmt.Fprintln(f, "Plasma characteristics:")
 	fmt.Fprintf(f, "Electron density @ center             = %12.3e [m^{-3}]\n", density)
@@ -260,12 +260,12 @@ func checkAndSaveInfo() {
 	if c > 1.0 {
 		conditions_OK = false
 	}
-	c = maxElectronCollFreq() * DT_E
+	c = sim.MaxElectronCollFreq() * DT_E
 	fmt.Fprintf(f, "Max. electron coll. frequency * DT_E  = %12.3f (OK if less than 0.05)\n", c)
 	if c > 0.05 {
 		conditions_OK = false
 	}
-	c = maxIonCollFreq() * DT_I
+	c = sim.MaxIonCollFreq() * DT_I
 	fmt.Fprintf(f, "Max. ion coll. frequency * DT_I       = %12.3f (OK if less than 0.05)\n", c)
 	if c > 0.05 {
 		conditions_OK = false
@@ -274,8 +274,8 @@ func checkAndSaveInfo() {
 		fmt.Fprintln(f, "--------------------------------------------------------------------------------")
 		fmt.Fprintln(f, "** STABILITY AND ACCURACY CONDITION(S) VIOLATED - REFINE SIMULATION SETTINGS! **")
 		fmt.Fprintln(f, "--------------------------------------------------------------------------------")
-		fmt.Println(">> eduPIC: ERROR: STABILITY AND ACCURACY CONDITION(S) VIOLATED!")
-		fmt.Println(">> eduPIC: for details see 'info.txt' and refine simulation settings!")
+		fmt.Println(">> gopic: ERROR: STABILITY AND ACCURACY CONDITION(S) VIOLATED!")
+		fmt.Println(">> gopic: for details see 'info.txt' and refine simulation settings!")
 		return
 	}
 
@@ -290,19 +290,19 @@ func checkAndSaveInfo() {
 	// saving of the following data is done here as some of the further lines need data
 	// that are computed / normalized in these functions
 
-	fmt.Println(">> eduPIC: saving diagnostics data")
-	saveDensity()
-	saveEEPF()
-	saveIFED()
-	normAllXT()
-	saveAllXT()
+	fmt.Println(">> gopic: saving diagnostics data")
+	sim.SaveDensity()
+	sim.SaveEEPF()
+	sim.SaveIFED()
+	sim.NormAllXT()
+	sim.SaveAllXT()
 	fmt.Fprintln(f, "Particle characteristics at the electrodes:")
-	fmt.Fprintf(f, "Ion flux at powered electrode         = %12.3e [m^{-2} s^{-1}]\n", float64(N_i_abs_pow)*WEIGHT/ELECTRODE_AREA/(float64(no_of_cycles)*PERIOD))
-	fmt.Fprintf(f, "Ion flux at grounded electrode        = %12.3e [m^{-2} s^{-1}]\n", float64(N_i_abs_gnd)*WEIGHT/ELECTRODE_AREA/(float64(no_of_cycles)*PERIOD))
-	fmt.Fprintf(f, "Mean ion energy at powered electrode  = %12.3e [eV]\n", mean_i_energy_pow)
-	fmt.Fprintf(f, "Mean ion energy at grounded electrode = %12.3e [eV]\n", mean_i_energy_gnd)
-	fmt.Fprintf(f, "Electron flux at powered electrode    = %12.3e [m^{-2} s^{-1}]\n", float64(N_e_abs_pow)*WEIGHT/ELECTRODE_AREA/(float64(no_of_cycles)*PERIOD))
-	fmt.Fprintf(f, "Electron flux at grounded electrode   = %12.3e [m^{-2} s^{-1}]\n", float64(N_e_abs_gnd)*WEIGHT/ELECTRODE_AREA/(float64(no_of_cycles)*PERIOD))
+	fmt.Fprintf(f, "Ion flux at powered electrode         = %12.3e [m^{-2} s^{-1}]\n", float64(sim.N_i_abs_pow)*WEIGHT/ELECTRODE_AREA/(float64(sim.No_of_cycles)*PERIOD))
+	fmt.Fprintf(f, "Ion flux at grounded electrode        = %12.3e [m^{-2} s^{-1}]\n", float64(sim.N_i_abs_gnd)*WEIGHT/ELECTRODE_AREA/(float64(sim.No_of_cycles)*PERIOD))
+	fmt.Fprintf(f, "Mean ion energy at powered electrode  = %12.3e [eV]\n", sim.Mean_i_energy_pow)
+	fmt.Fprintf(f, "Mean ion energy at grounded electrode = %12.3e [eV]\n", sim.Mean_i_energy_gnd)
+	fmt.Fprintf(f, "Electron flux at powered electrode    = %12.3e [m^{-2} s^{-1}]\n", float64(sim.N_e_abs_pow)*WEIGHT/ELECTRODE_AREA/(float64(sim.No_of_cycles)*PERIOD))
+	fmt.Fprintf(f, "Electron flux at grounded electrode   = %12.3e [m^{-2} s^{-1}]\n", float64(sim.N_e_abs_gnd)*WEIGHT/ELECTRODE_AREA/(float64(sim.No_of_cycles)*PERIOD))
 	fmt.Fprintln(f, "--------------------------------------------------------------------------------")
 
 	// calculate spatially and temporally averaged power absorption by the electrons and ions
@@ -311,8 +311,8 @@ func checkAndSaveInfo() {
 	power_i = 0.0
 	for i := 0; i < N_G; i++ {
 		for j := 0; j < N_XT; j++ {
-			power_e += powere_xt[i][j]
-			power_i += poweri_xt[i][j]
+			power_e += sim.Powere_xt[i][j]
+			power_i += sim.Poweri_xt[i][j]
 		}
 	}
 	power_e /= float64(N_XT * N_G)
@@ -344,5 +344,12 @@ func readFloat64(r *bufio.Reader) float64 {
 func writeFloat64Slice(w *bufio.Writer, v []float64) {
 	for _, x := range v {
 		writeFloat64(w, x)
+	}
+}
+
+// save single float64 value to buffer in little-endian format
+func writeFloat64(w *bufio.Writer, v float64) {
+	if err := binary.Write(w, binary.LittleEndian, v); err != nil {
+		panic(err)
 	}
 }

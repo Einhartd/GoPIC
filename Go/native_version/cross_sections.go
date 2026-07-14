@@ -1,4 +1,4 @@
-package main
+package gopic
 
 import (
 	"fmt"
@@ -10,10 +10,10 @@ import (
 //  electron cross sections: A V Phelps & Z Lj Petrovic, PSST 8 R21 (1999)    //
 //----------------------------------------------------------------------------//
 
-func setElectronCrossSectionsAr() {
+func (sim *SimulationState) SetElectronCrossSectionsAr() {
 	var en, qmel, qexc, qion float64
 
-	fmt.Println(">> eduPIC: Setting e- / Ar cross sections")
+	fmt.Println(">> gopic: Setting e- / Ar cross sections")
 	for i := 0; i < CS_RANGES; i++ {
 		if i == 0 {
 			en = DE_CS
@@ -34,9 +34,9 @@ func setElectronCrossSectionsAr() {
 		} else {
 			qion = 0
 		}
-		sigma[E_ELA][i] = qmel * 1.0e-20 // cross section for e- / Ar elastic collision
-		sigma[E_EXC][i] = qexc * 1.0e-20 // cross section for e- / Ar excitation
-		sigma[E_ION][i] = qion * 1.0e-20 // cross section for e- / Ar ionization
+		sim.Sigma[E_ELA][i] = qmel * 1.0e-20 // cross section for e- / Ar elastic collision
+		sim.Sigma[E_EXC][i] = qexc * 1.0e-20 // cross section for e- / Ar excitation
+		sim.Sigma[E_ION][i] = qion * 1.0e-20 // cross section for e- / Ar ionization
 	}
 }
 
@@ -44,10 +44,10 @@ func setElectronCrossSectionsAr() {
 //  ion cross sections: A. V. Phelps, J. Appl. Phys. 76, 747 (1994)             //
 //------------------------------------------------------------------------------//
 
-func setIonCrossSectionsAr() {
+func (sim *SimulationState) SetIonCrossSectionsAr() {
 	var e_com, e_lab, qmom, qback, qiso float64
 
-	fmt.Println(">> eduPIC: Setting Ar+ / Ar cross sections")
+	fmt.Println(">> gopic: Setting Ar+ / Ar cross sections")
 	for i := 0; i < CS_RANGES; i++ {
 		if i == 0 {
 			e_com = DE_CS
@@ -58,8 +58,8 @@ func setIonCrossSectionsAr() {
 		qmom = 1.15e-18 * math.Pow(e_lab, -0.1) * math.Pow(1.0+0.015/e_lab, 0.6)
 		qiso = 2e-19*math.Pow(e_lab, -0.5)/(1.0+e_lab) + 3e-19*e_lab/math.Pow(1.0+e_lab/3.0, 2.0)
 		qback = (qmom - qiso) / 2.0
-		sigma[I_ISO][i] = qiso   // cross section for Ar+ / Ar isotropic part of elastic scattering
-		sigma[I_BACK][i] = qback // cross section for Ar+ / Ar backward elastic scattering
+		sim.Sigma[I_ISO][i] = qiso   // cross section for Ar+ / Ar isotropic part of elastic scattering
+		sim.Sigma[I_BACK][i] = qback // cross section for Ar+ / Ar backward elastic scattering
 	}
 }
 
@@ -67,10 +67,10 @@ func setIonCrossSectionsAr() {
 //  calculation of total cross sections for electrons and ions          //
 //----------------------------------------------------------------------//
 
-func calcTotalCrossSections() {
+func (sim *SimulationState) CalcTotalCrossSections() {
 	for i := 0; i < CS_RANGES; i++ {
-		sigma_tot_e[i] = (sigma[E_ELA][i] + sigma[E_EXC][i] + sigma[E_ION][i]) * GAS_DENSITY // total macroscopic cross section of electrons
-		sigma_tot_i[i] = (sigma[I_ISO][i] + sigma[I_BACK][i]) * GAS_DENSITY                  // total macroscopic cross section of ions
+		sim.SigmaTotE[i] = (sim.Sigma[E_ELA][i] + sim.Sigma[E_EXC][i] + sim.Sigma[E_ION][i]) * GAS_DENSITY // total macroscopic cross section of electrons
+		sim.SigmaTotI[i] = (sim.Sigma[I_ISO][i] + sim.Sigma[I_BACK][i]) * GAS_DENSITY                      // total macroscopic cross section of ions
 	}
 }
 
@@ -78,7 +78,7 @@ func calcTotalCrossSections() {
 //  test of cross sections for electrons and ions                       //
 //----------------------------------------------------------------------//
 
-func testCrossSections() {
+func (sim *SimulationState) TestCrossSections() {
 	f, err := os.Create("cross_sections.dat") // cross sections saved in data file: cross_sections.dat
 	if err != nil {
 		panic(err)
@@ -87,7 +87,7 @@ func testCrossSections() {
 	for i := 0; i < CS_RANGES; i++ {
 		fmt.Fprintf(f, "%12.4f ", float64(i)*DE_CS)
 		for j := 0; j < N_CS; j++ {
-			fmt.Fprintf(f, "%14e ", sigma[j][i])
+			fmt.Fprintf(f, "%14e ", sim.Sigma[j][i])
 		}
 		fmt.Fprint(f, "\n")
 	}
@@ -97,12 +97,12 @@ func testCrossSections() {
 // find upper limit of collision frequencies                           //
 //---------------------------------------------------------------------//
 
-func maxElectronCollFreq() float64 {
+func (sim *SimulationState) MaxElectronCollFreq() float64 {
 	nu_max := 0.0
 	for i := 0; i < CS_RANGES; i++ {
 		e := float64(i) * DE_CS
 		v := math.Sqrt(2.0 * e * EV_TO_J / E_MASS)
-		nu := v * sigma_tot_e[i]
+		nu := v * sim.SigmaTotE[i]
 		if nu > nu_max {
 			nu_max = nu
 		}
@@ -110,12 +110,12 @@ func maxElectronCollFreq() float64 {
 	return nu_max
 }
 
-func maxIonCollFreq() float64 {
+func (sim *SimulationState) MaxIonCollFreq() float64 {
 	nu_max := 0.0
 	for i := 0; i < CS_RANGES; i++ {
 		e := float64(i) * DE_CS
 		g := math.Sqrt(2.0 * e * EV_TO_J / MU_ARAR)
-		nu := g * sigma_tot_i[i]
+		nu := g * sim.SigmaTotI[i]
 		if nu > nu_max {
 			nu_max = nu
 		}

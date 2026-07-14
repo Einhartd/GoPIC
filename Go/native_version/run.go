@@ -1,22 +1,21 @@
-package main
+package gopic
 
 import (
-	"bufio"
-	"encoding/binary"
 	"fmt"
 	"os"
 	"strconv"
 	"strings"
+	"time"
 )
 
 //------------------------------------------------------------------------------------------//
-// main                                                                                     //
+// Run is the main simulation entry point.
 // command line arguments:                                                                  //
 // [1]: number of cycles (0 for init)                                                       //
 // [2]: "m" turns on data collection and saving                                             //
 //------------------------------------------------------------------------------------------//
 
-func main() {
+func Run() {
 	fmt.Println(">> GoPIC: starting...")
 
 	if len(os.Args) == 1 {
@@ -24,14 +23,13 @@ func main() {
 		os.Exit(1)
 	}
 
-	st0 = os.Args[1]
-	arg1 = atoi(st0)
+	st0 := os.Args[1]
+	arg1 := atoi(st0)
 
+	measurement_mode := false
 	if len(os.Args) > 2 {
 		if strings.TrimSpace(os.Args[2]) == "m" {
 			measurement_mode = true // measurements will be done
-		} else {
-			measurement_mode = false
 		}
 	}
 	if measurement_mode {
@@ -40,42 +38,46 @@ func main() {
 		fmt.Println(">> GoPIC: measurement mode: off")
 	}
 
-	setElectronCrossSectionsAr()
-	setIonCrossSectionsAr()
-	calcTotalCrossSections()
-	//testCrossSections(); return
+	// Inicjalizacja stanu symulacji dynamicznym ziarnem (czas systemowy)
+	sim := NewSimulationState(time.Now().UnixNano())
+	sim.Measurement_mode = measurement_mode
+	sim.Arg1 = arg1
 
-	datafile = openAppend("conv.dat")
-	defer datafile.Close()
+	sim.SetElectronCrossSectionsAr()
+	sim.SetIonCrossSectionsAr()
+	sim.CalcTotalCrossSections()
 
-	if arg1 == 0 {
+	sim.Datafile = openAppend("conv.dat")
+	defer sim.Datafile.Close()
+
+	if sim.Arg1 == 0 {
 		if fileExists("picdata.bin") {
 			fmt.Println(">> GoPIC: Warning: Data from previous calculation are detected.")
 			fmt.Println("           To start a new simulation from the beginning, please delete all output files before running ./GoPIC 0")
 			fmt.Println("           To continue the existing calculation, please specify the number of cycles to run, e.g. ./GoPIC 100")
 			os.Exit(0)
 		}
-		no_of_cycles = 1
-		cycle = 1             // init cycle
-		initParticles(N_INIT) // seed initial electrons & ions
+		sim.No_of_cycles = 1
+		sim.Cycle = 1             // init cycle
+		sim.InitParticles(N_INIT) // seed initial electrons & ions
 		fmt.Println(">> GoPIC: running initializing cycle")
-		Time = 0
-		doOneCycle()
-		cycles_done = 1
+		sim.Time = 0
+		sim.DoOneCycle()
+		sim.Cycles_done = 1
 	} else {
-		no_of_cycles = arg1 // run number of cycles specified in command line
-		loadParticleData()  // read previous configuration from file
-		fmt.Printf(">> GoPIC: running %d cycle(s)\n", no_of_cycles)
-		for cycle = cycles_done + 1; cycle <= cycles_done+no_of_cycles; cycle++ {
-			doOneCycle()
+		sim.No_of_cycles = sim.Arg1 // run number of cycles specified in command line
+		sim.LoadParticleData()      // read previous configuration from file
+		fmt.Printf(">> GoPIC: running %d cycle(s)\n", sim.No_of_cycles)
+		for sim.Cycle = sim.Cycles_done + 1; sim.Cycle <= sim.Cycles_done+sim.No_of_cycles; sim.Cycle++ {
+			sim.DoOneCycle()
 		}
-		cycles_done += no_of_cycles
+		sim.Cycles_done += sim.No_of_cycles
 	}
-	saveParticleData()
-	if measurement_mode {
-		checkAndSaveInfo()
+	sim.SaveParticleData()
+	if sim.Measurement_mode {
+		sim.CheckAndSaveInfo()
 	}
-	fmt.Printf(">> GoPIC: simulation of %d cycle(s) is completed.\n", no_of_cycles)
+	fmt.Printf(">> GoPIC: simulation of %d cycle(s) is completed.\n", sim.No_of_cycles)
 }
 
 // Takes string, trims whitespaces and casts to int
@@ -97,11 +99,4 @@ func openAppend(name string) *os.File {
 func fileExists(name string) bool {
 	_, err := os.Stat(name)
 	return err == nil
-}
-
-// save single float64 value to buffer in little-endian format
-func writeFloat64(w *bufio.Writer, v float64) {
-	if err := binary.Write(w, binary.LittleEndian, v); err != nil {
-		panic(err)
-	}
 }

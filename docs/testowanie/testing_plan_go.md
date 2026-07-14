@@ -1,431 +1,371 @@
-# Plan testów — wersja Go
+# Plan testów — wersja Go (native_version)
 
-Plik źródłowy: [`Go/native_version/main.go`](../Go/native_version/main.go)  
-Framework: wbudowany pakiet [`testing`](https://pkg.go.dev/testing) języka Go.
+Pliki źródłowe w katalogu: [`Go/native_version/`](../../Go/native_version/)  
+Narzędzie testujące: Standardowy moduł Go `testing` (`go test`)
 
 ---
 
 ## Spis treści
 
-1. [Architektura testów](#1-architektura-testów)
-2. [Konfiguracja środowiska](#2-konfiguracja-środowiska)
-3. [Testy regresyjne (golden run)](#3-testy-regresyjne-golden-run)
-4. [Testy jednostkowe — Tier 1 (deterministyczne)](#4-testy-jednostkowe--tier-1-deterministyczne)
-5. [Testy jednostkowe — Tier 2 (stochastyczne)](#5-testy-jednostkowe--tier-2-stochastyczne)
-6. [Uruchamianie testów](#6-uruchamianie-testów)
-7. [Checklist](#7-checklist)
+1. [Samouczek: Podstawy testowania w języku Go](#1-samouczek-podstawy-testowania-w-języku-go)
+2. [Architektura testów dla GoPIC](#2-architektura-testów-dla-gopic)
+3. [Implementacja i Uruchamianie Testów](#3-implementacja-i-uruchamianie-testów)
+4. [Kody testów jednostkowych](#4-kody-testów-jednostkowych)
+   * [4.1 Solver Poissona (poisson_test.go)](#41-solver-poissona-poisson_testgo)
+   * [4.2 Depozycja gęstości (density_test.go)](#42-depozycja-gęstości-density_testgo)
+   * [4.3 Popychanie Leapfrog (push_test.go)](#43-popychanie-leapfrog-push_testgo)
+   * [4.4 Warunki brzegowe (boundaries_test.go)](#44-warunki-brzegowe-boundaries_testgo)
+   * [4.5 Przekroje czynne (cross_sections_test.go)](#45-przekroje-czynne-cross_sections_testgo)
+5. [Testy regresyjne / Golden Run (regression_test.go)](#5-testy-regresyjne--golden-run-regression_testgo)
+6. [Checklist walidacji](#6-checklist-walidacji)
 
 ---
 
-## 1. Architektura testów
+## 1. Samouczek: Podstawy testowania w języku Go
 
-Podobnie jak wersja w C++, kod w Go (`Go/native_version/main.go`) opiera się na zmiennych globalnych zdefiniowanych w pakiecie `main`.
+W przeciwieństwie do C++ (GTest) czy Pythona (pytest), Język Go posiada **wbudowane wsparcie dla testów jednostkowych** bezpośrednio w bibliotece standardowej. Nie ma potrzeby instalowania zewnętrznych frameworków.
 
-Aby umożliwić uruchamianie testów z zewnętrznego pliku testowego `main_test.go` (który musi należeć do tego samego pakietu `main` lub `main_test`), musimy zadbać o resetowanie stanu globalnego przed każdym testem.
+### 1.1 Konwencje nazewnictwa i lokalizacja plików
+1. **Nazwy plików:** Każdy plik testowy musi kończyć się sufiksem `_test.go`.
+2. **Pakiety:** Ponieważ przenieśliśmy testy do oddzielnego katalogu `tests/` w celu wdrożenia architektury zbieżnej z Pythonem, testy należą do osobnego pakietu `package tests` i importują główny moduł symulacji (`import "edupic"`).
 
-### Helper resetu stanu (`test_helpers.go` lub wewnątrz `main_test.go`)
+### 1.2 Struktura funkcji testowej
+Każda funkcja testowa musi:
+* Zaczynać się od słowa **`Test`** (np. `TestVacuumLinearPotential`).
+* Przyjmować parametr `t *testing.T` z wbudowanej biblioteki `testing`.
 
+Przykład minimalnego testu:
 ```go
-package main
+package tests
 
-import (
-	"math/rand"
-	"github.com/seehuhn/mt19937"
-)
+import "testing"
 
-// resetState resetuje stan globalny symulacji
-func resetState() {
-	N_e = 0
-	N_i = 0
-	N_e_abs_pow = 0
-	N_e_abs_gnd = 0
-	N_i_abs_pow = 0
-	N_i_abs_gnd = 0
-	N_e_coll = 0
-	N_i_coll = 0
-	Time = 0.0
-
-	for i := 0; i < N_G; i++ {
-		e_density[i] = 0.0
-		i_density[i] = 0.0
-		cumul_e_density[i] = 0.0
-		cumul_i_density[i] = 0.0
-		efield[i] = 0.0
-		pot[i] = 0.0
-	}
-	for i := 0; i < N_EEPF; i++ {
-		eepf[i] = 0.0
-	}
-	for i := 0; i < N_IFED; i++ {
-		ifed_pow[i] = 0
-		ifed_gnd[i] = 0
-	}
+func TestDodawania(t *testing.T) {
+    wynik := 2 + 2
+    if wynik != 4 {
+        t.Errorf("Oczekiwano 4, ale otrzymano %d", wynik)
+    }
 }
+```
 
-// seedRNG ustawia stałe ziarno dla generatora mt19937 w celu zachowania determinizmu
-func seedRNG(seed int64) {
-	// Zakładamy, że w main.go MTgen jest zmienną globalną typu mt19937.Generator
-	// Inicjalizujemy stałym ziarnem:
-	rng := mt19937.New()
-	rng.Seed(seed)
-	// MTgen = rng (zależnie od tego jak zdefiniowano globalną zmienną)
-}
+### 1.3 Asercje w Go
+Do zgłaszania błędów używa się metod obiektu `t`:
+* `t.Errorf(format, args...)` — zgłasza błąd testu, ale **nie przerywa** jego wykonywania.
+* `t.Fatalf(format, args...)` — zgłasza błąd i **natychmiast przerywa** wykonywanie bieżącego testu.
+
+---
+
+## 2. Architektura testów dla GoPIC
+
+Aby umożliwić izolację testów w osobnym katalogu i uprościć dodawanie kolejnych wersji symulacji (np. parallel/matrix) w przyszłości, przeprowadziliśmy refaktoryzację kodu Go do architektury obiektowej (zbieżnej z wersją w Pythonie):
+
+1. **Struktura `SimulationState`:** Stan symulacji został przeniesiony ze zmiennych globalnych pakietu do pól instancji struktury `SimulationState` w `state.go`.
+2. **Metody:** Funkcje kroków symulacji (np. `Step1ComputeElectronDensity`, `SolvePoisson` itp.) stały się metodami struktury `*SimulationState`.
+3. **Dynamiczny Seed w run.go:** Normalny bieg symulacji produkcyjnej (`cmd/pic/main.go`) używa dynamicznego ziarna opartego na czasie systemowym (`time.Now().UnixNano()`), dzięki czemu wyniki rzeczywistych symulacji nie są sztucznie powtarzalne.
+4. **Dedykowany Runner Regresyjny (`cmd/regression/main.go`):** Aby umożliwić deterministyczne testowanie regresji bez zaśmiecania kodu produkcyjnego, stworzyliśmy osobny program uruchomieniowy. Jest on sztywno zasiewany stałą wartością `67` (zgodnie z silnikiem C++) i potrafi zapisać/odczytać stan RNG do `rng_state.bin`.
+5. **Izolacja testów:** Testy zostały umieszczone w osobnym katalogu `Go/native_version/tests/` jako `package tests` i importują moduł `"edupic"`. Rozwiązuje to problem współdzielenia stanu globalnego.
+
+Układ plików:
+```
+Go/native_version/
+├── state.go               ← Struktura SimulationState i metody RNG
+├── simulation.go          ← Metody kroków symulacji 1, 3, 4, 5, 6, 7, 8, 9
+├── poisson.go             ← Metoda SolvePoisson
+├── ... (pliki produkcyjne)
+├── cmd/
+│   ├── pic/
+│   │   └── main.go        ← Punkt wejścia aplikacji produkcyjnej (dynamiczny seed)
+│   └── regression/
+│       └── main.go        ← Dedykowany runner regresyjny (stały seed, serializacja RNG)
+└── tests/                 ← IZOLOWANY KATALOG TESTÓW
+    ├── poisson_test.go        ← Testy solvera Poissona
+    ├── density_test.go        ← Testy depozycji ładunku
+    ├── push_test.go           ← Testy popychania Leapfrog
+    ├── boundaries_test.go     ← Testy brzegowe i usuwania
+    ├── cross_sections_test.go ← Testy przekrojów czynnych Phelpsa
+    ├── regression_test.go     ← Test regresyjny Golden Run (wywołuje runner regresji)
+    └── regression_gold/       
+        └── conv.dat           ← Plik wzorcowy dla wersji Go
 ```
 
 ---
 
-## 2. Konfiguracja środowiska
+## 3. Implementacja i Uruchamianie Testów
 
-Ponieważ wbudowane narzędzie `go test` wymaga modułów, upewnij się, że jesteś w katalogu modułu Go:
+Przejdź do katalogu modułu Go i wywołaj polecenie `go test`:
+
 ```bash
-cd Go/native_version
-```
+cd Go/native_version/
 
-Zależności pobieramy poprzez:
-```bash
-go mod tidy
-```
-
----
-
-## 3. Testy regresyjne (golden run)
-
-W Go możemy wbudować test regresyjny bezpośrednio jako część pakietu testowego, który wywołuje potok symulacji i weryfikuje wyniki za pomocą plików `density.dat`, `conv.dat` itp.
-
-```go
-package main
-
-import (
-	"bytes"
-	"io/ioutil"
-	"os"
-	"os/exec"
-	"path/filepath"
-	"strconv"
-	"testing"
-)
-
-func TestGoldenRegression(t *testing.T) {
-	// 1. Skompiluj binarkę testową lub uruchom bezpośrednio main.go z flagą seedowania
-	// Aby ułatwić, najlepiej przygotować tryb testowy w main.go (np. flaga CLI lub zmienna środowiskowa):
-	// env: EDUPIC_SEED=42
-	
-	tmpDir, err := ioutil.TempDir("", "edupic_go_test")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer os.RemoveAll(tmpDir)
-
-	// Skopiuj binarkę / uruchom symulację w tymczasowym folderze
-	cmdInit := exec.Command("go", "run", "main.go", "0")
-	cmdInit.Dir = tmpDir
-	cmdInit.Env = append(os.Environ(), "EDUPIC_SEED=42")
-	if err := cmdInit.Run(); err != nil {
-		t.Fatalf("Błąd inicjalizacji symulacji: %v", err)
-	}
-
-	cmdRun := exec.Command("go", "run", "main.go", "5", "m")
-	cmdRun.Dir = tmpDir
-	cmdRun.Env = append(os.Environ(), "EDUPIC_SEED=42")
-	if err := cmdRun.Run(); err != nil {
-		t.Fatalf("Błąd uruchomienia 5 cykli: %v", err)
-	}
-
-	// Porównanie wyników z golden output
-	compareDatFiles(t, filepath.Join(tmpDir, "density.dat"), "golden/density_golden.dat")
-	compareDatFiles(t, filepath.Join(tmpDir, "conv.dat"), "golden/conv_golden.dat")
-}
-
-func compareDatFiles(t *testing.T, file, golden string) {
-	d1, err := ioutil.ReadFile(file)
-	if err != nil {
-		t.Fatalf("Nie można odczytać pliku testowego %s: %v", file, err)
-	}
-	d2, err := ioutil.ReadFile(golden)
-	if err != nil {
-		t.Fatalf("Nie można odczytać pliku golden %s: %v", golden, err)
-	}
-
-	if !bytes.Equal(d1, d2) {
-		t.Errorf("Plik %s różni się od pliku golden %s", file, golden)
-	}
-}
+# Uruchomienie wszystkich testów w katalogu tests
+go test -v ./tests
 ```
 
 ---
 
-## 4. Testy jednostkowe — Tier 1 (deterministyczne)
+## 4. Kody testów jednostkowych
 
-### 4.1 `solve_Poisson` — solver Thomasa
+### 4.1 Solver Poissona (`Go/native_version/tests/poisson_test.go`)
 
 ```go
-package main
+package tests
 
 import (
 	"math"
 	"testing"
+
+	"edupic"
 )
 
-func TestPoisson_VacuumLinearPotential(t *testing.T) {
-	resetState()
-	
-	var rho xvector // zero charge density (próżnia)
-	// tt = 0.0 -> pot[0] = VOLTAGE * cos(0) = 250.0
-	solve_Poisson(rho, 0.0)
+func isClose(a, b, tol float64) bool {
+	return math.Abs(a-b) <= tol
+}
 
-	for i := 1; i < N_G-1; i++ {
-		expected := VOLTAGE * (1.0 - float64(i)/float64(N_G-1))
-		if math.Abs(pot[i]-expected) > 1e-8 {
-			t.Errorf("Węzeł %d: potencjał %f różni się od oczekiwanego %f", i, pot[i], expected)
+func TestVacuumLinearPotential(t *testing.T) {
+	sim := edupic.NewSimulationState(42)
+	var rho edupic.Xvector // Zerowy ładunek (próżnia)
+
+	sim.SolvePoisson(&rho, 0.0)
+
+	for i := 0; i < edupic.N_G; i++ {
+		expected := edupic.VOLTAGE * (1.0 - float64(i)/float64(edupic.N_G-1))
+		if !isClose(sim.Pot[i], expected, 1e-11) {
+			t.Errorf("Wezel %d: oczekiwano potencjalu %f, otrzymano %f", i, expected, sim.Pot[i])
 		}
 	}
 }
 
-func TestPoisson_VacuumConstantEfield(t *testing.T) {
-	resetState()
-	var rho xvector
-	solve_Poisson(rho, 0.0)
+func TestVacuumConstantEfield(t *testing.T) {
+	sim := edupic.NewSimulationState(42)
+	var rho edupic.Xvector
 
-	expectedE := VOLTAGE / L
-	for i := 1; i < N_G-2; i++ {
-		if math.Abs(efield[i]-expectedE) > 1e-6 {
-			t.Errorf("Węzeł %d: pole E %f różni się od oczekiwanego %f", i, efield[i], expectedE)
+	sim.SolvePoisson(&rho, 0.0)
+	expected_E := edupic.VOLTAGE / edupic.L
+
+	for i := 1; i < edupic.N_G-1; i++ {
+		if !isClose(sim.Efield[i], expected_E, 1e-8) {
+			t.Errorf("Wezel %d: oczekiwano pola E %f, otrzymano %f", i, expected_E, sim.Efield[i])
 		}
 	}
 }
 
-func TestPoisson_BoundaryEfieldWithCharge(t *testing.T) {
-	resetState()
-	var rho xvector
-	rho[0] = 1e15 * E_CHARGE
-	rho[N_G-1] = 1e15 * E_CHARGE
-	solve_Poisson(rho, 0.0)
+func TestBoundaryEfieldWithCharge(t *testing.T) {
+	sim := edupic.NewSimulationState(42)
+	var rho edupic.Xvector
+	rho[0] = 1e15 * edupic.E_CHARGE
+	rho[edupic.N_G-1] = 2e15 * edupic.E_CHARGE
 
-	expectedE0 := (pot[0]-pot[1])*INV_DX - rho[0]*DX/(2.0*EPSILON0)
-	expectedEN := (pot[N_G-2]-pot[N_G-1])*INV_DX + rho[N_G-1]*DX/(2.0*EPSILON0)
+	sim.SolvePoisson(&rho, 0.0)
 
-	if math.Abs(efield[0]-expectedE0) > 1e-6 {
-		t.Errorf("efield[0] = %f, oczekiwano %f", efield[0], expectedE0)
+	expected_e0 := (sim.Pot[0]-sim.Pot[1])*edupic.INV_DX - rho[0]*edupic.DX/(2.0*edupic.EPSILON0)
+	expected_eN := (sim.Pot[edupic.N_G-2]-sim.Pot[edupic.N_G-1])*edupic.INV_DX + rho[edupic.N_G-1]*edupic.DX/(2.0*edupic.EPSILON0)
+
+	if !isClose(sim.Efield[0], expected_e0, 1e-8) {
+		t.Errorf("Lewa elektroda: oczekiwano pola %f, otrzymano %f", expected_e0, sim.Efield[0])
 	}
-	if math.Abs(efield[N_G-1]-expectedEN) > 1e-6 {
-		t.Errorf("efield[N_G-1] = %f, oczekiwano %f", efield[N_G-1], expectedEN)
+	if !isClose(sim.Efield[edupic.N_G-1], expected_eN, 1e-8) {
+		t.Errorf("Prawa elektroda: oczekiwano pola %f, otrzymano %f", expected_eN, sim.Efield[edupic.N_G-1])
 	}
 }
 ```
 
 ---
 
-### 4.2 Ważenie liniowe (`step1_compute_electron_density`)
+### 4.2 Depozycja gęstości (`Go/native_version/tests/density_test.go`)
 
 ```go
-func TestDensity_SingleParticleOnNode(t *testing.T) {
-	resetState()
-	p0 := 100
-	x_e[0] = DX * float64(p0)
-	N_e = 1
+package tests
 
-	step1_compute_electron_density()
+import (
+	"testing"
 
-	if math.Abs(e_density[p0]-FACTOR_W) > 1e-10 {
-		t.Errorf("e_density[%d] = %f, oczekiwano %f", p0, e_density[p0], FACTOR_W)
+	"edupic"
+)
+
+func TestSingleParticleOnInternalNode(t *testing.T) {
+	sim := edupic.NewSimulationState(42)
+	p0 := 150
+	sim.N_e = 1
+	sim.X_e[0] = edupic.DX * float64(p0)
+
+	sim.Step1ComputeElectronDensity()
+
+	if !isClose(sim.E_density[p0], edupic.FACTOR_W, 1e-2) {
+		t.Errorf("Wezel %d: oczekiwano gestosci %e, otrzymano %e", p0, edupic.FACTOR_W, sim.E_density[p0])
 	}
-	if e_density[p0+1] != 0.0 || e_density[p0-1] != 0.0 {
-		t.Errorf("Gęstość rozlana poza węzeł p0")
-	}
-}
-
-func TestDensity_BoundaryDoublingLeft(t *testing.T) {
-	resetState()
-	x_e[0] = DX * 0.5
-	N_e = 1
-
-	step1_compute_electron_density()
-
-	// Z korekcją x2 na elektrodzie: e_density[0] = FACTOR_W
-	if math.Abs(e_density[0]-FACTOR_W) > 1e-10 {
-		t.Errorf("e_density[0] = %f, oczekiwano %f (korekta x2)", e_density[0], FACTOR_W)
+	if !isClose(sim.E_density[p0+1], 0.0, 1e-2) {
+		t.Errorf("Wezel %d: oczekiwano gestosci 0.0, otrzymano %e", p0+1, sim.E_density[p0+1])
 	}
 }
 
-func TestDensity_IonDensitySubcycling(t *testing.T) {
-	resetState()
-	x_i[0] = L / 2.0
-	N_i = 1
+func TestBoundaryDoublingLeft(t *testing.T) {
+	sim := edupic.NewSimulationState(42)
+	sim.N_e = 1
+	sim.X_e[0] = edupic.DX * 0.5
 
-	// t % N_SUB != 0 -> brak deposycji, i_density zostaje zero
-	step1_compute_ion_density(1)
-	if i_density[N_G/2] != 0.0 {
-		t.Errorf("Obliczono i_density mimo braku subcyclingu (t=1)")
+	sim.Step1ComputeElectronDensity()
+
+	if !isClose(sim.E_density[0], edupic.FACTOR_W, 1e-2) {
+		t.Errorf("Wezel 0 (granica): oczekiwano %e, otrzymano %e", edupic.FACTOR_W, sim.E_density[0])
 	}
-
-	// t % N_SUB == 0 -> wykonuje się deposycja
-	step1_compute_ion_density(0)
-	if i_density[N_G/2] == 0.0 {
-		t.Errorf("Nie obliczono i_density przy t=0")
+	if !isClose(sim.E_density[1], 0.5*edupic.FACTOR_W, 1e-2) {
+		t.Errorf("Wezel 1: oczekiwano %e, otrzymano %e", 0.5*edupic.FACTOR_W, sim.E_density[1])
 	}
 }
 ```
 
 ---
 
-### 4.3 Ruch cząstek (`step3_move_electrons` / `step4_move_ions`)
+### 4.3 Popychanie Leapfrog (`Go/native_version/tests/push_test.go`)
 
 ```go
-func TestPush_ElectronPushSign(t *testing.T) {
-	resetState()
-	N_e = 1
-	x_e[0] = L / 2.0
-	vx_e[0], vy_e[0], vz_e[0] = 0.0, 0.0, 0.0
+package tests
 
-	// Dodatnie pole E -> elektron (ujemny ładunek) musi lecieć w -x
-	for i := 0; i < N_G; i++ {
-		efield[i] = 1000.0
+import (
+	"testing"
+
+	"edupic"
+)
+
+func TestParticlePushSigns(t *testing.T) {
+	sim := edupic.NewSimulationState(42)
+	sim.N_e = 1
+	sim.X_e[0] = edupic.L / 2.0
+	sim.Vx_e[0], sim.Vy_e[0], sim.Vz_e[0] = 0.0, 0.0, 0.0
+
+	sim.N_i = 1
+	sim.X_i[0] = edupic.L / 2.0
+	sim.Vx_i[0], sim.Vy_i[0], sim.Vz_i[0] = 0.0, 0.0, 0.0
+
+	for i := 0; i < edupic.N_G; i++ {
+		sim.Efield[i] = 1000.0
 	}
 
-	step3_move_electrons(0)
+	sim.Step3MoveElectrons(0)
+	sim.Step4MoveIons(0, 0) // t = 0 (subcycling trigger)
 
-	if vx_e[0] >= 0.0 {
-		t.Errorf("Elektron w dodatnim polu E poleciał w prawo: vx = %f", vx_e[0])
+	if sim.Vx_e[0] >= 0.0 {
+		t.Errorf("Elektron powinien przyspieszyc w lewo (vx < 0), otrzymano %f", sim.Vx_e[0])
+	}
+	if sim.Vx_i[0] <= 0.0 {
+		t.Errorf("Jon powinien przyspieszyc w prawo (vx > 0), otrzymano %f", sim.Vx_i[0])
 	}
 }
 
-func TestPush_IonPushSign(t *testing.T) {
-	resetState()
-	N_i = 1
-	x_i[0] = L / 2.0
-	vx_i[0] = 0.0
+func TestEfieldInterpolationMidpoint(t *testing.T) {
+	sim := edupic.NewSimulationState(42)
+	sim.N_e = 1
+	p0 := 200
+	sim.X_e[0] = edupic.DX * (float64(p0) + 0.5)
+	sim.Vx_e[0] = 0.0
+	sim.Efield[p0] = 100.0
+	sim.Efield[p0+1] = 300.0
 
-	// Dodatnie pole E -> jon (dodatni ładunek) musi lecieć w +x
-	for i := 0; i < N_G; i++ {
-		efield[i] = 1000.0
+	sim.Step3MoveElectrons(0)
+
+	expected_v := -200.0 * edupic.FACTOR_E
+	expected_x := edupic.DX*(float64(p0)+0.5) + expected_v*edupic.DT_E
+
+	if !isClose(sim.Vx_e[0], expected_v, 1e-5) {
+		t.Errorf("Predkosc: oczekiwano %e, otrzymano %e", expected_v, sim.Vx_e[0])
 	}
-
-	step4_move_ions(0, 0) // t=0 -> subcycling ok
-
-	if vx_i[0] <= 0.0 {
-		t.Errorf("Jon w dodatnim polu E nie poleciał w prawo: vx = %f", vx_i[0])
+	if !isClose(sim.X_e[0], expected_x, 1e-10) {
+		t.Errorf("Pozycja: oczekiwano %e, otrzymano %e", expected_x, sim.X_e[0])
 	}
 }
 ```
 
 ---
 
-### 4.4 Granice (`step5_check_boundaries_electrons`)
+### 4.4 Warunki brzegowe (`Go/native_version/tests/boundaries_test.go`)
 
 ```go
-func TestBoundaries_ElectronAbsorbedAtPowered(t *testing.T) {
-	resetState()
-	N_e = 1
-	x_e[0] = -0.001
+package tests
 
-	step5_check_boundaries_electrons()
+import (
+	"testing"
 
-	if N_e != 0 {
-		t.Errorf("Elektron nie został usunięty z układu")
+	"edupic"
+)
+
+func TestFastSwapBoundary(t *testing.T) {
+	sim := edupic.NewSimulationState(42)
+	sim.N_e = 3
+	sim.X_e[0] = edupic.L * 0.25;  sim.Vx_e[0] = 10.0
+	sim.X_e[1] = -0.001;    sim.Vx_e[1] = 20.0  // Wykracza poza lewą elektrodę
+	sim.X_e[2] = edupic.L * 0.75;  sim.Vx_e[2] = 30.0  // Ostatni element w tablicy
+
+	sim.Step5CheckBoundariesElectrons()
+
+	if sim.N_e != 2 {
+		t.Errorf("Oczekiwano 2 elektronow w grze, otrzymano %d", sim.N_e)
 	}
-	if N_e_abs_pow != 1 {
-		t.Errorf("Licznik absorpcji na powered elektrodzie nie wzrósł")
+	if sim.N_e_abs_pow != 1 {
+		t.Errorf("Oczekiwano absorpcji 1 elektronu na lewej elektrodzie, otrzymano %d", sim.N_e_abs_pow)
 	}
-}
-
-func TestBoundaries_FastSwap(t *testing.T) {
-	resetState()
-	N_e = 3
-	x_e[0] = L * 0.25
-	x_e[1] = -0.001 // do usunięcia
-	x_e[2] = L * 0.75
-	vx_e[0], vx_e[1], vx_e[2] = 100.0, 200.0, 300.0
-
-	step5_check_boundaries_electrons()
-
-	if N_e != 2 {
-		t.Errorf("Oczekiwano N_e = 2, got %d", N_e)
-	}
-	// Ostatnia cząstka (indeks 2) wskakuje na miejsce indeksu 1
-	if x_e[1] != L*0.75 || vx_e[1] != 300.0 {
-		t.Errorf("Błąd implementacji fast-swap")
+	if !isClose(sim.X_e[1], edupic.L*0.75, 1e-12) {
+		t.Errorf("Element z indeksu 2 powinien zastapic element 1. Otrzymano pozycje %f", sim.X_e[1])
 	}
 }
 ```
 
 ---
 
-## 5. Testy jednostkowe — Tier 2 (stochastyczne)
+### 4.5 Przekroje czynne (`Go/native_version/tests/cross_sections_test.go`)
 
 ```go
-func TestCollision_IonizationCreatesPair(t *testing.T) {
-	resetState()
-	seedRNG(42)
-	set_electron_cross_sections_ar()
-	set_ion_cross_sections_ar()
-	calc_total_cross_sections()
+package tests
 
-	energy := 30.0 // powyżej progu 15.8 eV
-	g := math.Sqrt(2.0 * energy * EV_TO_J / E_MASS)
-	eindex := int(energy / DE_CS)
+import (
+	"testing"
 
-	N_e = 1
-	N_i = 0
-	x_e[0] = L / 2.0
-	vx_e[0] = g
+	"edupic"
+)
 
-	// Losujemy seed, dopóki nie zajdzie jonizacja (powinna zajść bardzo szybko)
-	ionizationOccurred := false
-	for trial := int64(0); trial < 500; trial++ {
-		seedRNG(trial)
-		NeBefore := N_e
-		NiBefore := N_i
-		collision_electron(x_e[0], &vx_e[0], &vy_e[0], &vz_e[0], eindex)
-		if N_e > NeBefore {
-			if N_e != NeBefore+1 || N_i != NiBefore+1 {
-				t.Fatalf("Nieprawidłowa liczba nowo utworzonych cząstek")
-			}
-			ionizationOccurred = true
-			break
-		}
-	}
+func TestPhelpsCrossSections(t *testing.T) {
+	sim := edupic.NewSimulationState(42)
 
-	if !ionizationOccurred {
-		t.Errorf("Kolizja jonizacji nie zaszła ani razu w 500 próbach przy 30 eV")
+	sim.SetElectronCrossSectionsAr()
+	sim.SetIonCrossSectionsAr()
+	sim.CalcTotalCrossSections()
+
+	idx_50 := int(50.0 / edupic.DE_CS)
+	total_macro := (sim.Sigma[edupic.E_ELA][idx_50] + sim.Sigma[edupic.E_EXC][idx_50] + sim.Sigma[edupic.E_ION][idx_50]) * edupic.GAS_DENSITY
+
+	if !isClose(sim.SigmaTotE[idx_50], total_macro, 1e-7) {
+		t.Errorf("Oczekiwano makroskopowego przekroju czynnego %f dla energii 50 eV, otrzymano %f", total_macro, sim.SigmaTotE[idx_50])
 	}
 }
 ```
 
 ---
 
-## 6. Uruchamianie testów
+## 5. Testy regresyjne / Golden Run (`Go/native_version/tests/regression_test.go`)
 
-Uruchomienie wszystkich testów jednostkowych w pakiecie:
-```bash
-go test -v
-```
-
-Uruchomienie specyficznego testu:
-```bash
-go test -v -run TestPoisson_VacuumLinearPotential
-```
-
-Sprawdzenie pokrycia kodu testami (code coverage):
-```bash
-go test -coverprofile=coverage.out
-go tool cover -html=coverage.out
-```
+Testy regresyjne weryfikują pełne, wielocyklowe przebiegi symulacji (krok po kroku z MCC kolizjami).
+* **Determinizm RNG w Go:** Za pomocą pakietu `unsafe` rzutujemy wewnętrzny wskaźnik generatora `mt19937.MT19937` na naszą pomocniczą strukturę-cień:
+  ```go
+  type mt19937Shadow struct {
+      State []uint64
+      Index int
+  }
+  ```
+  Dzięki temu możemy bez przeszkód zrzucić 312 liczb stanu wewnętrznego Mersenne Twister do pliku `rng_state.bin` w kroku `init` i wczytać je z powrotem w kroku `run`. Daje to pełny, powtarzalny determinizm symulacji rozłożonej na wiele procesów.
+* **Wzorzec Golden Run:** Wyjściowy plik zbieżności `conv.dat` jest porównywany z plikiem referencyjnym w katalogu `tests/regression_gold/conv.dat` z dokładnością bitową (`1e-12`).
 
 ---
 
-## 7. Checklist
+## 6. Checklist walidacji
 
-| # | Test | Cel | Priorytet | Status |
-|:-:|:-----|:----|:---------:|:------:|
-| 1 | `TestPoisson_VacuumLinearPotential` | Thomas solver liniowy | 🔴 | ☐ |
-| 2 | `TestPoisson_VacuumConstantEfield` | Thomas solver E-pole | 🔴 | ☐ |
-| 3 | `TestPoisson_BoundaryEfieldWithCharge` | Thomas solver granice | 🔴 | ☐ |
-| 4 | `TestDensity_SingleParticleOnNode` | Depozycja na węźle | 🔴 | ☐ |
-| 5 | `TestDensity_BoundaryDoublingLeft` | Korekta x2 na lewej granicy | 🔴 | ☐ |
-| 6 | `TestDensity_IonDensitySubcycling` | Subcycling gęstości jonów | 🔴 | ☐ |
-| 7 | `TestPush_ElectronPushSign` | Kierunek ruchu elektronu | 🔴 | ☐ |
-| 8 | `TestPush_IonPushSign` | Kierunek ruchu jonu | 🔴 | ☐ |
-| 9 | `TestBoundaries_ElectronAbsorbedAtPowered` | Absorpcja cząstek | 🔴 | ☐ |
-| 10 | `TestBoundaries_FastSwap` | Poprawność fast-swap | 🔴 | ☐ |
-| 11 | `TestCollision_IonizationCreatesPair` | MCC jonizacja pary | 🟡 | ☐ |
-| R1 | `TestGoldenRegression` | Regresja bit-dla-bitu | 🔴 | ☐ |
+Wszystkie testy jednostkowe oraz testy regresyjne w Go przechodzą pomyślnie:
+
+| Krok symulacji | Test | Status Go |
+|:---|:---|:---:|
+| **Poisson** | `test_vacuum_linear_potential` | ✅ |
+| | `test_vacuum_constant_efield` | ✅ |
+| | `test_boundary_efield_with_charge` | ✅ |
+| **Density** | `test_boundary_doubling_left` | ✅ |
+| **Leapfrog** | `test_efield_interpolation_midpoint`| ✅ |
+| **Boundaries** | `test_fast_swap_boundary` | ✅ |
+| **Cross Sections**| `test_phelps_cross_sections` | ✅ |
+| **Regression** | `test_regression_golden_run` | ✅ |

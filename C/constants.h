@@ -49,7 +49,7 @@ const double     E_EXC_TH       = 11.5;                       // electron impact
 const double     E_ION_TH       = 15.8;                       // electron impact ionization threshold [eV]
 const int        CS_RANGES      = 1000000;                    // number of entries in cross section arrays
 const double     DE_CS          = 0.001;                      // energy division in cross section arrays [eV]
-typedef float    cross_section[CS_RANGES];                    // cross section array
+typedef double   cross_section[CS_RANGES];                    // cross section array
 
 // particle coordinates
 
