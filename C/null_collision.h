@@ -9,7 +9,7 @@
 #include "cross_sections.h"
 
 
-void compute_null_collision_params() {
+inline void compute_null_collision_params() {
     // elektrony
     nu_star_e = max_electron_coll_freq();
     P_star_e = 1.0 - exp(-nu_star_e * DT_E);
@@ -23,7 +23,7 @@ void compute_null_collision_params() {
 }
 
 // losuje count unikalnych indeksow z zakresu [0, n)
-void random_sample(int n , int count, std::vector<int> &out) {
+inline void random_sample(int n , int count, std::vector<int> &out) {
     static std::vector<int> pool;
 
     if (pool.size() < (size_t)n) {

@@ -1,9 +1,9 @@
 CXX      = g++
-CXXFLAGS = -std=c++17 -O2 -Wall
+CXXFLAGS = -std=c++17 -O2 -Wall -DUSE_NULL_COLLISION
 LDFLAGS  = -lgtest -lgtest_main -lpthread
 
 TEST_SRCS = test_poisson.cc test_density.cc test_push.cc \
-            test_boundaries.cc test_cross_sections.cc
+            test_boundaries.cc test_cross_sections.cc test_null_collision.cc
 
 all: run_tests
 	./run_tests
