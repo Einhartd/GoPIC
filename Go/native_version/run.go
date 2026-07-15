@@ -46,6 +46,7 @@ func Run() {
 	sim.SetElectronCrossSectionsAr()
 	sim.SetIonCrossSectionsAr()
 	sim.CalcTotalCrossSections()
+	sim.InitNullCollision()
 
 	sim.Datafile = openAppend("conv.dat")
 	defer sim.Datafile.Close()

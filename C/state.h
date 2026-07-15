@@ -57,6 +57,12 @@ inline char     st0[80];                                            // used for 
 inline FILE     *datafile;                                          // used for saving data
 inline bool     measurement_mode;                                   // flag that controls measurements and data saving
 
+// null-collision precomputed parameters
+inline double nu_star_e = 0.0;
+inline double P_star_e  = 0.0;
+inline double nu_star_i = 0.0;
+inline double P_star_i  = 0.0;
+
 inline std::random_device rd{}; 
 inline std::mt19937 MTgen(rd());
 inline std::uniform_real_distribution<> R01(0.0, 1.0);

@@ -119,6 +119,9 @@ N_XT: Final[int]                = N_T // N_BIN
 
 NORMAL_DISTRIBUTION: Final[float]      = math.sqrt(K_BOLTZMANN * TEMPERATURE / AR_MASS)
 
+USE_NULL_COLLISION: Final[bool]        = True
+"""flag to switch between standard and null-collision methods"""
+
 #   TYPE ALIASES
 type cross_section              = list[float]
 """cross section array"""

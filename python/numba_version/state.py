@@ -126,3 +126,9 @@ class SimulationState:
         """cycles completed"""
         self.measurement_mode: bool = False
         """flag that controls measurements and data saving"""
+
+        # Null-collision precomputed parameters
+        self.nu_star_e: float = 0.0
+        self.P_star_e:  float = 0.0
+        self.nu_star_i: float = 0.0
+        self.P_star_i:  float = 0.0

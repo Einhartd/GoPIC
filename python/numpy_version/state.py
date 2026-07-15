@@ -130,6 +130,17 @@ class SimulationState:
 
         # Pre-built tridiagonal matrix for Poisson solver (constant — built once)
         self._thomas_ab = _build_thomas_matrix()
+        """Pre-built tridiagonal matrix for Poisson solver"""
+
+        # Null-collision precomputed parameters
+        self.nu_star_e = 0.0
+        """Null-collision precomputed parameters"""
+        self.P_star_e  = 0.0
+        """Null-collision precomputed parameters"""
+        self.nu_star_i = 0.0
+        """Null-collision precomputed parameters"""
+        self.P_star_i  = 0.0
+        """Null-collision precomputed parameters"""
 
 
 def _build_thomas_matrix() -> np.ndarray:

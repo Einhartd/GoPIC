@@ -183,48 +183,123 @@ def step6_check_boundaries_ions(sim: SimulationState, t: int):
 
 
 def step7_collisions_electrons(sim: SimulationState):
-    #   --- STEP 6: COLLISIONS ---
-    k = 0
-    while k < sim.N_e:
-        v_sqr = sim.vx_e[k]**2 + sim.vy_e[k]**2 + sim.vz_e[k]**2
-        velocity = math.sqrt(v_sqr)
-        energy = 0.5 * cs.E_MASS * v_sqr / cs.EV_TO_J
-        energy_index = min(int(energy / cs.DE_CS + 0.5), cs.CS_RANGES - 1)
-        nu = sim.sigma_tot_e[energy_index] * velocity
-        p_coll = 1.0 - math.exp(-nu * cs.DT_E)
-        if sim.rng.random() < p_coll:
-            collisions.collision_electron(sim, k, energy_index)
-            sim.N_e_coll += 1
+    if cs.USE_NULL_COLLISION:
+        if sim.N_e == 0:
+            return
+        
+        n = sim.N_e
+        p = sim.P_star_e
+        if n * p > 10 and n * (1.0 - p) > 10:
+            mu = n * p
+            sigma = math.sqrt(n * p * (1.0 - p))
+            N_coll_star = int(sim.rng.gauss(mu, sigma) + 0.5)
+            N_coll_star = max(0, min(N_coll_star, n))
+        else:
+            N_coll_star = 0
+            for _ in range(n):
+                if sim.rng.random() < p:
+                    N_coll_star += 1
+                    
+        if N_coll_star == 0:
+            return
             
-        k += 1
+        candidates = sim.rng.sample(range(sim.N_e), N_coll_star)
+        for k in candidates:
+            v_sqr = sim.vx_e[k]**2 + sim.vy_e[k]**2 + sim.vz_e[k]**2
+            velocity = math.sqrt(v_sqr)
+            energy = 0.5 * cs.E_MASS * v_sqr / cs.EV_TO_J
+            energy_index = min(int(energy / cs.DE_CS + 0.5), cs.CS_RANGES - 1)
+            real_nu = sim.sigma_tot_e[energy_index] * velocity
+            p_accept = real_nu / sim.nu_star_e
+            if p_accept > 1.0:
+                p_accept = 1.0
+                
+            if sim.rng.random() < p_accept:
+                collisions.collision_electron(sim, k, energy_index)
+                sim.N_e_coll += 1
+    else:
+        k = 0
+        while k < sim.N_e:
+            v_sqr = sim.vx_e[k]**2 + sim.vy_e[k]**2 + sim.vz_e[k]**2
+            velocity = math.sqrt(v_sqr)
+            energy = 0.5 * cs.E_MASS * v_sqr / cs.EV_TO_J
+            energy_index = min(int(energy / cs.DE_CS + 0.5), cs.CS_RANGES - 1)
+            nu = sim.sigma_tot_e[energy_index] * velocity
+            p_coll = 1.0 - math.exp(-nu * cs.DT_E)
+            if sim.rng.random() < p_coll:
+                collisions.collision_electron(sim, k, energy_index)
+                sim.N_e_coll += 1
+            k += 1
 
 
 def step8_collisions_ions(sim: SimulationState, t: int):
     if (t % cs.N_SUB) != 0:
         return
 
-    k = 0
-    while k < sim.N_i:
-        vx_a = sim.rng.gauss(0.0, cs.NORMAL_DISTRIBUTION)
-        vy_a = sim.rng.gauss(0.0, cs.NORMAL_DISTRIBUTION)
-        vz_a = sim.rng.gauss(0.0, cs.NORMAL_DISTRIBUTION)
+    if cs.USE_NULL_COLLISION:
+        if sim.N_i == 0:
+            return
+            
+        n = sim.N_i
+        p = sim.P_star_i
+        if n * p > 10 and n * (1.0 - p) > 10:
+            mu = n * p
+            sigma = math.sqrt(n * p * (1.0 - p))
+            N_coll_star = int(sim.rng.gauss(mu, sigma) + 0.5)
+            N_coll_star = max(0, min(N_coll_star, n))
+        else:
+            N_coll_star = 0
+            for _ in range(n):
+                if sim.rng.random() < p:
+                    N_coll_star += 1
+                    
+        if N_coll_star == 0:
+            return
+            
+        candidates = sim.rng.sample(range(sim.N_i), N_coll_star)
+        for k in candidates:
+            vx_a = sim.rng.gauss(0.0, cs.NORMAL_DISTRIBUTION)
+            vy_a = sim.rng.gauss(0.0, cs.NORMAL_DISTRIBUTION)
+            vz_a = sim.rng.gauss(0.0, cs.NORMAL_DISTRIBUTION)
 
-        gx = sim.vx_i[k] - vx_a
-        gy = sim.vy_i[k] - vy_a
-        gz = sim.vz_i[k] - vz_a
-        g_sqr = gx*gx + gy*gy + gz*gz
-        g = math.sqrt(g_sqr)
+            gx = sim.vx_i[k] - vx_a
+            gy = sim.vy_i[k] - vy_a
+            gz = sim.vz_i[k] - vz_a
+            g_sqr = gx*gx + gy*gy + gz*gz
+            g = math.sqrt(g_sqr)
 
-        energy = 0.5 * cs.MU_ARAR * g_sqr / cs.EV_TO_J
-        energy_index = min(int(energy / cs.DE_CS + 0.5), cs.CS_RANGES - 1)
-        nu = sim.sigma_tot_i[energy_index] * g
-        p_coll = 1.0 - math.exp(-nu * cs.DT_I)
+            energy = 0.5 * cs.MU_ARAR * g_sqr / cs.EV_TO_J
+            energy_index = min(int(energy / cs.DE_CS + 0.5), cs.CS_RANGES - 1)
+            real_nu = sim.sigma_tot_i[energy_index] * g
+            p_accept = real_nu / sim.nu_star_i
+            if p_accept > 1.0:
+                p_accept = 1.0
 
-        if sim.rng.random() < p_coll:
-            collisions.collision_ion(sim, k, vx_a, vy_a, vz_a, energy_index)
-            sim.N_i_coll += 1
-        
-        k += 1
+            if sim.rng.random() < p_accept:
+                collisions.collision_ion(sim, k, vx_a, vy_a, vz_a, energy_index)
+                sim.N_i_coll += 1
+    else:
+        k = 0
+        while k < sim.N_i:
+            vx_a = sim.rng.gauss(0.0, cs.NORMAL_DISTRIBUTION)
+            vy_a = sim.rng.gauss(0.0, cs.NORMAL_DISTRIBUTION)
+            vz_a = sim.rng.gauss(0.0, cs.NORMAL_DISTRIBUTION)
+
+            gx = sim.vx_i[k] - vx_a
+            gy = sim.vy_i[k] - vy_a
+            gz = sim.vz_i[k] - vz_a
+            g_sqr = gx*gx + gy*gy + gz*gz
+            g = math.sqrt(g_sqr)
+
+            energy = 0.5 * cs.MU_ARAR * g_sqr / cs.EV_TO_J
+            energy_index = min(int(energy / cs.DE_CS + 0.5), cs.CS_RANGES - 1)
+            nu = sim.sigma_tot_i[energy_index] * g
+            p_coll = 1.0 - math.exp(-nu * cs.DT_I)
+
+            if sim.rng.random() < p_coll:
+                collisions.collision_ion(sim, k, vx_a, vy_a, vz_a, energy_index)
+                sim.N_i_coll += 1
+            k += 1
 
 
 def step9_collect_xt_data(sim: SimulationState, t_index: int):

@@ -180,61 +180,139 @@ def step6_check_boundaries_ions(sim: SimulationState, t: int):
 
 
 def step7_collisions_electrons(sim: SimulationState):
-    vx = sim.vx_e[:sim.N_e]
-    vy = sim.vy_e[:sim.N_e]
-    vz = sim.vz_e[:sim.N_e]
+    if cs.USE_NULL_COLLISION:
+        if sim.N_e == 0:
+            return
+        N_coll_star = int(sim.rng.binomial(sim.N_e, sim.P_star_e))
+        if N_coll_star > sim.N_e:
+            N_coll_star = sim.N_e
+        if N_coll_star == 0:
+            return
 
-    v_sqr    = vx**2 + vy**2 + vz**2
-    velocity = np.sqrt(v_sqr)
-    energy   = 0.5 * cs.E_MASS * v_sqr / cs.EV_TO_J
-    e_idx    = np.minimum((energy / cs.DE_CS + 0.5).astype(np.int32), cs.CS_RANGES - 1)
+        candidates = sim.rng.choice(sim.N_e, size=N_coll_star, replace=False)
 
-    nu     = sim.sigma_tot_e[e_idx] * velocity
-    p_coll = 1.0 - np.exp(-nu * cs.DT_E)
+        vx = sim.vx_e[candidates]
+        vy = sim.vy_e[candidates]
+        vz = sim.vz_e[candidates]
 
-    rands     = sim.rng.random(sim.N_e)
-    colliding = np.where(rands < p_coll)[0]
+        v_sqr = vx**2 + vy**2 + vz**2
+        velocity = np.sqrt(v_sqr)
+        energy = 0.5 * cs.E_MASS * v_sqr / cs.EV_TO_J
+        e_idx = np.minimum((energy / cs.DE_CS + 0.5).astype(np.int32), cs.CS_RANGES - 1)
 
-    for k in colliding:
-        collisions.collision_electron(sim, int(k), int(e_idx[k]))
-        sim.N_e_coll += 1
+        real_nu = sim.sigma_tot_e[e_idx] * velocity
+        p_accept = real_nu / sim.nu_star_e
+        p_accept = np.minimum(p_accept, 1.0)
+
+        rands = sim.rng.random(N_coll_star)
+        accepted = rands < p_accept
+
+        for idx, is_accepted in enumerate(accepted):
+            if is_accepted:
+                k = candidates[idx]
+                collisions.collision_electron(sim, int(k), int(e_idx[idx]))
+                sim.N_e_coll += 1
+    else:
+        vx = sim.vx_e[:sim.N_e]
+        vy = sim.vy_e[:sim.N_e]
+        vz = sim.vz_e[:sim.N_e]
+
+        v_sqr    = vx**2 + vy**2 + vz**2
+        velocity = np.sqrt(v_sqr)
+        energy   = 0.5 * cs.E_MASS * v_sqr / cs.EV_TO_J
+        e_idx    = np.minimum((energy / cs.DE_CS + 0.5).astype(np.int32), cs.CS_RANGES - 1)
+
+        nu     = sim.sigma_tot_e[e_idx] * velocity
+        p_coll = 1.0 - np.exp(-nu * cs.DT_E)
+
+        rands     = sim.rng.random(sim.N_e)
+        colliding = np.where(rands < p_coll)[0]
+
+        for k in colliding:
+            collisions.collision_electron(sim, int(k), int(e_idx[k]))
+            sim.N_e_coll += 1
 
 
 def step8_collisions_ions(sim: SimulationState, t: int):
     if (t % cs.N_SUB) != 0:
         return
 
-    vx = sim.vx_i[:sim.N_i]
-    vy = sim.vy_i[:sim.N_i]
-    vz = sim.vz_i[:sim.N_i]
+    if cs.USE_NULL_COLLISION:
+        if sim.N_i == 0:
+            return
+        N_coll_star = int(sim.rng.binomial(sim.N_i, sim.P_star_i))
+        if N_coll_star > sim.N_i:
+            N_coll_star = sim.N_i
+        if N_coll_star == 0:
+            return
 
-    # Sample gas atom velocities for all ions at once
-    vx_a = sim.rng.normal(0.0, cs.NORMAL_DISTRIBUTION, sim.N_i)
-    vy_a = sim.rng.normal(0.0, cs.NORMAL_DISTRIBUTION, sim.N_i)
-    vz_a = sim.rng.normal(0.0, cs.NORMAL_DISTRIBUTION, sim.N_i)
+        candidates = sim.rng.choice(sim.N_i, size=N_coll_star, replace=False)
 
-    gx    = vx - vx_a
-    gy    = vy - vy_a
-    gz    = vz - vz_a
-    g_sqr = gx**2 + gy**2 + gz**2
-    g     = np.sqrt(g_sqr)
+        vx_a = sim.rng.normal(0.0, cs.NORMAL_DISTRIBUTION, N_coll_star)
+        vy_a = sim.rng.normal(0.0, cs.NORMAL_DISTRIBUTION, N_coll_star)
+        vz_a = sim.rng.normal(0.0, cs.NORMAL_DISTRIBUTION, N_coll_star)
 
-    energy = 0.5 * cs.MU_ARAR * g_sqr / cs.EV_TO_J
-    e_idx  = np.minimum((energy / cs.DE_CS + 0.5).astype(np.int32), cs.CS_RANGES - 1)
+        vx = sim.vx_i[candidates]
+        vy = sim.vy_i[candidates]
+        vz = sim.vz_i[candidates]
 
-    nu     = sim.sigma_tot_i[e_idx] * g
-    p_coll = 1.0 - np.exp(-nu * cs.DT_I)
+        gx = vx - vx_a
+        gy = vy - vy_a
+        gz = vz - vz_a
+        g_sqr = gx**2 + gy**2 + gz**2
+        g = np.sqrt(g_sqr)
 
-    rands     = sim.rng.random(sim.N_i)
-    colliding = np.where(rands < p_coll)[0]
+        energy = 0.5 * cs.MU_ARAR * g_sqr / cs.EV_TO_J
+        e_idx = np.minimum((energy / cs.DE_CS + 0.5).astype(np.int32), cs.CS_RANGES - 1)
 
-    for k in colliding:
-        collisions.collision_ion(
-            sim, int(k),
-            float(vx_a[k]), float(vy_a[k]), float(vz_a[k]),
-            int(e_idx[k])
-        )
-        sim.N_i_coll += 1
+        real_nu = sim.sigma_tot_i[e_idx] * g
+        p_accept = real_nu / sim.nu_star_i
+        p_accept = np.minimum(p_accept, 1.0)
+
+        rands = sim.rng.random(N_coll_star)
+        accepted = rands < p_accept
+
+        for idx, is_accepted in enumerate(accepted):
+            if is_accepted:
+                k = candidates[idx]
+                collisions.collision_ion(
+                    sim, int(k),
+                    float(vx_a[idx]), float(vy_a[idx]), float(vz_a[idx]),
+                    int(e_idx[idx])
+                )
+                sim.N_i_coll += 1
+    else:
+        vx = sim.vx_i[:sim.N_i]
+        vy = sim.vy_i[:sim.N_i]
+        vz = sim.vz_i[:sim.N_i]
+
+        # Sample gas atom velocities for all ions at once
+        vx_a = sim.rng.normal(0.0, cs.NORMAL_DISTRIBUTION, sim.N_i)
+        vy_a = sim.rng.normal(0.0, cs.NORMAL_DISTRIBUTION, sim.N_i)
+        vz_a = sim.rng.normal(0.0, cs.NORMAL_DISTRIBUTION, sim.N_i)
+
+        gx    = vx - vx_a
+        gy    = vy - vy_a
+        gz    = vz - vz_a
+        g_sqr = gx**2 + gy**2 + gz**2
+        g     = np.sqrt(g_sqr)
+
+        energy = 0.5 * cs.MU_ARAR * g_sqr / cs.EV_TO_J
+        e_idx  = np.minimum((energy / cs.DE_CS + 0.5).astype(np.int32), cs.CS_RANGES - 1)
+
+        nu     = sim.sigma_tot_i[e_idx] * g
+        p_coll = 1.0 - np.exp(-nu * cs.DT_I)
+
+        rands     = sim.rng.random(sim.N_i)
+        colliding = np.where(rands < p_coll)[0]
+
+        for k in colliding:
+            collisions.collision_ion(
+                sim, int(k),
+                float(vx_a[k]), float(vy_a[k]), float(vz_a[k]),
+                int(e_idx[k])
+            )
+            sim.N_i_coll += 1
 
 
 def step9_collect_xt_data(sim: SimulationState, t_index: int):

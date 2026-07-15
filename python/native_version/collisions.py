@@ -2,6 +2,19 @@ import constants as cs
 from state import SimulationState
 import math
 
+def compute_null_collision_params(sim: SimulationState):
+    """
+    Obliczanie parametrów metody Null-Collision (nu* oraz P*) dla elektronów i jonów.
+    """
+    sim.nu_star_e = max_electron_coll_freq(sim)
+    sim.P_star_e  = 1.0 - math.exp(-sim.nu_star_e * cs.DT_E)
+
+    sim.nu_star_i = max_ion_coll_freq(sim)
+    sim.P_star_i  = 1.0 - math.exp(-sim.nu_star_i * cs.DT_I)
+
+    print(f">> GoPIC (Native): null-collision: nu*_e = {sim.nu_star_e:.6e}, P*_e = {sim.P_star_e:.6e}")
+    print(f">> GoPIC (Native): null-collision: nu*_i = {sim.nu_star_i:.6e}, P*_i = {sim.P_star_i:.6e}")
+
 def max_electron_coll_freq (sim: SimulationState) -> float:
     """
     Znajdowanie górnego limitu częstości kolizji dla elektronów

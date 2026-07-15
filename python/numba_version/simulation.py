@@ -220,6 +220,17 @@ def step6_check_boundaries_ions(x_i, vx_i, vy_i, vz_i, N_i, L,
 
 
 @numba.njit(cache=True)
+def random_sample_numba(n, count):
+    pool = np.arange(n)
+    for i in range(count):
+        j = i + np.random.randint(0, n - i)
+        temp = pool[i]
+        pool[i] = pool[j]
+        pool[j] = temp
+    return pool[:count]
+
+
+@numba.njit(cache=True)
 def step7_collisions_electrons(x_e, vx_e, vy_e, vz_e, N_e,
                                  x_i, vx_i, vy_i, vz_i, N_i,
                                  sigma, sigma_tot_e,
@@ -228,30 +239,63 @@ def step7_collisions_electrons(x_e, vx_e, vy_e, vz_e, N_e,
                                  F1, F2, PI, TWO_PI,
                                  E_EXC_TH, E_ION_TH,
                                  E_ELA, E_EXC, E_ION,
-                                 AR_MASS):
+                                 AR_MASS,
+                                 use_null_collision, nu_star_e, P_star_e):
     """
     Sequential loop — ionization events grow N_e and N_i.
     Cannot use prange here.
     """
     N_e_coll = 0
-    for k in range(N_e):
-        v_sqr    = vx_e[k]**2 + vy_e[k]**2 + vz_e[k]**2
-        velocity = math.sqrt(v_sqr)
-        energy   = 0.5 * E_MASS * v_sqr / EV_TO_J
-        e_idx    = min(int(energy / DE_CS + 0.5), CS_RANGES - 1)
-        nu       = sigma_tot_e[e_idx] * velocity
-        p_coll   = 1.0 - math.exp(-nu * DT_E)
+    if use_null_collision:
+        if N_e == 0:
+            return N_e, N_i, N_e_coll
+        N_coll_star = int(np.random.binomial(N_e, P_star_e))
+        if N_coll_star > N_e:
+            N_coll_star = N_e
+        if N_coll_star == 0:
+            return N_e, N_i, N_e_coll
 
-        if np.random.uniform(0.0, 1.0) < p_coll:
-            N_e, N_i = collision_electron(
-                k, x_e, vx_e, vy_e, vz_e, N_e,
-                x_i, vx_i, vy_i, vz_i, N_i,
-                sigma, e_idx,
-                F1, F2, PI, TWO_PI, E_MASS, AR_MASS,
-                E_EXC_TH, E_ION_TH, EV_TO_J,
-                NORMAL_DISTRIBUTION, E_ELA, E_EXC, E_ION
-            )
-            N_e_coll += 1
+        candidates = random_sample_numba(N_e, N_coll_star)
+        for idx in range(N_coll_star):
+            k = candidates[idx]
+            v_sqr    = vx_e[k]**2 + vy_e[k]**2 + vz_e[k]**2
+            velocity = math.sqrt(v_sqr)
+            energy   = 0.5 * E_MASS * v_sqr / EV_TO_J
+            e_idx    = min(int(energy / DE_CS + 0.5), CS_RANGES - 1)
+            real_nu  = sigma_tot_e[e_idx] * velocity
+            p_accept = real_nu / nu_star_e
+            if p_accept > 1.0:
+                p_accept = 1.0
+
+            if np.random.uniform(0.0, 1.0) < p_accept:
+                N_e, N_i = collision_electron(
+                    k, x_e, vx_e, vy_e, vz_e, N_e,
+                    x_i, vx_i, vy_i, vz_i, N_i,
+                    sigma, e_idx,
+                    F1, F2, PI, TWO_PI, E_MASS, AR_MASS,
+                    E_EXC_TH, E_ION_TH, EV_TO_J,
+                    NORMAL_DISTRIBUTION, E_ELA, E_EXC, E_ION
+                )
+                N_e_coll += 1
+    else:
+        for k in range(N_e):
+            v_sqr    = vx_e[k]**2 + vy_e[k]**2 + vz_e[k]**2
+            velocity = math.sqrt(v_sqr)
+            energy   = 0.5 * E_MASS * v_sqr / EV_TO_J
+            e_idx    = min(int(energy / DE_CS + 0.5), CS_RANGES - 1)
+            nu       = sigma_tot_e[e_idx] * velocity
+            p_coll   = 1.0 - math.exp(-nu * DT_E)
+
+            if np.random.uniform(0.0, 1.0) < p_coll:
+                N_e, N_i = collision_electron(
+                    k, x_e, vx_e, vy_e, vz_e, N_e,
+                    x_i, vx_i, vy_i, vz_i, N_i,
+                    sigma, e_idx,
+                    F1, F2, PI, TWO_PI, E_MASS, AR_MASS,
+                    E_EXC_TH, E_ION_TH, EV_TO_J,
+                    NORMAL_DISTRIBUTION, E_ELA, E_EXC, E_ION
+                )
+                N_e_coll += 1
 
     return N_e, N_i, N_e_coll
 
@@ -262,35 +306,74 @@ def step8_collisions_ions(vx_i, vy_i, vz_i, N_i,
                             DT_I, DE_CS, CS_RANGES, AR_MASS, MU_ARAR, EV_TO_J,
                             NORMAL_DISTRIBUTION, PI, TWO_PI,
                             I_ISO, I_BACK,
-                            t, N_SUB):
+                            t, N_SUB,
+                            use_null_collision, nu_star_i, P_star_i):
     if t % N_SUB != 0:
         return 0
 
     N_i_coll = 0
-    for k in range(N_i):
-        vx_a = np.random.normal(0.0, NORMAL_DISTRIBUTION)
-        vy_a = np.random.normal(0.0, NORMAL_DISTRIBUTION)
-        vz_a = np.random.normal(0.0, NORMAL_DISTRIBUTION)
+    if use_null_collision:
+        if N_i == 0:
+            return N_i_coll
+        N_coll_star = int(np.random.binomial(N_i, P_star_i))
+        if N_coll_star > N_i:
+            N_coll_star = N_i
+        if N_coll_star == 0:
+            return N_i_coll
 
-        gx    = vx_i[k] - vx_a
-        gy    = vy_i[k] - vy_a
-        gz    = vz_i[k] - vz_a
-        g_sqr = gx*gx + gy*gy + gz*gz
-        g     = math.sqrt(g_sqr)
+        candidates = random_sample_numba(N_i, N_coll_star)
+        for idx in range(N_coll_star):
+            k = candidates[idx]
+            vx_a = np.random.normal(0.0, NORMAL_DISTRIBUTION)
+            vy_a = np.random.normal(0.0, NORMAL_DISTRIBUTION)
+            vz_a = np.random.normal(0.0, NORMAL_DISTRIBUTION)
 
-        energy = 0.5 * MU_ARAR * g_sqr / EV_TO_J
-        e_idx  = min(int(energy / DE_CS + 0.5), CS_RANGES - 1)
-        nu     = sigma_tot_i[e_idx] * g
-        p_coll = 1.0 - math.exp(-nu * DT_I)
+            gx    = vx_i[k] - vx_a
+            gy    = vy_i[k] - vy_a
+            gz    = vz_i[k] - vz_a
+            g_sqr = gx*gx + gy*gy + gz*gz
+            g     = math.sqrt(g_sqr)
 
-        if np.random.uniform(0.0, 1.0) < p_coll:
-            collision_ion(
-                k, vx_i, vy_i, vz_i,
-                vx_a, vy_a, vz_a,
-                sigma, e_idx,
-                PI, TWO_PI, I_ISO, I_BACK
-            )
-            N_i_coll += 1
+            energy = 0.5 * MU_ARAR * g_sqr / EV_TO_J
+            e_idx  = min(int(energy / DE_CS + 0.5), CS_RANGES - 1)
+            real_nu = sigma_tot_i[e_idx] * g
+            p_accept = real_nu / nu_star_i
+            if p_accept > 1.0:
+                p_accept = 1.0
+
+            if np.random.uniform(0.0, 1.0) < p_accept:
+                collision_ion(
+                    k, vx_i, vy_i, vz_i,
+                    vx_a, vy_a, vz_a,
+                    sigma, e_idx,
+                    PI, TWO_PI, I_ISO, I_BACK
+                )
+                N_i_coll += 1
+    else:
+        for k in range(N_i):
+            vx_a = np.random.normal(0.0, NORMAL_DISTRIBUTION)
+            vy_a = np.random.normal(0.0, NORMAL_DISTRIBUTION)
+            vz_a = np.random.normal(0.0, NORMAL_DISTRIBUTION)
+
+            gx    = vx_i[k] - vx_a
+            gy    = vy_i[k] - vy_a
+            gz    = vz_i[k] - vz_a
+            g_sqr = gx*gx + gy*gy + gz*gz
+            g     = math.sqrt(g_sqr)
+
+            energy = 0.5 * MU_ARAR * g_sqr / EV_TO_J
+            e_idx  = min(int(energy / DE_CS + 0.5), CS_RANGES - 1)
+            nu     = sigma_tot_i[e_idx] * g
+            p_coll = 1.0 - math.exp(-nu * DT_I)
+
+            if np.random.uniform(0.0, 1.0) < p_coll:
+                collision_ion(
+                    k, vx_i, vy_i, vz_i,
+                    vx_a, vy_a, vz_a,
+                    sigma, e_idx,
+                    PI, TWO_PI, I_ISO, I_BACK
+                )
+                N_i_coll += 1
 
     return N_i_coll
 
@@ -370,7 +453,8 @@ def do_one_cycle(sim: SimulationState, datafile_path: str = "conv.dat"):
             cs.DT_E, cs.DE_CS, cs.CS_RANGES, cs.E_MASS, cs.EV_TO_J,
             cs.NORMAL_DISTRIBUTION, cs.F1, cs.F2, cs.PI, cs.TWO_PI,
             cs.E_EXC_TH, cs.E_ION_TH, cs.E_ELA, cs.E_EXC, cs.E_ION,
-            cs.AR_MASS
+            cs.AR_MASS,
+            cs.USE_NULL_COLLISION, sim.nu_star_e, sim.P_star_e
         )
         sim.N_e_coll += coll
 
@@ -379,7 +463,8 @@ def do_one_cycle(sim: SimulationState, datafile_path: str = "conv.dat"):
             sim.sigma, sim.sigma_tot_i,
             cs.DT_I, cs.DE_CS, cs.CS_RANGES, cs.AR_MASS, cs.MU_ARAR, cs.EV_TO_J,
             cs.NORMAL_DISTRIBUTION, cs.PI, cs.TWO_PI, cs.I_ISO, cs.I_BACK,
-            t, cs.N_SUB
+            t, cs.N_SUB,
+            cs.USE_NULL_COLLISION, sim.nu_star_i, sim.P_star_i
         )
         sim.N_i_coll += coll
 

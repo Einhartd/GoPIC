@@ -69,6 +69,12 @@ type SimulationState struct {
 
 	Rng   *rand.Rand       // RNG instance dedicated to this simulation state
 	MtSrc *mt19937.MT19937 // Underlying mt19937 source for state serialization
+
+	// Null-collision precomputed parameters
+	NuStarE float64
+	PStarE  float64
+	NuStarI float64
+	PStarI  float64
 }
 
 // NewSimulationState creates and initializes a SimulationState with mt19937 RNG.

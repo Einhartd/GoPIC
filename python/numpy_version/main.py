@@ -65,6 +65,10 @@ def main():
     cross_sections.set_ion_cross_sections_ar(sim)
     cross_sections.calc_total_cross_sections(sim)
 
+    if cs.USE_NULL_COLLISION:
+        import collisions
+        collisions.compute_null_collision_params(sim)
+
     if arg1 == 0:
         # Zabezpieczenie przed przypadkowym nadpisaniem
         if os.path.exists("picdata.bin"):
