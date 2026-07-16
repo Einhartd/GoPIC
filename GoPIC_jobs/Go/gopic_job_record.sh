@@ -75,6 +75,12 @@ fi
 
 cd "${DATA_DIR}"
 
+# Zapewnienie uprawnień wykonywalnych dla binarium
+chmod +x "${BINARY}"
+
+# -------------------------------------------------------------------
+# INICJALIZACJA
+# -------------------------------------------------------------------
 if [ ! -f "picdata.bin" ]; then
     echo ">> Brak pliku picdata.bin. Uruchamiam fazę inicjalizacji..."
     "${BINARY}" 0

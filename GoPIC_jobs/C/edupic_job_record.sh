@@ -63,6 +63,9 @@ fi
 
 cd "${DATA_DIR}"
 
+# Zapewnienie uprawnień wykonywalnych dla binarium
+chmod +x "${BINARY}"
+
 echo ">> Uruchamiam fazę inicjalizacji..."
 "${BINARY}" 0
 

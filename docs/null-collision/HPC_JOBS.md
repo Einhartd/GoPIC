@@ -63,3 +63,4 @@ sbatch --export=ALL,USE_NULL_COLLISION=true GoPIC_jobs/python/pypic_stat.sh
 ## 4. Wykaz naprawionych błędów w skryptach
 *   **Poprawka ścieżki profilu Python**: Naprawiłem błąd ścieżki w plikach `pypic_record.sh` oraz `pypic_stat.sh`, w których skrypty błędnie odwoływały się do nieistniejącego folderu `PyPIC_jobs/pypic.profile` (prawidłowa ścieżka to `GoPIC_jobs/python/pypic.profile`).
 *   **Bezpieczeństwo współbieżności**: Wersje C oraz Go kompilują teraz unikalne nazwy plików tymczasowych zawierające `${SLURM_JOB_ID}`, zapobiegając uszkodzeniu binariów w przypadku jednoczesnego zlecenia wielu zadań.
+*   **Uprawnienia do uruchamiania (Permission denied)**: Dodano wymuszenie nadania uprawnień wykonywalnych (`chmod +x`) dla kompilowanych plików binarnych C oraz Go bezpośrednio przed ich wywołaniem w zadaniu. Zapobiega to błędom uprawnień na środowiskach sieciowych (NFS) węzłów obliczeniowych.
