@@ -16,7 +16,7 @@ mkdir -p "${LOG_DIR}"
 
 exec > "${LOG_DIR}/job_output.log" 2>&1
 
-SOURCE_DIR="$HOME/GoPIC/Go"
+SOURCE_DIR="$HOME/GoPIC/Go/native_version"
 BUILD_DIR="$HOME/GoPIC_build/Go"
 DATA_DIR="${LOG_DIR}/edupic_data"
 

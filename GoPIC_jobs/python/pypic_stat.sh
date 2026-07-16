@@ -20,9 +20,9 @@ exec > "${LOG_DIR}/job_output.log" 2>&1
 
 
 #   WSKAZANIE WERSJI PYTHONA DO URUCHOMIENIA
-PYTHON_VERSION_DIR="${WORK_DIR}/GoPIC/python/native_version"
+#PYTHON_VERSION_DIR="${WORK_DIR}/GoPIC/python/native_version"
 
-# PYTHON_VERSION_DIR="${WORK_DIR}/GoPIC/python/numba_version"
+PYTHON_VERSION_DIR="${WORK_DIR}/GoPIC/python/numba_version"
 
 #PYTHON_VERSION_DIR="${WORK_DIR}/GoPIC/python/numpy_version"
 
@@ -36,11 +36,11 @@ DATA_DIR="${LOG_DIR}/edupic_data"
 
 mkdir -p "${DATA_DIR}"
 
-if [ -f "${WORK_DIR}/GoPIC_jobs/python/pypic.profile" ]; then
+if [ -f "${WORK_DIR}/GoPIC/GoPIC_jobs/python/pypic.profile" ]; then
     echo ">> Wczytuję profil środowiska GoPIC..."
-    source "${WORK_DIR}/GoPIC_jobs/python/pypic.profile"
+    source "${WORK_DIR}/GoPIC/GoPIC_jobs/python/pypic.profile"
 else
-    echo ">> Błąd: plik GoPIC_jobs/python/pypic.profile nie został znaleziony!"
+    echo ">> Błąd: plik GoPIC/GoPIC_jobs/python/pypic.profile nie został znaleziony!"
     exit 1
 fi
 
