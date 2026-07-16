@@ -55,15 +55,14 @@ go mod tidy
 
 export GOAMD64=v4 
 
-if [ ! -f "${BUILD_DIR}/edupic_go_std" ]; then
-    echo ">> Kompiluję kod Go (wersja Standard)..."
-    go build -o "${BUILD_DIR}/edupic_go_std" .
-fi
+# Usuwamy stare pliki, aby wymusić poprawną kompilację wykonywalną
+rm -f "${BUILD_DIR}/edupic_go_std" "${BUILD_DIR}/edupic_go_nc"
 
-if [ ! -f "${BUILD_DIR}/edupic_go_nc" ]; then
-    echo ">> Kompiluję kod Go (wersja Null-Collision)..."
-    go build -tags nullcollision -o "${BUILD_DIR}/edupic_go_nc" .
-fi
+echo ">> Kompiluję kod Go (wersja Standard)..."
+go build -o "${BUILD_DIR}/edupic_go_std" ./cmd/pic
+
+echo ">> Kompiluję kod Go (wersja Null-Collision)..."
+go build -tags nullcollision -o "${BUILD_DIR}/edupic_go_nc" ./cmd/pic
 
 if [ "${USE_NULL_COLLISION}" = "true" ] || [ "${USE_NULL_COLLISION}" = "1" ]; then
     echo ">> [Null-Collision] Wybrano wersję zoptymalizowaną"
