@@ -29,12 +29,20 @@ DATA_DIR="${LOG_DIR}/edupic_data"
 
 mkdir -p "${DATA_DIR}"
 
-if [ -f "${WORK_DIR}/PyPIC_jobs/pypic.profile" ]; then
+if [ -f "${WORK_DIR}/GoPIC_jobs/python/pypic.profile" ]; then
     echo ">> Wczytuję profil środowiska GoPIC..."
-    source "${WORK_DIR}/PyPIC_jobs/pypic.profile"
+    source "${WORK_DIR}/GoPIC_jobs/python/pypic.profile"
 else
-    echo ">> Błąd: plik PyPIC_jobs/pypic.profile nie został znaleziony!"
+    echo ">> Błąd: plik GoPIC_jobs/python/pypic.profile nie został znaleziony!"
     exit 1
+fi
+
+if [ "${USE_NULL_COLLISION}" = "true" ] || [ "${USE_NULL_COLLISION}" = "1" ]; then
+    echo ">> [Null-Collision] Wybrano wersję zoptymalizowaną (USE_NULL_COLLISION=true)"
+    export USE_NULL_COLLISION="true"
+else
+    echo ">> [Standard] Wybrano wersję klasyczną (USE_NULL_COLLISION=false)"
+    export USE_NULL_COLLISION="false"
 fi
 
 # Python 3.12+ wspiera profilowanie przez perf za pomocą tej zmiennej środowiskowej

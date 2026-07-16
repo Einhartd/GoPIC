@@ -1,5 +1,6 @@
 from typing import Final
 import math
+import os
 
 
 #   CONSTANTS
@@ -119,7 +120,7 @@ N_XT: Final[int]                = N_T // N_BIN
 
 NORMAL_DISTRIBUTION: Final[float]      = math.sqrt(K_BOLTZMANN * TEMPERATURE / AR_MASS)
 
-USE_NULL_COLLISION: Final[bool]        = False
+USE_NULL_COLLISION: Final[bool]        = os.environ.get("USE_NULL_COLLISION", "False").lower() in ("true", "1", "yes")
 """flag to switch between standard and null-collision methods"""
 
 #   TYPE ALIASES

@@ -43,37 +43,41 @@ NODE_INFO_FILE="${LOG_DIR}/hardware_topology.txt"
 # KOMPILACJA GO
 # -------------------------------------------------------------------
 
-if [ ! -f "${BUILD_DIR}/edupic_go" ]; then
-    echo ">> Kompiluję kod Go z ${SOURCE_DIR}..."
-    cd "${SOURCE_DIR}"
-    
-    # 1. Automatyczna inicjalizacja modułu Go (tworzy plik go.mod)
-    if [ ! -f "go.mod" ]; then
-        echo ">> Brak pliku go.mod. Inicjalizuję nowy moduł Go..."
-        go mod init edupic
-    fi
-
-    echo ">> Pobieram brakujące biblioteki (go mod tidy)..."
-    go get github.com/seehuhn/mt19937
-    go mod tidy
-    
-    # Super-wskazówka dla AMD EPYC (Zen 4):
-    export GOAMD64=v4 
-    
-    # 2. POPRAWKA: Zmiana nazwy pliku wyjściowego z 'main' na 'edupic_go'
-    go build -o "${BUILD_DIR}/edupic_go" .
-    echo ">> Kompilacja Go zakończona."
+cd "${SOURCE_DIR}"
+if [ ! -f "go.mod" ]; then
+    echo ">> Brak pliku go.mod. Inicjalizuję nowy moduł Go..."
+    go mod init edupic
 fi
 
-# Przejście do folderu roboczego
+echo ">> Pobieram brakujące biblioteki (go mod tidy)..."
+go get github.com/seehuhn/mt19937
+go mod tidy
+
+export GOAMD64=v4 
+
+if [ ! -f "${BUILD_DIR}/edupic_go_std" ]; then
+    echo ">> Kompiluję kod Go (wersja Standard)..."
+    go build -o "${BUILD_DIR}/edupic_go_std" .
+fi
+
+if [ ! -f "${BUILD_DIR}/edupic_go_nc" ]; then
+    echo ">> Kompiluję kod Go (wersja Null-Collision)..."
+    go build -tags nullcollision -o "${BUILD_DIR}/edupic_go_nc" .
+fi
+
+if [ "${USE_NULL_COLLISION}" = "true" ] || [ "${USE_NULL_COLLISION}" = "1" ]; then
+    echo ">> [Null-Collision] Wybrano wersję zoptymalizowaną"
+    BINARY="${BUILD_DIR}/edupic_go_nc"
+else
+    echo ">> [Standard] Wybrano wersję klasyczną"
+    BINARY="${BUILD_DIR}/edupic_go_std"
+fi
+
 cd "${DATA_DIR}"
 
-# -------------------------------------------------------------------
-# INICJALIZACJA
-# -------------------------------------------------------------------
 if [ ! -f "picdata.bin" ]; then
     echo ">> Brak pliku picdata.bin. Uruchamiam fazę inicjalizacji..."
-    "${BUILD_DIR}/edupic_go" 0
+    "${BINARY}" 0
     echo ">> Inicjalizacja zakończona."
 else
     echo ">> Znaleziono picdata.bin. Pomijam inicjalizację."
@@ -83,7 +87,7 @@ fi
 # WŁAŚCIWE SYMULACJE I PROFILOWANIE
 # -------------------------------------------------------------------
 
-perf record -F 99 -g -o "${DATA_DIR}/perf_${SLURM_JOB_ID}.data" -- "${BUILD_DIR}/edupic_go" 1000 m
+perf record -F 99 -g -o "${DATA_DIR}/perf_${SLURM_JOB_ID}.data" -- "${BINARY}" 1000 m
 
 echo ">> Konwertuję logi perf record do formatu tekstowego..."
 perf report -i "${DATA_DIR}/perf_${SLURM_JOB_ID}.data" --stdio > "${DATA_DIR}/perf_report.txt"

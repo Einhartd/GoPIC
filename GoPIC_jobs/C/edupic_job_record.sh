@@ -41,20 +41,33 @@ NODE_INFO_FILE="${LOG_DIR}/hardware_topology.txt"
 
 
 module load gcc
-if [ ! -f "${BUILD_DIR}/edupic_c" ]; then
-    echo ">> Kompiluję kod C++..."
-    g++ -O3 -fno-omit-frame-pointer -march=native "${SOURCE_DIR}/eduPIC.cc" -o "${BUILD_DIR}/edupic_tmp_${SLURM_JOB_ID}"
-    mv "${BUILD_DIR}/edupic_tmp_${SLURM_JOB_ID}" "${BUILD_DIR}/edupic_c"
+if [ ! -f "${BUILD_DIR}/edupic_c_std" ]; then
+    echo ">> Kompiluję kod C++ (wersja Standard)..."
+    g++ -O3 -fno-omit-frame-pointer -march=native "${SOURCE_DIR}/eduPIC.cc" -o "${BUILD_DIR}/edupic_tmp_std_${SLURM_JOB_ID}"
+    mv "${BUILD_DIR}/edupic_tmp_std_${SLURM_JOB_ID}" "${BUILD_DIR}/edupic_c_std"
+fi
+
+if [ ! -f "${BUILD_DIR}/edupic_c_nc" ]; then
+    echo ">> Kompiluję kod C++ (wersja Null-Collision)..."
+    g++ -O3 -fno-omit-frame-pointer -march=native -DUSE_NULL_COLLISION "${SOURCE_DIR}/eduPIC.cc" -o "${BUILD_DIR}/edupic_tmp_nc_${SLURM_JOB_ID}"
+    mv "${BUILD_DIR}/edupic_tmp_nc_${SLURM_JOB_ID}" "${BUILD_DIR}/edupic_c_nc"
+fi
+
+if [ "${USE_NULL_COLLISION}" = "true" ] || [ "${USE_NULL_COLLISION}" = "1" ]; then
+    echo ">> [Null-Collision] Wybrano wersję zoptymalizowaną"
+    BINARY="${BUILD_DIR}/edupic_c_nc"
+else
+    echo ">> [Standard] Wybrano wersję klasyczną"
+    BINARY="${BUILD_DIR}/edupic_c_std"
 fi
 
 cd "${DATA_DIR}"
 
 echo ">> Uruchamiam fazę inicjalizacji..."
-"${BUILD_DIR}/edupic_c" 0
+"${BINARY}" 0
 
 echo ">> Uruchamianie pomiaru drzewa wywołań (perf record)..."
-#perf record -g -o "${DATA_DIR}/perf_${SLURM_JOB_ID}.data" -- "${BUILD_DIR}/edupic_c" 1000 m
-perf record -F 99 -g -o "${DATA_DIR}/perf_${SLURM_JOB_ID}.data" -- "${BUILD_DIR}/edupic_c" 1000 m
+perf record -F 99 -g -o "${DATA_DIR}/perf_${SLURM_JOB_ID}.data" -- "${BINARY}" 1000 m
 
 echo ">> Konwertuję logi perf record do formatu tekstowego..."
 perf report -i "${DATA_DIR}/perf_${SLURM_JOB_ID}.data" --stdio > "${DATA_DIR}/perf_report.txt"
