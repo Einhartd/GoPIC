@@ -3,6 +3,7 @@
 #include "poisson.h"
 #include "collisions.h"
 #include <cmath>
+#include <omp.h>
 
 #ifdef USE_NULL_COLLISION
 #include "null_collision.h"
@@ -25,11 +26,11 @@ inline void step1_compute_electron_density(void){
     int k, p;
     double c0;
 
-    // step 1a: compute electron density at grid points - computed in every time step
     //  Zerowanie tablicy gestosci
     for(p=0; p<N_G; p++) e_density[p] = 0;
 
     //  Depozycja: kazdy elektron dodaje ladunek do dwoch sasiednich wezlow
+    #pragma omp parallel for reduction(+:e_density[0:N_G]) private(k, p, c0)
     for(k=0; k<N_e; k++){
         c0 = x_e[k] * INV_DX;
         p  = int(c0);
@@ -39,6 +40,7 @@ inline void step1_compute_electron_density(void){
     //  Korekcja brzegowa
     e_density[0]     *= 2.0;
     e_density[N_G-1] *= 2.0;
+
     //  Akumulacja dla usredniania
     for(p=0; p<N_G; p++) cumul_e_density[p] += e_density[p];
 }
@@ -46,18 +48,22 @@ inline void step1_compute_electron_density(void){
 inline void step1_compute_ion_density(int t){    
     int k, p;
     double c0;
-
-    if ((t % N_SUB) == 0) {                                            // ion density - computed in every N_SUB-th time steps (subcycling)
+    // ion density - computed in every N_SUB-th time steps (subcycling)
+    if ((t % N_SUB) == 0) {
         for(p=0; p<N_G; p++) i_density[p] = 0;
+
+        #pragma omp parallel for reduction(+:i_density[0:N_G]) private(k, p, c0)
         for(k=0; k<N_i; k++){
             c0 = x_i[k] * INV_DX;
             p  = int(c0);
             i_density[p]   += (p + 1 - c0) * FACTOR_W;  
             i_density[p+1] += (c0 - p) * FACTOR_W;
         }
+
         i_density[0]     *= 2.0;
         i_density[N_G-1] *= 2.0;
     }
+
     for(p=0; p<N_G; p++) cumul_i_density[p] += i_density[p];
 }
 
@@ -66,15 +72,19 @@ inline void step2_solve_poisson(double current_time){
     // step 2: solve Poisson equation
     for(int p=0; p<N_G; p++){
         rho[p] = E_CHARGE * (i_density[p] - e_density[p]);  // get charge density
-    }  
-    solve_Poisson(rho,Time);                                // compute potential and electric field
+    }
+    // compute potential and electric field
+    solve_Poisson(rho,Time);
 }
 
 inline void step3_move_electrons(int t_index){
-    int k, p, energy_index;
-    double c0, c1, c2, e_x, mean_v, v_sqr, energy, velocity, rate;
 
-    for(k=0; k<N_e; k++){                       // move all electrons in every time step
+
+    // move all electrons in every time step
+    #pragma omp parallel for reduction(+:mean_energy_accu_center, mean_energy_counter_center)
+    for(int k=0; k<N_e; k++){
+        int p, energy_index;
+        double c0, c1, c2, e_x, mean_v, v_sqr, energy, velocity, rate;
 
         //  Interpolacja pola E na pozycje elektronu
         c0  = x_e[k] * INV_DX;
@@ -88,24 +98,41 @@ inline void step3_move_electrons(int t_index){
             
             // measurements: 'x' and 'v' are needed at the same time, i.e. old 'x' and mean 'v'
             mean_v = vx_e[k] - 0.5 * e_x * FACTOR_E;
+            
+            #pragma omp atomic
             counter_e_xt[p][t_index]   += c1;
+            #pragma omp atomic
             counter_e_xt[p+1][t_index] += c2;
+            
+            #pragma omp atomic
             ue_xt[p][t_index]   += c1 * mean_v;
+            #pragma omp atomic
             ue_xt[p+1][t_index] += c2 * mean_v;
+
             v_sqr  = mean_v * mean_v + vy_e[k] * vy_e[k] + vz_e[k] * vz_e[k];
             energy = 0.5 * E_MASS * v_sqr / EV_TO_J;
+
+            #pragma omp atomic
             meanee_xt[p][t_index]   += c1 * energy;
+            #pragma omp atomic
             meanee_xt[p+1][t_index] += c2 * energy;
+
             energy_index = min( int(energy / DE_CS + 0.5), CS_RANGES-1);
             velocity = sqrt(v_sqr);
             rate = sigma[E_ION][energy_index] * velocity * DT_E * GAS_DENSITY;
+
+            #pragma omp atomic
             ioniz_rate_xt[p][t_index]   += c1 * rate;
+            #pragma omp atomic
             ioniz_rate_xt[p+1][t_index] += c2 * rate;
 
             // measure EEPF in the center
             if ((MIN_X < x_e[k]) && (x_e[k] < MAX_X)){
                 energy_index = (int)(energy / DE_EEPF);
-                if (energy_index < N_EEPF) {eepf[energy_index] += 1.0;}
+                if (energy_index < N_EEPF) {
+                    #pragma omp atomic
+                    eepf[energy_index] += 1.0;
+                }
                 mean_energy_accu_center += energy;
                 mean_energy_counter_center++;
             }
@@ -120,10 +147,11 @@ inline void step3_move_electrons(int t_index){
 inline void step4_move_ions(int t_index, int t){
     if ((t % N_SUB) != 0) return;
 
-    int k, p;
-    double c0, c1, c2, e_x, mean_v, v_sqr, energy;
+    #pragma omp parallel for
+    for(int k=0; k<N_i; k++){
+        int p;
+        double c0, c1, c2, e_x, mean_v, v_sqr, energy;
 
-    for(k=0; k<N_i; k++){
         c0  = x_i[k] * INV_DX;
         p   = int(c0);
         c1  = p + 1 - c0;
@@ -133,13 +161,22 @@ inline void step4_move_ions(int t_index, int t){
         if (measurement_mode) {
             // measurements: 'x' and 'v' are needed at the same time, i.e. old 'x' and mean 'v'
             mean_v = vx_i[k] + 0.5 * e_x * FACTOR_I;
+            #pragma omp atomic
             counter_i_xt[p][t_index]   += c1;
+            #pragma omp atomic
             counter_i_xt[p+1][t_index] += c2;
+
+            #pragma omp atomic
             ui_xt[p][t_index]   += c1 * mean_v;
+            #pragma omp atomic
             ui_xt[p+1][t_index] += c2 * mean_v;
+
             v_sqr  = mean_v * mean_v + vy_i[k] * vy_i[k] + vz_i[k] * vz_i[k];
             energy = 0.5 * AR_MASS * v_sqr / EV_TO_J;
+
+            #pragma omp atomic
             meanei_xt[p][t_index]   += c1 * energy;
+            #pragma omp atomic
             meanei_xt[p+1][t_index] += c2 * energy;
         }
     
@@ -150,60 +187,203 @@ inline void step4_move_ions(int t_index, int t){
 }
 
 inline void step5_check_boundaries_electrons(){
-    int k = 0;
-    bool out;
-    while(k < N_e) {    // check boundaries for all electrons in every time step
-        out = false;
-        if (x_e[k] < 0) {N_e_abs_pow++; out = true;}    // the electron is out at the powered electrode
-        if (x_e[k] > L) {N_e_abs_gnd++; out = true;}    // the electron is out at the grounded electrode
-        if (out) {                                      // remove the electron, if out
-            //  Algorytm 'swap z ostatnim'
-            x_e [k] = x_e [N_e-1];
-            vx_e[k] = vx_e[N_e-1];
-            vy_e[k] = vy_e[N_e-1];
-            vz_e[k] = vz_e[N_e-1];
-            N_e--;
-        } else k++;
+
+    int num_threads = omp_get_max_threads();
+    static std::vector<int> thread_counts;
+    static std::vector<int> thread_offsets;
+    static std::vector<std::vector<int>> thread_local_indices;
+
+    static std::vector<double> temp_x_e;
+    static std::vector<double> temp_vx_e;
+    static std::vector<double> temp_vy_e;
+    static std::vector<double> temp_vz_e;
+
+    if (thread_counts.size() < (size_t)num_threads) {
+        thread_counts.resize(num_threads, 0);
+        thread_offsets.resize(num_threads, 0);
+        thread_local_indices.resize(num_threads);
     }
+    for (int t = 0; t < num_threads; ++t) {
+        thread_local_indices[t].clear();
+        thread_counts[t] = 0;
+        thread_offsets[t] = 0;
+    }
+
+    #pragma omp parallel
+    {
+        int tid = omp_get_thread_num();
+        int n_threads = omp_get_num_threads();
+
+        int chunk_size = N_e / n_threads;
+        int start = tid * chunk_size;
+        int end = (tid == n_threads - 1) ? N_e : start + chunk_size;
+
+        for (int k = start; k < end; ++k) {
+
+            if (x_e[k] < 0) {
+                #pragma omp atomic
+                N_e_abs_pow++;
+            } else if (x_e[k] > L) {
+                #pragma omp atomic
+                N_e_abs_gnd++;
+            } else {
+                thread_local_indices[tid].push_back(k);
+            }
+        }
+        //  Zapis ocalalej czastki
+        thread_counts[tid] = thread_local_indices[tid].size();
+    }
+
+    int total_survived = 0;
+    for (int t = 0; t < num_threads; ++t) {
+        thread_offsets[t] = total_survived;
+        total_survived += thread_counts[t];
+    }
+
+    temp_x_e.resize(total_survived);
+    temp_vx_e.resize(total_survived);
+    temp_vy_e.resize(total_survived);
+    temp_vz_e.resize(total_survived);
+
+    #pragma omp parallel
+    {
+        int tid = omp_get_thread_num();
+        int write_idx = thread_offsets[tid];
+        for (int idx : thread_local_indices[tid]) {
+            temp_x_e[write_idx]     =   x_e[idx];
+            temp_vx_e[write_idx]    =   vx_e[idx];
+            temp_vy_e[write_idx]    =   vy_e[idx];
+            temp_vz_e[write_idx]    =   vz_e[idx];
+            write_idx++;
+        }
+    }
+
+    N_e = total_survived;
+    std::copy(temp_x_e.begin(), temp_x_e.end(), x_e);
+    std::copy(temp_vx_e.begin(), temp_vx_e.end(), vx_e);
+    std::copy(temp_vy_e.begin(), temp_vy_e.end(), vy_e);
+    std::copy(temp_vz_e.begin(), temp_vz_e.end(), vz_e);
 }
 
 inline void step6_check_boundaries_ions(int t){
     if ((t % N_SUB) != 0) return;
 
-    int k = 0;
-    bool out;
-    double v_sqr, energy;
-    int energy_index;
+    int num_threads = omp_get_max_threads();
+    static std::vector<int> thread_counts;
+    static std::vector<int> thread_offsets;
+    static std::vector<std::vector<int>> thread_local_indices;
 
-    while (k < N_i) {
-        out = false;
-        if (x_i[k] < 0) {
-            N_i_abs_pow++;
-            out = true;
-            v_sqr  = vx_i[k] * vx_i[k] + vy_i[k] * vy_i[k] + vz_i[k] * vz_i[k];
-            energy = 0.5 * AR_MASS * v_sqr / EV_TO_J;
-            energy_index = (int)(energy / DE_IFED);
-            if (energy_index < N_IFED) ifed_pow[energy_index]++;
-        }
-        if (x_i[k] > L) {
-            N_i_abs_gnd++;
-            out = true;
-            v_sqr  = vx_i[k] * vx_i[k] + vy_i[k] * vy_i[k] + vz_i[k] * vz_i[k];
-            energy = 0.5 * AR_MASS * v_sqr / EV_TO_J;
-            energy_index = (int)(energy / DE_IFED);
-            if (energy_index < N_IFED) ifed_gnd[energy_index]++;
-        }
-        if (out) {
-            x_i [k] = x_i [N_i-1];
-            vx_i[k] = vx_i[N_i-1];
-            vy_i[k] = vy_i[N_i-1];
-            vz_i[k] = vz_i[N_i-1];
-            N_i--;
-        } else k++;
+    static std::vector<double> temp_x_i;
+    static std::vector<double> temp_vx_i;
+    static std::vector<double> temp_vy_i;
+    static std::vector<double> temp_vz_i;
+
+    if (thread_counts.size() < (size_t)num_threads) {
+        thread_counts.resize(num_threads, 0);
+        thread_offsets.resize(num_threads, 0);
+        thread_local_indices.resize(num_threads);
     }
+    for (int t = 0; t < num_threads; ++t) {
+        thread_local_indices[t].clear();
+        thread_counts[t] = 0;
+        thread_offsets[t] = 0;
+    }
+
+    #pragma omp parallel
+    {
+        double v_sqr, energy;
+        int energy_index;
+
+        int tid = omp_get_thread_num();
+        int n_threads = omp_get_num_threads();
+
+        int chunk_size = N_i / n_threads;
+        int start = tid * chunk_size;
+        int end = (tid == n_threads - 1) ? N_i : start + chunk_size;
+
+        for (int k = start; k < end; ++k) {
+
+            if (x_i[k] < 0) {
+                #pragma omp atomic
+                N_i_abs_pow++;
+                v_sqr  = vx_i[k] * vx_i[k] + vy_i[k] * vy_i[k] + vz_i[k] * vz_i[k];
+                energy = 0.5 * AR_MASS * v_sqr / EV_TO_J;
+                energy_index = (int)(energy / DE_IFED);
+                if (energy_index < N_IFED) {
+                    #pragma omp atomic
+                    ifed_pow[energy_index]++;
+                }
+            } else if (x_i[k] > L) {
+                #pragma omp atomic
+                N_i_abs_gnd++;
+                v_sqr  = vx_i[k] * vx_i[k] + vy_i[k] * vy_i[k] + vz_i[k] * vz_i[k];
+                energy = 0.5 * AR_MASS * v_sqr / EV_TO_J;
+                energy_index = (int)(energy / DE_IFED);
+                if (energy_index < N_IFED) {
+                    #pragma omp atomic
+                    ifed_gnd[energy_index]++;
+                }
+            } else {
+                thread_local_indices[tid].push_back(k);
+            }
+        }
+        //  Zapis ocalalej czastki
+        thread_counts[tid] = thread_local_indices[tid].size();
+    }
+
+    int total_survived = 0;
+    for (int t = 0; t < num_threads; ++t) {
+        thread_offsets[t] = total_survived;
+        total_survived += thread_counts[t];
+    }
+
+    temp_x_i.resize(total_survived);
+    temp_vx_i.resize(total_survived);
+    temp_vy_i.resize(total_survived);
+    temp_vz_i.resize(total_survived);
+
+    #pragma omp parallel
+    {
+        int tid = omp_get_thread_num();
+        int write_idx = thread_offsets[tid];
+        for (int idx : thread_local_indices[tid]) {
+            temp_x_i[write_idx]     =   x_i[idx];
+            temp_vx_i[write_idx]    =   vx_i[idx];
+            temp_vy_i[write_idx]    =   vy_i[idx];
+            temp_vz_i[write_idx]    =   vz_i[idx];
+            write_idx++;
+        }
+    }
+
+    N_i = total_survived;
+    std::copy(temp_x_i.begin(), temp_x_i.end(), x_i);
+    std::copy(temp_vx_i.begin(), temp_vx_i.end(), vx_i);
+    std::copy(temp_vy_i.begin(), temp_vy_i.end(), vy_i);
+    std::copy(temp_vz_i.begin(), temp_vz_i.end(), vz_i);
 }
 
 inline void step7_collisions_electrons(){
+
+    //  deklaracje buforow
+    int num_threads = omp_get_max_threads();
+    static std::vector<NewParticles> new_electrons;
+    static std::vector<NewParticles> new_ions;
+
+    if (new_electrons.size() < (size_t)num_threads) {
+        new_electrons.resize(num_threads);
+        new_ions.resize(num_threads);
+    }
+    for (int t = 0; t < num_threads; ++t) {
+        new_electrons[t].x.clear();
+        new_electrons[t].vx.clear();
+        new_electrons[t].vy.clear();
+        new_electrons[t].vz.clear();
+        new_ions[t].x.clear();
+        new_ions[t].vx.clear();
+        new_ions[t].vy.clear();
+        new_ions[t].vz.clear();
+    }
+
 #ifdef USE_NULL_COLLISION
     std::binomial_distribution<int> binom_e(N_e, P_star_e);
     int N_coll_star_e = binom_e(MTgen);
@@ -212,40 +392,77 @@ inline void step7_collisions_electrons(){
     if (N_coll_star_e > 0) {
         std::vector<int> candidates_e;
         random_sample(N_e, N_coll_star_e, candidates_e);
-        
-        for (int ki : candidates_e) {
-            double v_sqr = vx_e[ki]*vx_e[ki] + vy_e[ki]*vy_e[ki] + vz_e[ki]*vz_e[ki];
-            double velocity = sqrt(v_sqr);
-            double energy   = 0.5 * E_MASS * v_sqr / EV_TO_J;
-            int energy_index = min(int(energy / DE_CS + 0.5), CS_RANGES - 1);
+
+        #pragma omp parallel
+        {
+            int tid = omp_get_thread_num();
             
-            double real_nu = sigma_tot_e[energy_index] * velocity;
-            double p_accept = real_nu / nu_star_e;
-            if (p_accept > 1.0) p_accept = 1.0;
-            
-            if (R01(MTgen) < p_accept) {
-                collision_electron(x_e[ki], &vx_e[ki], &vy_e[ki], &vz_e[ki], energy_index);
-                N_e_coll++;
+            #pragma omp for
+            for (size_t i = 0; i < candidates_e.size(); ++i) {
+                int ki = candidates_e[i];
+
+                double v_sqr = vx_e[ki]*vx_e[ki] + vy_e[ki]*vy_e[ki] + vz_e[ki]*vz_e[ki];
+                double velocity = sqrt(v_sqr);
+                double energy   = 0.5 * E_MASS * v_sqr / EV_TO_J;
+                int energy_index = min(int(energy / DE_CS + 0.5), CS_RANGES - 1);
+                
+                double real_nu = sigma_tot_e[energy_index] * velocity;
+                double p_accept = real_nu / nu_star_e;
+                if (p_accept > 1.0) p_accept = 1.0;
+                
+                if (R01(MTgen) < p_accept) {
+                    collision_electron(x_e[ki], &vx_e[ki], &vy_e[ki], &vz_e[ki], energy_index,
+                                        new_electrons[tid], new_ions[tid]);
+                    #pragma omp atomic
+                    N_e_coll++;
+                }
             }
         }
     }
 #else
-    int k, energy_index;
-    double v_sqr, velocity, energy, nu, p_coll;
-
-    for (k=0; k<N_e; k++){                              // checking for occurrence of a collision for all electrons in every time step
-        v_sqr = vx_e[k] * vx_e[k] + vy_e[k] * vy_e[k] + vz_e[k] * vz_e[k];
-        velocity = sqrt(v_sqr);
-        energy   = 0.5 * E_MASS * v_sqr / EV_TO_J;
-        energy_index = min( int(energy / DE_CS + 0.5), CS_RANGES-1);
-        nu = sigma_tot_e[energy_index] * velocity;
-        p_coll = 1 - exp(- nu * DT_E);                  // collision probability for electrons
-        if (R01(MTgen) < p_coll) {                      // electron collision takes place
-            collision_electron(x_e[k], &vx_e[k], &vy_e[k], &vz_e[k], energy_index);
-            N_e_coll++;
+    #pragma omp parallel
+    {
+        int k, energy_index;
+        double v_sqr, velocity, energy, nu, p_coll;
+        int tid = omp_get_thread_num();
+        // checking for occurrence of a collision for all electrons in every time step
+        #pragma omp for
+        for (k=0; k<N_e; k++){
+            v_sqr = vx_e[k] * vx_e[k] + vy_e[k] * vy_e[k] + vz_e[k] * vz_e[k];
+            velocity = sqrt(v_sqr);
+            energy   = 0.5 * E_MASS * v_sqr / EV_TO_J;
+            energy_index = min( int(energy / DE_CS + 0.5), CS_RANGES-1);
+            nu = sigma_tot_e[energy_index] * velocity;
+            // collision probability for electrons
+            p_coll = 1 - exp(- nu * DT_E);
+            // electron collision takes place
+            if (R01(MTgen) < p_coll) {
+                collision_electron(x_e[k], &vx_e[k], &vy_e[k], &vz_e[k], energy_index,
+                                    new_electrons[tid], new_ions[tid]);
+                #pragma omp atomic
+                N_e_coll++;
+            }
         }
     }
+
 #endif
+
+    for (int t = 0; t < num_threads; ++t) {
+        for (size_t i = 0; i < new_electrons[t].x.size(); ++i) {
+            x_e[N_e]    = new_electrons[t].x[i];
+            vx_e[N_e]   = new_electrons[t].vx[i];
+            vy_e[N_e]   = new_electrons[t].vy[i];
+            vz_e[N_e]   = new_electrons[t].vz[i];
+            N_e++;
+        }
+        for (size_t i = 0; i < new_ions[t].x.size(); ++i) {
+            x_i[N_i]    = new_ions[t].x[i];
+            vx_i[N_i]   = new_ions[t].vx[i];
+            vy_i[N_i]   = new_ions[t].vy[i];
+            vz_i[N_i]   = new_ions[t].vz[i];
+            N_i++;   
+        }
+    }
 }
 
 inline void step8_collision_ions(int t){
@@ -260,50 +477,69 @@ inline void step8_collision_ions(int t){
         std::vector<int> candidates_i;
         random_sample(N_i, N_coll_star_i, candidates_i);
         
-        double vx_a, vy_a, vz_a, gx, gy, gz, g_sqr, g, energy;
-        int energy_index;
-        for (int ki : candidates_i) {
-            vx_a = RMB(MTgen); vy_a = RMB(MTgen); vz_a = RMB(MTgen);
-            gx = vx_i[ki] - vx_a;
-            gy = vy_i[ki] - vy_a;
-            gz = vz_i[ki] - vz_a;
-            g_sqr = gx*gx + gy*gy + gz*gz;
+        #pragma omp parallel
+        {
+            double vx_a, vy_a, vz_a, gx, gy, gz, g_sqr, g, energy;
+            int energy_index;
+
+            #pragma omp for
+            for (size_t i = 0; i < candidates_i.size(); ++i) {
+                int ki = candidates_i[i];
+
+                vx_a = RMB(MTgen); vy_a = RMB(MTgen); vz_a = RMB(MTgen);
+                gx = vx_i[ki] - vx_a;
+                gy = vy_i[ki] - vy_a;
+                gz = vz_i[ki] - vz_a;
+                g_sqr = gx*gx + gy*gy + gz*gz;
+                g = sqrt(g_sqr);
+                energy = 0.5 * MU_ARAR * g_sqr / EV_TO_J;
+                energy_index = min(int(energy / DE_CS + 0.5), CS_RANGES - 1);
+                
+                double real_nu = sigma_tot_i[energy_index] * g;
+                double p_accept = real_nu / nu_star_i;
+                if (p_accept > 1.0) p_accept = 1.0;
+                
+                if (R01(MTgen) < p_accept) {
+                    collision_ion(&vx_i[ki], &vy_i[ki], &vz_i[ki], &vx_a, &vy_a, &vz_a, energy_index);
+                    #pragma omp atomic
+                    N_i_coll++;
+                }
+            }
+        }
+    }
+
+#else
+    #pragma omp parallel
+    {
+        int k, energy_index;
+        double vx_a, vy_a, vz_a, gx, gy, gz, g_sqr, g, energy, nu, p_coll;
+        #pragma omp for
+        for (k=0; k<N_i; k++){
+            // pick velocity components of a random target gas atom
+            vx_a = RMB(MTgen);
+            vy_a = RMB(MTgen);
+            vz_a = RMB(MTgen);
+            // compute the relative velocity of the collision partners
+            gx   = vx_i[k] - vx_a;
+            gy   = vy_i[k] - vy_a;
+            gz   = vz_i[k] - vz_a;
+            g_sqr = gx * gx + gy * gy + gz * gz;
             g = sqrt(g_sqr);
             energy = 0.5 * MU_ARAR * g_sqr / EV_TO_J;
-            energy_index = min(int(energy / DE_CS + 0.5), CS_RANGES - 1);
-            
-            double real_nu = sigma_tot_i[energy_index] * g;
-            double p_accept = real_nu / nu_star_i;
-            if (p_accept > 1.0) p_accept = 1.0;
-            
-            if (R01(MTgen) < p_accept) {
-                collision_ion(&vx_i[ki], &vy_i[ki], &vz_i[ki], &vx_a, &vy_a, &vz_a, energy_index);
+            energy_index = min( int(energy / DE_CS + 0.5), CS_RANGES-1);
+            nu = sigma_tot_i[energy_index] * g;
+            // collision probability for ions
+            p_coll = 1 - exp(- nu * DT_I);
+            // ion collision takes place
+            if (R01(MTgen)< p_coll) {
+                collision_ion(&vx_i[k], &vy_i[k], &vz_i[k], &vx_a, &vy_a, &vz_a, energy_index);
+
+                #pragma omp atomic
                 N_i_coll++;
             }
         }
     }
-#else
-    int k, energy_index;
-    double vx_a, vy_a, vz_a, gx, gy, gz, g_sqr, g, energy, nu, p_coll;
 
-    for (k=0; k<N_i; k++){
-        vx_a = RMB(MTgen);                          // pick velocity components of a random target gas atom
-        vy_a = RMB(MTgen);
-        vz_a = RMB(MTgen);
-        gx   = vx_i[k] - vx_a;                       // compute the relative velocity of the collision partners
-        gy   = vy_i[k] - vy_a;
-        gz   = vz_i[k] - vz_a;
-        g_sqr = gx * gx + gy * gy + gz * gz;
-        g = sqrt(g_sqr);
-        energy = 0.5 * MU_ARAR * g_sqr / EV_TO_J;
-        energy_index = min( int(energy / DE_CS + 0.5), CS_RANGES-1);
-        nu = sigma_tot_i[energy_index] * g;
-        p_coll = 1 - exp(- nu * DT_I);              // collision probability for ions
-        if (R01(MTgen)< p_coll) {                   // ion collision takes place
-            collision_ion(&vx_i[k], &vy_i[k], &vz_i[k], &vx_a, &vy_a, &vz_a, energy_index);
-            N_i_coll++;
-        }
-    }
 #endif
 }
 

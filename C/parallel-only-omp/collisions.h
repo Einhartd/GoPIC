@@ -1,8 +1,26 @@
 #pragma once
 #include "state.h"
 #include <cmath>
+#include <vector>
+#include <omp.h>
 
-inline void collision_electron (double xe, double *vxe, double *vye, double *vze, int eindex){
+struct NewParticles {
+    std::vector<double> x;
+    std::vector<double> vx;
+    std::vector<double> vy;
+    std::vector<double> vz;
+
+    void push(double px, double pvx, double pvy, double pvz) {
+        x.push_back(px);
+        vx.push_back(pvx);
+        vy.push_back(pvy);
+        vz.push_back(pvz);
+    }
+};
+
+inline void collision_electron (double xe, double *vxe, double *vye, double *vze, int eindex,
+                                NewParticles& new_e, NewParticles& new_i) {
+
     const double F1 = E_MASS  / (E_MASS + AR_MASS);
     const double F2 = AR_MASS / (E_MASS + AR_MASS);
     double t0,t1,t2,rnd;
@@ -67,16 +85,12 @@ inline void collision_electron (double xe, double *vxe, double *vye, double *vze
         gx  = g2 * (ct * cc - st * sc * ce);
         gy  = g2 * (st * cp * cc + ct * cp * sc * ce - sp * sc * se);
         gz  = g2 * (st * sp * cc + ct * sp * sc * ce + cp * sc * se);
-        x_e[N_e]  = xe;                              // add new electron
-        vx_e[N_e] = wx + F2 * gx;
-        vy_e[N_e] = wy + F2 * gy;
-        vz_e[N_e] = wz + F2 * gz;
-        N_e++;
-        x_i[N_i]  = xe;                              // add new ion
-        vx_i[N_i] = RMB(MTgen);                      // velocity is sampled from background thermal distribution
-        vy_i[N_i] = RMB(MTgen);
-        vz_i[N_i] = RMB(MTgen);
-        N_i++;
+        
+        // add new electron
+        new_e.push(xe, wx + F2 * gx, wy + F2* gy, wz + F2 * gz);
+        // add new ion
+        // velocity is sampled from background thermal distribution
+        new_i.push(xe, RMB(MTgen), RMB(MTgen), RMB(MTgen));
     }
     
     // scatter the primary electron
