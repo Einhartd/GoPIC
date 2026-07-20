@@ -76,8 +76,8 @@ chmod +x "${BINARY}"
 echo ">> Uruchamiam fazę inicjalizacji..."
 "${BINARY}" 0
 
-echo ">> Uruchamianie pomiaru liczników sprzętowych (perf stat) z OMP_NUM_THREADS=${OMP_NUM_THREADS}..."
-perf stat \
+echo ">> Uruchamianie pomiaru liczników sprzętowych (perf stat) dla każdego wątku (per-thread) z OMP_NUM_THREADS=${OMP_NUM_THREADS}..."
+perf stat --per-thread \
     -e cycles,instructions \
     -e L1-dcache-loads,L1-dcache-load-misses \
     -e LLC-loads,LLC-load-misses \

@@ -79,7 +79,13 @@ echo ">> Uruchamiam fazę inicjalizacji..."
 echo ">> Uruchamianie pomiaru drzewa wywołań (perf record) z OMP_NUM_THREADS=${OMP_NUM_THREADS}..."
 perf record -F 99 -g -o "${DATA_DIR}/perf_${SLURM_JOB_ID}.data" -- "${BINARY}" 1000 m
 
-echo ">> Konwertuję logi perf record do formatu tekstowego..."
+echo ">> Konwertuję logi perf record do formatu tekstowego (raport ogólny)..."
 perf report -i "${DATA_DIR}/perf_${SLURM_JOB_ID}.data" --stdio > "${DATA_DIR}/perf_report.txt"
+
+echo ">> Generowanie raportu w podziale na rdzenie CPU..."
+perf report -i "${DATA_DIR}/perf_${SLURM_JOB_ID}.data" --stdio --sort=cpu,symbol > "${DATA_DIR}/perf_report_per_cpu.txt"
+
+echo ">> Generowanie raportu w podziale na wątki (threads)..."
+perf report -i "${DATA_DIR}/perf_${SLURM_JOB_ID}.data" --stdio --per-thread > "${DATA_DIR}/perf_report_per_thread.txt"
 
 echo ">> Zadanie OMP RECORD zakończone. Wyniki w: ${DATA_DIR}"
