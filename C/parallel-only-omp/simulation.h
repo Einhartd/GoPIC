@@ -80,109 +80,81 @@ inline void step2_solve_poisson(double current_time){
 
 inline void step3_move_electrons(int t_index){
     int num_threads = omp_get_max_threads();
-
-    //  Lokalne bufory diagnostyczne per-watek (prywatna kopia tablic XT)
-    //  Eliminuje false sharing i koniecznosc uzywania #pragma omp atomic.
-    //  Rozmiar: num_threads x N_G (jeden rzad na watek).
-    static std::vector<std::array<double, N_G>> local_counter_e;
-    static std::vector<std::array<double, N_G>> local_ue;
-    static std::vector<std::array<double, N_G>> local_meanee;
-    static std::vector<std::array<double, N_G>> local_ioniz;
-    static std::vector<std::array<double, N_EEPF>> local_eepf;
-    static std::vector<double>   local_accu_center;
-    static std::vector<Ullong>   local_counter_center;
-
-    if ((int)local_counter_e.size() < num_threads) {
-        local_counter_e.resize(num_threads);
-        local_ue.resize(num_threads);
-        local_meanee.resize(num_threads);
-        local_ioniz.resize(num_threads);
-        local_eepf.resize(num_threads);
-        local_accu_center.resize(num_threads, 0.0);
-        local_counter_center.resize(num_threads, 0);
-    }
+    worker_buffers.init_buffers(num_threads);
 
     #pragma omp parallel
     {
         int tid = omp_get_thread_num();
 
-        //  Zerowanie lokalnych buforow watkowych
-        local_counter_e[tid].fill(0.0);
-        local_ue[tid].fill(0.0);
-        local_meanee[tid].fill(0.0);
-        local_ioniz[tid].fill(0.0);
-        local_eepf[tid].fill(0.0);
-        local_accu_center[tid]   = 0.0;
-        local_counter_center[tid] = 0;
+        worker_buffers.counter_e[tid].fill(0.0);
+        worker_buffers.ue[tid].fill(0.0);
+        worker_buffers.meanee[tid].fill(0.0);
+        worker_buffers.ioniz[tid].fill(0.0);
+        worker_buffers.eepf[tid].fill(0.0);
+        worker_buffers.accu_center[tid]   = 0.0;
+        worker_buffers.counter_center[tid] = 0;
 
         int p, energy_index;
         double c0, c1, c2, e_x, mean_v, v_sqr, energy, velocity, rate;
 
-        //  Kazdy watek przetwarza swoj przedzial czastek bez blokad
         #pragma omp for nowait
         for(int k=0; k<N_e; k++){
-
-            //  Interpolacja pola E na pozycje elektronu
             c0  = x_e[k] * INV_DX;
             p   = int(c0);
             c1  = p + 1.0 - c0;
             c2  = c0 - p;
             e_x = c1 * efield[p] + c2 * efield[p+1];
 
-            //  Diagnostyki - zapis do lokalnego buforu watkowego (brak atomics!)
             if (measurement_mode) {
                 mean_v = vx_e[k] - 0.5 * e_x * FACTOR_E;
 
-                local_counter_e[tid][p]   += c1;
-                local_counter_e[tid][p+1] += c2;
+                worker_buffers.counter_e[tid][p]   += c1;
+                worker_buffers.counter_e[tid][p+1] += c2;
 
-                local_ue[tid][p]   += c1 * mean_v;
-                local_ue[tid][p+1] += c2 * mean_v;
+                worker_buffers.ue[tid][p]   += c1 * mean_v;
+                worker_buffers.ue[tid][p+1] += c2 * mean_v;
 
                 v_sqr  = mean_v * mean_v + vy_e[k] * vy_e[k] + vz_e[k] * vz_e[k];
                 energy = 0.5 * E_MASS * v_sqr / EV_TO_J;
 
-                local_meanee[tid][p]   += c1 * energy;
-                local_meanee[tid][p+1] += c2 * energy;
+                worker_buffers.meanee[tid][p]   += c1 * energy;
+                worker_buffers.meanee[tid][p+1] += c2 * energy;
 
                 energy_index = min( int(energy / DE_CS + 0.5), CS_RANGES-1);
                 velocity = sqrt(v_sqr);
                 rate = sigma[E_ION][energy_index] * velocity * DT_E * GAS_DENSITY;
 
-                local_ioniz[tid][p]   += c1 * rate;
-                local_ioniz[tid][p+1] += c2 * rate;
+                worker_buffers.ioniz[tid][p]   += c1 * rate;
+                worker_buffers.ioniz[tid][p+1] += c2 * rate;
 
                 if ((MIN_X < x_e[k]) && (x_e[k] < MAX_X)){
                     energy_index = (int)(energy / DE_EEPF);
                     if (energy_index < N_EEPF) {
-                        local_eepf[tid][energy_index] += 1.0;
+                        worker_buffers.eepf[tid][energy_index] += 1.0;
                     }
-                    local_accu_center[tid]   += energy;
-                    local_counter_center[tid]++;
+                    worker_buffers.accu_center[tid]   += energy;
+                    worker_buffers.counter_center[tid]++;
                 }
             }
 
-            // update velocity and position
             vx_e[k] -= e_x * FACTOR_E;
             x_e[k]  += vx_e[k] * DT_E;
         }
-    }  // koniec regionu parallel - niejawna bariera synchronizuje wszystkie watki
+    }
 
-    //  Redukcja sekwencyjna: watek glowny scala bufory watkowe
-    //  Wykonuje sie raz na N_e czastek - koszt pomijalny
     if (measurement_mode) {
         for (int t = 0; t < num_threads; t++) {
             for (int p = 0; p < N_G; p++) {
-                counter_e_xt[p][t_index]   += local_counter_e[t][p];
-                ue_xt[p][t_index]          += local_ue[t][p];
-                meanee_xt[p][t_index]      += local_meanee[t][p];
-                ioniz_rate_xt[p][t_index]  += local_ioniz[t][p];
+                counter_e_xt[p][t_index]   += worker_buffers.counter_e[t][p];
+                ue_xt[p][t_index]          += worker_buffers.ue[t][p];
+                meanee_xt[p][t_index]      += worker_buffers.meanee[t][p];
+                ioniz_rate_xt[p][t_index]  += worker_buffers.ioniz[t][p];
             }
             for (int i = 0; i < N_EEPF; i++) {
-                eepf[i] += local_eepf[t][i];
+                eepf[i] += worker_buffers.eepf[t][i];
             }
-            mean_energy_accu_center    += local_accu_center[t];
-            mean_energy_counter_center += local_counter_center[t];
+            mean_energy_accu_center    += worker_buffers.accu_center[t];
+            mean_energy_counter_center += worker_buffers.counter_center[t];
         }
     }
 }
@@ -191,25 +163,15 @@ inline void step4_move_ions(int t_index, int t){
     if ((t % N_SUB) != 0) return;
 
     int num_threads = omp_get_max_threads();
-
-    //  Lokalne bufory diagnostyczne per-watek dla jonow
-    static std::vector<std::array<double, N_G>> local_counter_i;
-    static std::vector<std::array<double, N_G>> local_ui;
-    static std::vector<std::array<double, N_G>> local_meanei;
-
-    if ((int)local_counter_i.size() < num_threads) {
-        local_counter_i.resize(num_threads);
-        local_ui.resize(num_threads);
-        local_meanei.resize(num_threads);
-    }
+    worker_buffers.init_buffers(num_threads);
 
     #pragma omp parallel
     {
         int tid = omp_get_thread_num();
 
-        local_counter_i[tid].fill(0.0);
-        local_ui[tid].fill(0.0);
-        local_meanei[tid].fill(0.0);
+        worker_buffers.counter_i[tid].fill(0.0);
+        worker_buffers.ui[tid].fill(0.0);
+        worker_buffers.meanei[tid].fill(0.0);
 
         int p;
         double c0, c1, c2, e_x, mean_v, v_sqr, energy;
@@ -225,67 +187,45 @@ inline void step4_move_ions(int t_index, int t){
             if (measurement_mode) {
                 mean_v = vx_i[k] + 0.5 * e_x * FACTOR_I;
 
-                local_counter_i[tid][p]   += c1;
-                local_counter_i[tid][p+1] += c2;
+                worker_buffers.counter_i[tid][p]   += c1;
+                worker_buffers.counter_i[tid][p+1] += c2;
 
-                local_ui[tid][p]   += c1 * mean_v;
-                local_ui[tid][p+1] += c2 * mean_v;
+                worker_buffers.ui[tid][p]   += c1 * mean_v;
+                worker_buffers.ui[tid][p+1] += c2 * mean_v;
 
                 v_sqr  = mean_v * mean_v + vy_i[k] * vy_i[k] + vz_i[k] * vz_i[k];
                 energy = 0.5 * AR_MASS * v_sqr / EV_TO_J;
 
-                local_meanei[tid][p]   += c1 * energy;
-                local_meanei[tid][p+1] += c2 * energy;
+                worker_buffers.meanei[tid][p]   += c1 * energy;
+                worker_buffers.meanei[tid][p+1] += c2 * energy;
             }
 
-            // update velocity and position
             vx_i[k] += e_x * FACTOR_I;
             x_i[k]  += vx_i[k] * DT_I;
         }
-    }  // niejawna bariera
+    }
 
-    //  Sekwencyjna redukcja buforow jonow
     if (measurement_mode) {
         for (int t2 = 0; t2 < num_threads; t2++) {
             for (int p = 0; p < N_G; p++) {
-                counter_i_xt[p][t_index] += local_counter_i[t2][p];
-                ui_xt[p][t_index]        += local_ui[t2][p];
-                meanei_xt[p][t_index]    += local_meanei[t2][p];
+                counter_i_xt[p][t_index] += worker_buffers.counter_i[t2][p];
+                ui_xt[p][t_index]        += worker_buffers.ui[t2][p];
+                meanei_xt[p][t_index]    += worker_buffers.meanei[t2][p];
             }
         }
     }
 }
 
 inline void step5_check_boundaries_electrons(){
-
     int num_threads = omp_get_max_threads();
-    static std::vector<int> thread_counts;
-    static std::vector<int> thread_offsets;
-    static std::vector<std::vector<int>> thread_local_indices;
-    static std::vector<Ullong> local_abs_pow;
-    static std::vector<Ullong> local_abs_gnd;
+    worker_buffers.init_buffers(num_threads);
 
-    static std::vector<double> temp_x_e;
-    static std::vector<double> temp_vx_e;
-    static std::vector<double> temp_vy_e;
-    static std::vector<double> temp_vz_e;
-
-    if (thread_counts.size() < (size_t)num_threads) {
-        thread_counts.resize(num_threads, 0);
-        thread_offsets.resize(num_threads, 0);
-        thread_local_indices.resize(num_threads);
-        local_abs_pow.resize(num_threads, 0);
-        local_abs_gnd.resize(num_threads, 0);
-        for (int t = 0; t < num_threads; ++t) {
-            thread_local_indices[t].reserve(MAX_N_P / num_threads);
-        }
-    }
     for (int t = 0; t < num_threads; ++t) {
-        thread_local_indices[t].clear();
-        thread_counts[t] = 0;
-        thread_offsets[t] = 0;
-        local_abs_pow[t] = 0;
-        local_abs_gnd[t] = 0;
+        worker_buffers.thread_local_indices[t].clear();
+        worker_buffers.thread_counts[t] = 0;
+        worker_buffers.thread_offsets[t] = 0;
+        worker_buffers.local_abs_pow[t] = 0;
+        worker_buffers.local_abs_gnd[t] = 0;
     }
 
     #pragma omp parallel
@@ -298,89 +238,59 @@ inline void step5_check_boundaries_electrons(){
         int end = (tid == n_threads - 1) ? N_e : start + chunk_size;
 
         for (int k = start; k < end; ++k) {
-
             if (x_e[k] < 0) {
-                local_abs_pow[tid]++;
+                worker_buffers.local_abs_pow[tid]++;
             } else if (x_e[k] > L) {
-                local_abs_gnd[tid]++;
+                worker_buffers.local_abs_gnd[tid]++;
             } else {
-                thread_local_indices[tid].push_back(k);
+                worker_buffers.thread_local_indices[tid].push_back(k);
             }
         }
-        //  Zapis ocalalej czastki
-        thread_counts[tid] = thread_local_indices[tid].size();
+        worker_buffers.thread_counts[tid] = worker_buffers.thread_local_indices[tid].size();
     }
 
     int total_survived = 0;
     for (int t = 0; t < num_threads; ++t) {
-        thread_offsets[t] = total_survived;
-        total_survived += thread_counts[t];
-        N_e_abs_pow += local_abs_pow[t];
-        N_e_abs_gnd += local_abs_gnd[t];
+        worker_buffers.thread_offsets[t] = total_survived;
+        total_survived += worker_buffers.thread_counts[t];
+        N_e_abs_pow += worker_buffers.local_abs_pow[t];
+        N_e_abs_gnd += worker_buffers.local_abs_gnd[t];
     }
-
-    temp_x_e.resize(total_survived);
-    temp_vx_e.resize(total_survived);
-    temp_vy_e.resize(total_survived);
-    temp_vz_e.resize(total_survived);
 
     #pragma omp parallel
     {
         int tid = omp_get_thread_num();
-        int write_idx = thread_offsets[tid];
-        for (int idx : thread_local_indices[tid]) {
-            temp_x_e[write_idx]     =   x_e[idx];
-            temp_vx_e[write_idx]    =   vx_e[idx];
-            temp_vy_e[write_idx]    =   vy_e[idx];
-            temp_vz_e[write_idx]    =   vz_e[idx];
+        int write_idx = worker_buffers.thread_offsets[tid];
+        for (int idx : worker_buffers.thread_local_indices[tid]) {
+            worker_buffers.temp_x[write_idx]  = x_e[idx];
+            worker_buffers.temp_vx[write_idx] = vx_e[idx];
+            worker_buffers.temp_vy[write_idx] = vy_e[idx];
+            worker_buffers.temp_vz[write_idx] = vz_e[idx];
             write_idx++;
         }
     }
 
     N_e = total_survived;
-    std::copy(temp_x_e.begin(), temp_x_e.end(), x_e);
-    std::copy(temp_vx_e.begin(), temp_vx_e.end(), vx_e);
-    std::copy(temp_vy_e.begin(), temp_vy_e.end(), vy_e);
-    std::copy(temp_vz_e.begin(), temp_vz_e.end(), vz_e);
+    std::copy(worker_buffers.temp_x.begin(), worker_buffers.temp_x.begin() + total_survived, x_e);
+    std::copy(worker_buffers.temp_vx.begin(), worker_buffers.temp_vx.begin() + total_survived, vx_e);
+    std::copy(worker_buffers.temp_vy.begin(), worker_buffers.temp_vy.begin() + total_survived, vy_e);
+    std::copy(worker_buffers.temp_vz.begin(), worker_buffers.temp_vz.begin() + total_survived, vz_e);
 }
 
 inline void step6_check_boundaries_ions(int t){
     if ((t % N_SUB) != 0) return;
 
     int num_threads = omp_get_max_threads();
-    static std::vector<int> thread_counts;
-    static std::vector<int> thread_offsets;
-    static std::vector<std::vector<int>> thread_local_indices;
-    static std::vector<Ullong> local_abs_pow;
-    static std::vector<Ullong> local_abs_gnd;
-    static std::vector<std::array<int, N_IFED>> local_ifed_pow;
-    static std::vector<std::array<int, N_IFED>> local_ifed_gnd;
+    worker_buffers.init_buffers(num_threads);
 
-    static std::vector<double> temp_x_i;
-    static std::vector<double> temp_vx_i;
-    static std::vector<double> temp_vy_i;
-    static std::vector<double> temp_vz_i;
-
-    if (thread_counts.size() < (size_t)num_threads) {
-        thread_counts.resize(num_threads, 0);
-        thread_offsets.resize(num_threads, 0);
-        thread_local_indices.resize(num_threads);
-        local_abs_pow.resize(num_threads, 0);
-        local_abs_gnd.resize(num_threads, 0);
-        local_ifed_pow.resize(num_threads);
-        local_ifed_gnd.resize(num_threads);
-        for (int t = 0; t < num_threads; ++t) {
-            thread_local_indices[t].reserve(MAX_N_P / num_threads);
-        }
-    }
     for (int t = 0; t < num_threads; ++t) {
-        thread_local_indices[t].clear();
-        thread_counts[t] = 0;
-        thread_offsets[t] = 0;
-        local_abs_pow[t] = 0;
-        local_abs_gnd[t] = 0;
-        local_ifed_pow[t].fill(0);
-        local_ifed_gnd[t].fill(0);
+        worker_buffers.thread_local_indices[t].clear();
+        worker_buffers.thread_counts[t] = 0;
+        worker_buffers.thread_offsets[t] = 0;
+        worker_buffers.local_abs_pow[t] = 0;
+        worker_buffers.local_abs_gnd[t] = 0;
+        worker_buffers.local_ifed_pow[t].fill(0);
+        worker_buffers.local_ifed_gnd[t].fill(0);
     }
 
     #pragma omp parallel
@@ -396,72 +306,65 @@ inline void step6_check_boundaries_ions(int t){
         int end = (tid == n_threads - 1) ? N_i : start + chunk_size;
 
         for (int k = start; k < end; ++k) {
-
             if (x_i[k] < 0) {
-                local_abs_pow[tid]++;
+                worker_buffers.local_abs_pow[tid]++;
                 v_sqr  = vx_i[k] * vx_i[k] + vy_i[k] * vy_i[k] + vz_i[k] * vz_i[k];
                 energy = 0.5 * AR_MASS * v_sqr / EV_TO_J;
                 energy_index = (int)(energy / DE_IFED);
                 if (energy_index < N_IFED) {
-                    local_ifed_pow[tid][energy_index]++;
+                    worker_buffers.local_ifed_pow[tid][energy_index]++;
                 }
             } else if (x_i[k] > L) {
-                local_abs_gnd[tid]++;
+                worker_buffers.local_abs_gnd[tid]++;
                 v_sqr  = vx_i[k] * vx_i[k] + vy_i[k] * vy_i[k] + vz_i[k] * vz_i[k];
                 energy = 0.5 * AR_MASS * v_sqr / EV_TO_J;
                 energy_index = (int)(energy / DE_IFED);
                 if (energy_index < N_IFED) {
-                    local_ifed_gnd[tid][energy_index]++;
+                    worker_buffers.local_ifed_gnd[tid][energy_index]++;
                 }
             } else {
-                thread_local_indices[tid].push_back(k);
+                worker_buffers.thread_local_indices[tid].push_back(k);
             }
         }
-        //  Zapis ocalalej czastki
-        thread_counts[tid] = thread_local_indices[tid].size();
+        worker_buffers.thread_counts[tid] = worker_buffers.thread_local_indices[tid].size();
     }
 
     int total_survived = 0;
     for (int t = 0; t < num_threads; ++t) {
-        thread_offsets[t] = total_survived;
-        total_survived += thread_counts[t];
-        N_i_abs_pow += local_abs_pow[t];
-        N_i_abs_gnd += local_abs_gnd[t];
+        worker_buffers.thread_offsets[t] = total_survived;
+        total_survived += worker_buffers.thread_counts[t];
+        N_i_abs_pow += worker_buffers.local_abs_pow[t];
+        N_i_abs_gnd += worker_buffers.local_abs_gnd[t];
         for (int e = 0; e < N_IFED; ++e) {
-            ifed_pow[e] += local_ifed_pow[t][e];
-            ifed_gnd[e] += local_ifed_gnd[t][e];
+            ifed_pow[e] += worker_buffers.local_ifed_pow[t][e];
+            ifed_gnd[e] += worker_buffers.local_ifed_gnd[t][e];
         }
     }
-
-    temp_x_i.resize(total_survived);
-    temp_vx_i.resize(total_survived);
-    temp_vy_i.resize(total_survived);
-    temp_vz_i.resize(total_survived);
 
     #pragma omp parallel
     {
         int tid = omp_get_thread_num();
-        int write_idx = thread_offsets[tid];
-        for (int idx : thread_local_indices[tid]) {
-            temp_x_i[write_idx]     =   x_i[idx];
-            temp_vx_i[write_idx]    =   vx_i[idx];
-            temp_vy_i[write_idx]    =   vy_i[idx];
-            temp_vz_i[write_idx]    =   vz_i[idx];
+        int write_idx = worker_buffers.thread_offsets[tid];
+        for (int idx : worker_buffers.thread_local_indices[tid]) {
+            worker_buffers.temp_x[write_idx]  = x_i[idx];
+            worker_buffers.temp_vx[write_idx] = vx_i[idx];
+            worker_buffers.temp_vy[write_idx] = vy_i[idx];
+            worker_buffers.temp_vz[write_idx] = vz_i[idx];
             write_idx++;
         }
     }
 
     N_i = total_survived;
-    std::copy(temp_x_i.begin(), temp_x_i.end(), x_i);
-    std::copy(temp_vx_i.begin(), temp_vx_i.end(), vx_i);
-    std::copy(temp_vy_i.begin(), temp_vy_i.end(), vy_i);
-    std::copy(temp_vz_i.begin(), temp_vz_i.end(), vz_i);
+    std::copy(worker_buffers.temp_x.begin(), worker_buffers.temp_x.begin() + total_survived, x_i);
+    std::copy(worker_buffers.temp_vx.begin(), worker_buffers.temp_vx.begin() + total_survived, vx_i);
+    std::copy(worker_buffers.temp_vy.begin(), worker_buffers.temp_vy.begin() + total_survived, vy_i);
+    std::copy(worker_buffers.temp_vz.begin(), worker_buffers.temp_vz.begin() + total_survived, vz_i);
 }
 
 inline void step7_collisions_electrons(){
-
-    //  deklaracje buforow
     int num_threads = omp_get_max_threads();
+    worker_buffers.init_buffers(num_threads);
+
     static std::vector<NewParticles> new_electrons;
     static std::vector<NewParticles> new_ions;
 
@@ -486,16 +389,15 @@ inline void step7_collisions_electrons(){
     if (N_coll_star_e > N_e) N_coll_star_e = N_e;
     
     if (N_coll_star_e > 0) {
-        std::vector<int> candidates_e;
-        random_sample(N_e, N_coll_star_e, candidates_e);
+        random_sample(N_e, N_coll_star_e, worker_buffers.candidates_e);
 
         #pragma omp parallel
         {
             int tid = omp_get_thread_num();
             
             #pragma omp for
-            for (size_t i = 0; i < candidates_e.size(); ++i) {
-                int ki = candidates_e[i];
+            for (int i = 0; i < N_coll_star_e; ++i) {
+                int ki = worker_buffers.candidates_e[i];
 
                 double v_sqr = vx_e[ki]*vx_e[ki] + vy_e[ki]*vy_e[ki] + vz_e[ki]*vz_e[ki];
                 double velocity = sqrt(v_sqr);
@@ -509,7 +411,8 @@ inline void step7_collisions_electrons(){
                 if (R01(MTgen) < p_accept) {
                     collision_electron(x_e[ki], &vx_e[ki], &vy_e[ki], &vz_e[ki], energy_index,
                                         new_electrons[tid], new_ions[tid]);
-                    N_e_coll++;  // bezpieczne: kazdy watek ma swoj zakres candidates_e[i]
+                    #pragma omp atomic
+                    N_e_coll++;
                 }
             }
         }
@@ -520,7 +423,6 @@ inline void step7_collisions_electrons(){
         int k, energy_index;
         double v_sqr, velocity, energy, nu, p_coll;
         int tid = omp_get_thread_num();
-        // checking for occurrence of a collision for all electrons in every time step
         #pragma omp for
         for (k=0; k<N_e; k++){
             v_sqr = vx_e[k] * vx_e[k] + vy_e[k] * vy_e[k] + vz_e[k] * vz_e[k];
@@ -528,17 +430,15 @@ inline void step7_collisions_electrons(){
             energy   = 0.5 * E_MASS * v_sqr / EV_TO_J;
             energy_index = min( int(energy / DE_CS + 0.5), CS_RANGES-1);
             nu = sigma_tot_e[energy_index] * velocity;
-            // collision probability for electrons
             p_coll = 1 - exp(- nu * DT_E);
-            // electron collision takes place
             if (R01(MTgen) < p_coll) {
                 collision_electron(x_e[k], &vx_e[k], &vy_e[k], &vz_e[k], energy_index,
                                     new_electrons[tid], new_ions[tid]);
-                N_e_coll++;  // bezpieczne: kazdy watek ma unikalny zakres k z #pragma omp for
+                #pragma omp atomic
+                N_e_coll++;
             }
         }
     }
-
 #endif
 
     for (int t = 0; t < num_threads; ++t) {
@@ -562,14 +462,16 @@ inline void step7_collisions_electrons(){
 inline void step8_collision_ions(int t){
     if ((t % N_SUB) != 0) return;
 
+    int num_threads = omp_get_max_threads();
+    worker_buffers.init_buffers(num_threads);
+
 #ifdef USE_NULL_COLLISION
     std::binomial_distribution<int> binom_i(N_i, P_star_i);
     int N_coll_star_i = binom_i(MTgen);
     if (N_coll_star_i > N_i) N_coll_star_i = N_i;
     
     if (N_coll_star_i > 0) {
-        std::vector<int> candidates_i;
-        random_sample(N_i, N_coll_star_i, candidates_i);
+        random_sample(N_i, N_coll_star_i, worker_buffers.candidates_i);
         
         #pragma omp parallel
         {
@@ -577,8 +479,8 @@ inline void step8_collision_ions(int t){
             int energy_index;
 
             #pragma omp for
-            for (size_t i = 0; i < candidates_i.size(); ++i) {
-                int ki = candidates_i[i];
+            for (int i = 0; i < N_coll_star_i; ++i) {
+                int ki = worker_buffers.candidates_i[i];
 
                 vx_a = RMB(MTgen); vy_a = RMB(MTgen); vz_a = RMB(MTgen);
                 gx = vx_i[ki] - vx_a;
@@ -595,12 +497,12 @@ inline void step8_collision_ions(int t){
                 
                 if (R01(MTgen) < p_accept) {
                     collision_ion(&vx_i[ki], &vy_i[ki], &vz_i[ki], &vx_a, &vy_a, &vz_a, energy_index);
-                    N_i_coll++;  // bezpieczne: kazdy watek ma swoj zakres candidates_i[i]
+                    #pragma omp atomic
+                    N_i_coll++;
                 }
             }
         }
     }
-
 #else
     #pragma omp parallel
     {
@@ -608,11 +510,9 @@ inline void step8_collision_ions(int t){
         double vx_a, vy_a, vz_a, gx, gy, gz, g_sqr, g, energy, nu, p_coll;
         #pragma omp for
         for (k=0; k<N_i; k++){
-            // pick velocity components of a random target gas atom
             vx_a = RMB(MTgen);
             vy_a = RMB(MTgen);
             vz_a = RMB(MTgen);
-            // compute the relative velocity of the collision partners
             gx   = vx_i[k] - vx_a;
             gy   = vy_i[k] - vy_a;
             gz   = vz_i[k] - vz_a;
@@ -621,16 +521,14 @@ inline void step8_collision_ions(int t){
             energy = 0.5 * MU_ARAR * g_sqr / EV_TO_J;
             energy_index = min( int(energy / DE_CS + 0.5), CS_RANGES-1);
             nu = sigma_tot_i[energy_index] * g;
-            // collision probability for ions
             p_coll = 1 - exp(- nu * DT_I);
-            // ion collision takes place
             if (R01(MTgen)< p_coll) {
                 collision_ion(&vx_i[k], &vy_i[k], &vz_i[k], &vx_a, &vy_a, &vz_a, energy_index);
-                N_i_coll++;  // bezpieczne: kazdy watek ma unikalny zakres k z #pragma omp for
+                #pragma omp atomic
+                N_i_coll++;
             }
         }
     }
-
 #endif
 }
 

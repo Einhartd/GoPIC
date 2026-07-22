@@ -63,7 +63,86 @@ inline double P_star_e  = 0.0;
 inline double nu_star_i = 0.0;
 inline double P_star_i  = 0.0;
 
+#include <vector>
+#include <array>
+#include <omp.h>
+
+struct WorkerBuffers {
+    std::vector<std::array<double, N_G>> e_density;
+    std::vector<std::array<double, N_G>> i_density;
+
+    std::vector<std::array<double, N_G>> counter_e;
+    std::vector<std::array<double, N_G>> ue;
+    std::vector<std::array<double, N_G>> meanee;
+    std::vector<std::array<double, N_G>> ioniz;
+    std::vector<std::array<double, N_EEPF>> eepf;
+    std::vector<double> accu_center;
+    std::vector<Ullong> counter_center;
+
+    std::vector<std::array<double, N_G>> counter_i;
+    std::vector<std::array<double, N_G>> ui;
+    std::vector<std::array<double, N_G>> meanei;
+
+    std::vector<int> thread_counts;
+    std::vector<int> thread_offsets;
+    std::vector<std::vector<int>> thread_local_indices;
+    std::vector<Ullong> local_abs_pow;
+    std::vector<Ullong> local_abs_gnd;
+    std::vector<std::array<int, N_IFED>> local_ifed_pow;
+    std::vector<std::array<int, N_IFED>> local_ifed_gnd;
+
+    std::vector<double> temp_x;
+    std::vector<double> temp_vx;
+    std::vector<double> temp_vy;
+    std::vector<double> temp_vz;
+
+    std::vector<int> candidates_e;
+    std::vector<int> candidates_i;
+
+    void init_buffers(int num_threads) {
+        if ((int)e_density.size() >= num_threads) return;
+
+        e_density.resize(num_threads);
+        i_density.resize(num_threads);
+
+        counter_e.resize(num_threads);
+        ue.resize(num_threads);
+        meanee.resize(num_threads);
+        ioniz.resize(num_threads);
+        eepf.resize(num_threads);
+        accu_center.resize(num_threads, 0.0);
+        counter_center.resize(num_threads, 0);
+
+        counter_i.resize(num_threads);
+        ui.resize(num_threads);
+        meanei.resize(num_threads);
+
+        thread_counts.resize(num_threads, 0);
+        thread_offsets.resize(num_threads, 0);
+        thread_local_indices.resize(num_threads);
+        local_abs_pow.resize(num_threads, 0);
+        local_abs_gnd.resize(num_threads, 0);
+        local_ifed_pow.resize(num_threads);
+        local_ifed_gnd.resize(num_threads);
+
+        for (int t = 0; t < num_threads; ++t) {
+            thread_local_indices[t].reserve(MAX_N_P / num_threads);
+        }
+
+        temp_x.resize(MAX_N_P);
+        temp_vx.resize(MAX_N_P);
+        temp_vy.resize(MAX_N_P);
+        temp_vz.resize(MAX_N_P);
+
+        candidates_e.resize(MAX_N_P);
+        candidates_i.resize(MAX_N_P);
+    }
+};
+
+inline WorkerBuffers worker_buffers;
+
 inline thread_local std::random_device rd{}; 
 inline thread_local std::mt19937 MTgen(rd());
 inline thread_local std::uniform_real_distribution<> R01(0.0, 1.0);
 inline thread_local std::normal_distribution<> RMB(0.0, sqrt(K_BOLTZMANN * TEMPERATURE / AR_MASS));
+
