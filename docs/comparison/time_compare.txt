@@ -1,0 +1,62 @@
+# started on Sun Jul 19 21:32:35 2026
+null-collision open mp 2 threads
+
+ Performance counter stats for '/home/grid/users/plgkniazewo/GoPIC_build/C/edupic_omp_c_nc 1000 m':
+
+63,697,990,974,259      cycles:u                                                                (83.33%)
+59,444,269,490,978      instructions:u                   #    0.93  insn per cycle              (83.33%)
+21,155,043,326,025      L1-dcache-loads:u                                                       (83.33%)
+ 3,828,716,099,626      L1-dcache-load-misses:u          #   18.10% of all L1-dcache accesses   (83.33%)
+   <not supported>      LLC-loads:u                                                           
+   <not supported>      LLC-load-misses:u                                                     
+ 6,730,912,246,317      branch-loads:u                                                          (83.33%)
+   236,512,675,235      branch-misses:u                                                         (83.33%)
+
+    8637.129050570 seconds time elapsed
+
+   17083.016278000 seconds user
+      14.193306000 seconds sys
+
+
+
+# started on Wed Jul  1 19:59:18 2026
+sequential normal collision
+
+ Performance counter stats for '/home/grid/users/plgkniazewo/GoPIC_build/C/edupic_c 1000 m':
+
+41,307,759,932,419      cycles:u                                                                (83.33%)
+91,871,749,351,474      instructions:u                   #    2.22  insn per cycle              (83.33%)
+33,602,399,661,500      L1-dcache-loads:u                                                       (83.33%)
+ 2,546,659,845,346      L1-dcache-load-misses:u          #    7.58% of all L1-dcache accesses   (83.33%)
+   <not supported>      LLC-loads:u                                                           
+   <not supported>      LLC-load-misses:u                                                     
+ 8,576,504,173,010      branch-loads:u                                                          (83.33%)
+   243,169,361,352      branch-misses:u                                                         (83.33%)
+
+   11161.868345407 seconds time elapsed
+
+   11050.486479000 seconds user
+       0.038215000 seconds sys
+
+
+
+       
+# started on Thu Jul 16 12:15:15 2026
+sequential null-collision
+
+ Performance counter stats for '/home/grid/users/plgkniazewo/GoPIC_build/C/edupic_c_nc 1000 m':
+
+20,056,461,854,634      cycles:u                                                                (83.33%)
+32,983,242,378,941      instructions:u                   #    1.64  insn per cycle              (83.33%)
+15,192,462,334,822      L1-dcache-loads:u                                                       (83.33%)
+ 2,189,921,565,777      L1-dcache-load-misses:u          #   14.41% of all L1-dcache accesses   (83.33%)
+   <not supported>      LLC-loads:u                                                           
+   <not supported>      LLC-load-misses:u                                                     
+ 2,363,043,444,062      branch-loads:u                                                          (83.33%)
+   217,644,743,529      branch-misses:u                                                         (83.33%)
+
+    5713.670357685 seconds time elapsed
+
+    5633.157474000 seconds user
+       1.144328000 seconds sys
+

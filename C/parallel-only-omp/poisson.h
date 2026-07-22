@@ -1,13 +1,10 @@
 #pragma once
 #include "state.h"
+#include "constants.h"
 #include <cmath>
 
 inline void solve_Poisson (xvector rho1, double tt){
-    const double A =  1.0;
-    const double B = -2.0;
-    const double C =  1.0;
-    const double S = 1.0 / (2.0 * DX);
-    const double ALPHA = -DX * DX / EPSILON0;
+
     xvector      g, w, f;
     int          i;
     

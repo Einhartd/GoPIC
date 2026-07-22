@@ -35,5 +35,8 @@ inline void random_sample(int n , int count, std::vector<int> &out) {
         int j = i + (int)(R01(MTgen) * (n - i));
         std::swap(pool[i], pool[j]);
     }
-    out.assign(pool.begin(), pool.begin() + count);
+    if (out.size() < (size_t)count) {
+        out.resize(count);
+    }
+    std::copy(pool.begin(), pool.begin() + count, out.begin());
 }

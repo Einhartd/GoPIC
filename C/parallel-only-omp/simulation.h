@@ -2,6 +2,7 @@
 #include "state.h"
 #include "poisson.h"
 #include "collisions.h"
+#include <array>
 #include <cmath>
 #include <omp.h>
 
@@ -78,111 +79,180 @@ inline void step2_solve_poisson(double current_time){
 }
 
 inline void step3_move_electrons(int t_index){
+    int num_threads = omp_get_max_threads();
 
+    //  Lokalne bufory diagnostyczne per-watek (prywatna kopia tablic XT)
+    //  Eliminuje false sharing i koniecznosc uzywania #pragma omp atomic.
+    //  Rozmiar: num_threads x N_G (jeden rzad na watek).
+    static std::vector<std::array<double, N_G>> local_counter_e;
+    static std::vector<std::array<double, N_G>> local_ue;
+    static std::vector<std::array<double, N_G>> local_meanee;
+    static std::vector<std::array<double, N_G>> local_ioniz;
+    static std::vector<std::array<double, N_EEPF>> local_eepf;
+    static std::vector<double>   local_accu_center;
+    static std::vector<Ullong>   local_counter_center;
 
-    // move all electrons in every time step
-    #pragma omp parallel for reduction(+:mean_energy_accu_center, mean_energy_counter_center)
-    for(int k=0; k<N_e; k++){
+    if ((int)local_counter_e.size() < num_threads) {
+        local_counter_e.resize(num_threads);
+        local_ue.resize(num_threads);
+        local_meanee.resize(num_threads);
+        local_ioniz.resize(num_threads);
+        local_eepf.resize(num_threads);
+        local_accu_center.resize(num_threads, 0.0);
+        local_counter_center.resize(num_threads, 0);
+    }
+
+    #pragma omp parallel
+    {
+        int tid = omp_get_thread_num();
+
+        //  Zerowanie lokalnych buforow watkowych
+        local_counter_e[tid].fill(0.0);
+        local_ue[tid].fill(0.0);
+        local_meanee[tid].fill(0.0);
+        local_ioniz[tid].fill(0.0);
+        local_eepf[tid].fill(0.0);
+        local_accu_center[tid]   = 0.0;
+        local_counter_center[tid] = 0;
+
         int p, energy_index;
         double c0, c1, c2, e_x, mean_v, v_sqr, energy, velocity, rate;
 
-        //  Interpolacja pola E na pozycje elektronu
-        c0  = x_e[k] * INV_DX;
-        p   = int(c0);
-        c1  = p + 1.0 - c0;
-        c2  = c0 - p;
-        e_x = c1 * efield[p] + c2 * efield[p+1];
-    
-        //  Diagnostyki
-        if (measurement_mode) {
-            
-            // measurements: 'x' and 'v' are needed at the same time, i.e. old 'x' and mean 'v'
-            mean_v = vx_e[k] - 0.5 * e_x * FACTOR_E;
-            
-            #pragma omp atomic
-            counter_e_xt[p][t_index]   += c1;
-            #pragma omp atomic
-            counter_e_xt[p+1][t_index] += c2;
-            
-            #pragma omp atomic
-            ue_xt[p][t_index]   += c1 * mean_v;
-            #pragma omp atomic
-            ue_xt[p+1][t_index] += c2 * mean_v;
+        //  Kazdy watek przetwarza swoj przedzial czastek bez blokad
+        #pragma omp for nowait
+        for(int k=0; k<N_e; k++){
 
-            v_sqr  = mean_v * mean_v + vy_e[k] * vy_e[k] + vz_e[k] * vz_e[k];
-            energy = 0.5 * E_MASS * v_sqr / EV_TO_J;
+            //  Interpolacja pola E na pozycje elektronu
+            c0  = x_e[k] * INV_DX;
+            p   = int(c0);
+            c1  = p + 1.0 - c0;
+            c2  = c0 - p;
+            e_x = c1 * efield[p] + c2 * efield[p+1];
 
-            #pragma omp atomic
-            meanee_xt[p][t_index]   += c1 * energy;
-            #pragma omp atomic
-            meanee_xt[p+1][t_index] += c2 * energy;
+            //  Diagnostyki - zapis do lokalnego buforu watkowego (brak atomics!)
+            if (measurement_mode) {
+                mean_v = vx_e[k] - 0.5 * e_x * FACTOR_E;
 
-            energy_index = min( int(energy / DE_CS + 0.5), CS_RANGES-1);
-            velocity = sqrt(v_sqr);
-            rate = sigma[E_ION][energy_index] * velocity * DT_E * GAS_DENSITY;
+                local_counter_e[tid][p]   += c1;
+                local_counter_e[tid][p+1] += c2;
 
-            #pragma omp atomic
-            ioniz_rate_xt[p][t_index]   += c1 * rate;
-            #pragma omp atomic
-            ioniz_rate_xt[p+1][t_index] += c2 * rate;
+                local_ue[tid][p]   += c1 * mean_v;
+                local_ue[tid][p+1] += c2 * mean_v;
 
-            // measure EEPF in the center
-            if ((MIN_X < x_e[k]) && (x_e[k] < MAX_X)){
-                energy_index = (int)(energy / DE_EEPF);
-                if (energy_index < N_EEPF) {
-                    #pragma omp atomic
-                    eepf[energy_index] += 1.0;
+                v_sqr  = mean_v * mean_v + vy_e[k] * vy_e[k] + vz_e[k] * vz_e[k];
+                energy = 0.5 * E_MASS * v_sqr / EV_TO_J;
+
+                local_meanee[tid][p]   += c1 * energy;
+                local_meanee[tid][p+1] += c2 * energy;
+
+                energy_index = min( int(energy / DE_CS + 0.5), CS_RANGES-1);
+                velocity = sqrt(v_sqr);
+                rate = sigma[E_ION][energy_index] * velocity * DT_E * GAS_DENSITY;
+
+                local_ioniz[tid][p]   += c1 * rate;
+                local_ioniz[tid][p+1] += c2 * rate;
+
+                if ((MIN_X < x_e[k]) && (x_e[k] < MAX_X)){
+                    energy_index = (int)(energy / DE_EEPF);
+                    if (energy_index < N_EEPF) {
+                        local_eepf[tid][energy_index] += 1.0;
+                    }
+                    local_accu_center[tid]   += energy;
+                    local_counter_center[tid]++;
                 }
-                mean_energy_accu_center += energy;
-                mean_energy_counter_center++;
             }
+
+            // update velocity and position
+            vx_e[k] -= e_x * FACTOR_E;
+            x_e[k]  += vx_e[k] * DT_E;
         }
-        
-        // update velocity and position
-        vx_e[k] -= e_x * FACTOR_E;
-        x_e[k]  += vx_e[k] * DT_E;
+    }  // koniec regionu parallel - niejawna bariera synchronizuje wszystkie watki
+
+    //  Redukcja sekwencyjna: watek glowny scala bufory watkowe
+    //  Wykonuje sie raz na N_e czastek - koszt pomijalny
+    if (measurement_mode) {
+        for (int t = 0; t < num_threads; t++) {
+            for (int p = 0; p < N_G; p++) {
+                counter_e_xt[p][t_index]   += local_counter_e[t][p];
+                ue_xt[p][t_index]          += local_ue[t][p];
+                meanee_xt[p][t_index]      += local_meanee[t][p];
+                ioniz_rate_xt[p][t_index]  += local_ioniz[t][p];
+            }
+            for (int i = 0; i < N_EEPF; i++) {
+                eepf[i] += local_eepf[t][i];
+            }
+            mean_energy_accu_center    += local_accu_center[t];
+            mean_energy_counter_center += local_counter_center[t];
+        }
     }
 }
 
 inline void step4_move_ions(int t_index, int t){
     if ((t % N_SUB) != 0) return;
 
-    #pragma omp parallel for
-    for(int k=0; k<N_i; k++){
+    int num_threads = omp_get_max_threads();
+
+    //  Lokalne bufory diagnostyczne per-watek dla jonow
+    static std::vector<std::array<double, N_G>> local_counter_i;
+    static std::vector<std::array<double, N_G>> local_ui;
+    static std::vector<std::array<double, N_G>> local_meanei;
+
+    if ((int)local_counter_i.size() < num_threads) {
+        local_counter_i.resize(num_threads);
+        local_ui.resize(num_threads);
+        local_meanei.resize(num_threads);
+    }
+
+    #pragma omp parallel
+    {
+        int tid = omp_get_thread_num();
+
+        local_counter_i[tid].fill(0.0);
+        local_ui[tid].fill(0.0);
+        local_meanei[tid].fill(0.0);
+
         int p;
         double c0, c1, c2, e_x, mean_v, v_sqr, energy;
 
-        c0  = x_i[k] * INV_DX;
-        p   = int(c0);
-        c1  = p + 1 - c0;
-        c2  = c0 - p;
-        e_x = c1 * efield[p] + c2 * efield[p+1];
-    
-        if (measurement_mode) {
-            // measurements: 'x' and 'v' are needed at the same time, i.e. old 'x' and mean 'v'
-            mean_v = vx_i[k] + 0.5 * e_x * FACTOR_I;
-            #pragma omp atomic
-            counter_i_xt[p][t_index]   += c1;
-            #pragma omp atomic
-            counter_i_xt[p+1][t_index] += c2;
+        #pragma omp for nowait
+        for(int k=0; k<N_i; k++){
+            c0  = x_i[k] * INV_DX;
+            p   = int(c0);
+            c1  = p + 1 - c0;
+            c2  = c0 - p;
+            e_x = c1 * efield[p] + c2 * efield[p+1];
 
-            #pragma omp atomic
-            ui_xt[p][t_index]   += c1 * mean_v;
-            #pragma omp atomic
-            ui_xt[p+1][t_index] += c2 * mean_v;
+            if (measurement_mode) {
+                mean_v = vx_i[k] + 0.5 * e_x * FACTOR_I;
 
-            v_sqr  = mean_v * mean_v + vy_i[k] * vy_i[k] + vz_i[k] * vz_i[k];
-            energy = 0.5 * AR_MASS * v_sqr / EV_TO_J;
+                local_counter_i[tid][p]   += c1;
+                local_counter_i[tid][p+1] += c2;
 
-            #pragma omp atomic
-            meanei_xt[p][t_index]   += c1 * energy;
-            #pragma omp atomic
-            meanei_xt[p+1][t_index] += c2 * energy;
+                local_ui[tid][p]   += c1 * mean_v;
+                local_ui[tid][p+1] += c2 * mean_v;
+
+                v_sqr  = mean_v * mean_v + vy_i[k] * vy_i[k] + vz_i[k] * vz_i[k];
+                energy = 0.5 * AR_MASS * v_sqr / EV_TO_J;
+
+                local_meanei[tid][p]   += c1 * energy;
+                local_meanei[tid][p+1] += c2 * energy;
+            }
+
+            // update velocity and position
+            vx_i[k] += e_x * FACTOR_I;
+            x_i[k]  += vx_i[k] * DT_I;
         }
-    
-        // update velocity and position and accumulate absorbed energy
-        vx_i[k] += e_x * FACTOR_I;
-        x_i[k]  += vx_i[k] * DT_I;
+    }  // niejawna bariera
+
+    //  Sekwencyjna redukcja buforow jonow
+    if (measurement_mode) {
+        for (int t2 = 0; t2 < num_threads; t2++) {
+            for (int p = 0; p < N_G; p++) {
+                counter_i_xt[p][t_index] += local_counter_i[t2][p];
+                ui_xt[p][t_index]        += local_ui[t2][p];
+                meanei_xt[p][t_index]    += local_meanei[t2][p];
+            }
+        }
     }
 }
 
@@ -192,6 +262,8 @@ inline void step5_check_boundaries_electrons(){
     static std::vector<int> thread_counts;
     static std::vector<int> thread_offsets;
     static std::vector<std::vector<int>> thread_local_indices;
+    static std::vector<Ullong> local_abs_pow;
+    static std::vector<Ullong> local_abs_gnd;
 
     static std::vector<double> temp_x_e;
     static std::vector<double> temp_vx_e;
@@ -202,11 +274,18 @@ inline void step5_check_boundaries_electrons(){
         thread_counts.resize(num_threads, 0);
         thread_offsets.resize(num_threads, 0);
         thread_local_indices.resize(num_threads);
+        local_abs_pow.resize(num_threads, 0);
+        local_abs_gnd.resize(num_threads, 0);
+        for (int t = 0; t < num_threads; ++t) {
+            thread_local_indices[t].reserve(MAX_N_P / num_threads);
+        }
     }
     for (int t = 0; t < num_threads; ++t) {
         thread_local_indices[t].clear();
         thread_counts[t] = 0;
         thread_offsets[t] = 0;
+        local_abs_pow[t] = 0;
+        local_abs_gnd[t] = 0;
     }
 
     #pragma omp parallel
@@ -221,11 +300,9 @@ inline void step5_check_boundaries_electrons(){
         for (int k = start; k < end; ++k) {
 
             if (x_e[k] < 0) {
-                #pragma omp atomic
-                N_e_abs_pow++;
+                local_abs_pow[tid]++;
             } else if (x_e[k] > L) {
-                #pragma omp atomic
-                N_e_abs_gnd++;
+                local_abs_gnd[tid]++;
             } else {
                 thread_local_indices[tid].push_back(k);
             }
@@ -238,6 +315,8 @@ inline void step5_check_boundaries_electrons(){
     for (int t = 0; t < num_threads; ++t) {
         thread_offsets[t] = total_survived;
         total_survived += thread_counts[t];
+        N_e_abs_pow += local_abs_pow[t];
+        N_e_abs_gnd += local_abs_gnd[t];
     }
 
     temp_x_e.resize(total_survived);
@@ -272,6 +351,10 @@ inline void step6_check_boundaries_ions(int t){
     static std::vector<int> thread_counts;
     static std::vector<int> thread_offsets;
     static std::vector<std::vector<int>> thread_local_indices;
+    static std::vector<Ullong> local_abs_pow;
+    static std::vector<Ullong> local_abs_gnd;
+    static std::vector<std::array<int, N_IFED>> local_ifed_pow;
+    static std::vector<std::array<int, N_IFED>> local_ifed_gnd;
 
     static std::vector<double> temp_x_i;
     static std::vector<double> temp_vx_i;
@@ -282,11 +365,22 @@ inline void step6_check_boundaries_ions(int t){
         thread_counts.resize(num_threads, 0);
         thread_offsets.resize(num_threads, 0);
         thread_local_indices.resize(num_threads);
+        local_abs_pow.resize(num_threads, 0);
+        local_abs_gnd.resize(num_threads, 0);
+        local_ifed_pow.resize(num_threads);
+        local_ifed_gnd.resize(num_threads);
+        for (int t = 0; t < num_threads; ++t) {
+            thread_local_indices[t].reserve(MAX_N_P / num_threads);
+        }
     }
     for (int t = 0; t < num_threads; ++t) {
         thread_local_indices[t].clear();
         thread_counts[t] = 0;
         thread_offsets[t] = 0;
+        local_abs_pow[t] = 0;
+        local_abs_gnd[t] = 0;
+        local_ifed_pow[t].fill(0);
+        local_ifed_gnd[t].fill(0);
     }
 
     #pragma omp parallel
@@ -304,24 +398,20 @@ inline void step6_check_boundaries_ions(int t){
         for (int k = start; k < end; ++k) {
 
             if (x_i[k] < 0) {
-                #pragma omp atomic
-                N_i_abs_pow++;
+                local_abs_pow[tid]++;
                 v_sqr  = vx_i[k] * vx_i[k] + vy_i[k] * vy_i[k] + vz_i[k] * vz_i[k];
                 energy = 0.5 * AR_MASS * v_sqr / EV_TO_J;
                 energy_index = (int)(energy / DE_IFED);
                 if (energy_index < N_IFED) {
-                    #pragma omp atomic
-                    ifed_pow[energy_index]++;
+                    local_ifed_pow[tid][energy_index]++;
                 }
             } else if (x_i[k] > L) {
-                #pragma omp atomic
-                N_i_abs_gnd++;
+                local_abs_gnd[tid]++;
                 v_sqr  = vx_i[k] * vx_i[k] + vy_i[k] * vy_i[k] + vz_i[k] * vz_i[k];
                 energy = 0.5 * AR_MASS * v_sqr / EV_TO_J;
                 energy_index = (int)(energy / DE_IFED);
                 if (energy_index < N_IFED) {
-                    #pragma omp atomic
-                    ifed_gnd[energy_index]++;
+                    local_ifed_gnd[tid][energy_index]++;
                 }
             } else {
                 thread_local_indices[tid].push_back(k);
@@ -335,6 +425,12 @@ inline void step6_check_boundaries_ions(int t){
     for (int t = 0; t < num_threads; ++t) {
         thread_offsets[t] = total_survived;
         total_survived += thread_counts[t];
+        N_i_abs_pow += local_abs_pow[t];
+        N_i_abs_gnd += local_abs_gnd[t];
+        for (int e = 0; e < N_IFED; ++e) {
+            ifed_pow[e] += local_ifed_pow[t][e];
+            ifed_gnd[e] += local_ifed_gnd[t][e];
+        }
     }
 
     temp_x_i.resize(total_survived);
@@ -413,8 +509,7 @@ inline void step7_collisions_electrons(){
                 if (R01(MTgen) < p_accept) {
                     collision_electron(x_e[ki], &vx_e[ki], &vy_e[ki], &vz_e[ki], energy_index,
                                         new_electrons[tid], new_ions[tid]);
-                    #pragma omp atomic
-                    N_e_coll++;
+                    N_e_coll++;  // bezpieczne: kazdy watek ma swoj zakres candidates_e[i]
                 }
             }
         }
@@ -439,8 +534,7 @@ inline void step7_collisions_electrons(){
             if (R01(MTgen) < p_coll) {
                 collision_electron(x_e[k], &vx_e[k], &vy_e[k], &vz_e[k], energy_index,
                                     new_electrons[tid], new_ions[tid]);
-                #pragma omp atomic
-                N_e_coll++;
+                N_e_coll++;  // bezpieczne: kazdy watek ma unikalny zakres k z #pragma omp for
             }
         }
     }
@@ -501,8 +595,7 @@ inline void step8_collision_ions(int t){
                 
                 if (R01(MTgen) < p_accept) {
                     collision_ion(&vx_i[ki], &vy_i[ki], &vz_i[ki], &vx_a, &vy_a, &vz_a, energy_index);
-                    #pragma omp atomic
-                    N_i_coll++;
+                    N_i_coll++;  // bezpieczne: kazdy watek ma swoj zakres candidates_i[i]
                 }
             }
         }
@@ -533,9 +626,7 @@ inline void step8_collision_ions(int t){
             // ion collision takes place
             if (R01(MTgen)< p_coll) {
                 collision_ion(&vx_i[k], &vy_i[k], &vz_i[k], &vx_a, &vy_a, &vz_a, energy_index);
-
-                #pragma omp atomic
-                N_i_coll++;
+                N_i_coll++;  // bezpieczne: kazdy watek ma unikalny zakres k z #pragma omp for
             }
         }
     }

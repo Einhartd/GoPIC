@@ -1,10 +1,10 @@
 #pragma once
 #include "state.h"
+#include "constants.h"
 #include <cmath>
 
 inline void collision_electron (double xe, double *vxe, double *vye, double *vze, int eindex){
-    const double F1 = E_MASS  / (E_MASS + AR_MASS);
-    const double F2 = AR_MASS / (E_MASS + AR_MASS);
+
     double t0,t1,t2,rnd;
     double g,g2,gx,gy,gz,wx,wy,wz,theta,phi;
     double chi,eta,chi2,eta2,sc,cc,se,ce,st,ct,sp,cp,energy,e_sc,e_ej;

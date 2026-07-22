@@ -84,3 +84,16 @@ typedef int  ifed_vector[N_IFED];                            // array for IFEDs
 const int N_BIN                     = 20;                    // number of time steps binned for the XT distributions
 const int N_XT                      = N_T / N_BIN;           // number of spatial bins for the XT distributions
 typedef double xt_distr[N_G][N_XT];                          // array for XT distributions (decimal numbers)
+
+//  collision_electron
+
+const double F1 = E_MASS  / (E_MASS + AR_MASS);
+const double F2 = AR_MASS / (E_MASS + AR_MASS);
+
+//  solve_Poisson
+
+const double A =  1.0;
+const double B = -2.0;
+const double C =  1.0;
+const double S = 1.0 / (2.0 * DX);
+const double ALPHA = -DX * DX / EPSILON0;
