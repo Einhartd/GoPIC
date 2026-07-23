@@ -5,7 +5,7 @@
 #SBATCH --nodes=1
 #SBATCH --mem-per-cpu=4G
 #SBATCH --ntasks=1
-#SBATCH --cpus-per-task=4   # Zmień tę wartość, aby zmienić liczbę rdzeni przydzielonych do joba
+#SBATCH --cpus-per-task=2   # Zmień tę wartość, aby zmienić liczbę rdzeni przydzielonych do joba
 #SBATCH --time=3:30:00
 
 set -e
@@ -77,11 +77,10 @@ echo ">> Uruchamiam fazę inicjalizacji..."
 "${BINARY}" 0
 
 echo ">> Uruchamianie pomiaru liczników sprzętowych (perf stat) dla każdego wątku (per-thread) z OMP_NUM_THREADS=${OMP_NUM_THREADS}..."
-perf stat --per-thread \
-    -e cycles,instructions \
-    -e L1-dcache-loads,L1-dcache-load-misses \
-    -e LLC-loads,LLC-load-misses \
-    -e branch-loads,branch-misses \
+perf stat \
+    -e cycles:u,instructions:u \
+    -e L1-dcache-loads:u,L1-dcache-load-misses:u \
+    -e branch-loads:u,branch-misses:u \
     -o "${DATA_DIR}/perf_cpu_stats.txt" \
     "${BINARY}" 1000 m
 
