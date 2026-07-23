@@ -1,76 +1,98 @@
 #pragma once
+
 #include "constants.h"
 #include <random>
 #include <cstdio>
 #include <algorithm>
+#include <vector>
+#include <array>
+#include <omp.h>
+
 using namespace std;
 
-inline cross_section    sigma[N_CS];                                 // set of cross section arrays
-inline cross_section    sigma_tot_e;                                 // total macroscopic cross section of electrons
-inline cross_section    sigma_tot_i;                                 // total macroscopic cross section of ions
+// ============================================================================
+// Cross Sections & Macroscopic Parameters
+// ============================================================================
+inline cross_section    sigma[N_CS];         // Set of cross section arrays
+inline cross_section    sigma_tot_e;         // Total macroscopic cross section of electrons
+inline cross_section    sigma_tot_i;         // Total macroscopic cross section of ions
 
-inline int              N_e = 0;                                     // number of electrons
-inline int              N_i = 0;                                     // number of ions
-inline particle_vector  x_e, vx_e, vy_e, vz_e;                       // coordinates of electrons (one spatial, three velocity components)
-inline particle_vector  x_i, vx_i, vy_i, vz_i;                       // coordinates of ions (one spatial, three velocity components)
+// ============================================================================
+// Particle Coordinates & Counts
+// ============================================================================
+inline int              N_e = 0;             // Number of active electrons
+inline int              N_i = 0;             // Number of active ions
+inline particle_vector  x_e, vx_e, vy_e, vz_e;// Electron positions & 3V velocities
+inline particle_vector  x_i, vx_i, vy_i, vz_i;// Ion positions & 3V velocities
 
-inline xvector          efield, pot;                                 // electric field and potential
-inline xvector          e_density, i_density;                        // electron and ion densities
-inline xvector          cumul_e_density, cumul_i_density;            // cumulative densities
+// ============================================================================
+// Grid Quantities (Electric Field, Potential, Densities)
+// ============================================================================
+inline xvector          efield, pot;         // Electric field and potential on grid
+inline xvector          e_density, i_density;// Instantaneous electron and ion densities
+inline xvector          cumul_e_density, cumul_i_density; // Time-accumulated densities
 
-inline Ullong       N_e_abs_pow  = 0;                                // counter for electrons absorbed at the powered electrode
-inline Ullong       N_e_abs_gnd  = 0;                                // counter for electrons absorbed at the grounded electrode
-inline Ullong       N_i_abs_pow  = 0;                                // counter for ions absorbed at the powered electrode
-inline Ullong       N_i_abs_gnd  = 0;                                // counter for ions absorbed at the grounded electrode
+// ============================================================================
+// Absorption Counters & Energy Distributions
+// ============================================================================
+inline Ullong           N_e_abs_pow = 0;     // Electrons absorbed at powered electrode
+inline Ullong           N_e_abs_gnd = 0;     // Electrons absorbed at grounded electrode
+inline Ullong           N_i_abs_pow = 0;     // Ions absorbed at powered electrode
+inline Ullong           N_i_abs_gnd = 0;     // Ions absorbed at grounded electrode
 
-inline eepf_vector eepf     = {0.0};                                 // time integrated EEPF in the center of the plasma
+inline eepf_vector      eepf     = {0.0};    // Time-integrated EEPF at gap center
+inline ifed_vector      ifed_pow = {0};      // IFED at powered electrode
+inline ifed_vector      ifed_gnd = {0};      // IFED at grounded electrode
+inline double           mean_i_energy_pow;   // Mean ion energy at powered electrode
+inline double           mean_i_energy_gnd;   // Mean ion energy at grounded electrode
 
-inline ifed_vector  ifed_pow = {0};                                 // IFED at the powered electrode
-inline ifed_vector  ifed_gnd = {0};                                 // IFED at the grounded electrode
-inline double       mean_i_energy_pow;                              // mean ion energy at the powered electrode
-inline double       mean_i_energy_gnd;                              // mean ion energy at the grounded electrode
+// ============================================================================
+// Spatiotemporal (XT) Diagnostic Arrays
+// ============================================================================
+inline xt_distr pot_xt                     = {0.0}; // XT distribution of potential
+inline xt_distr efield_xt                  = {0.0}; // XT distribution of electric field
+inline xt_distr ne_xt                      = {0.0}; // XT distribution of electron density
+inline xt_distr ni_xt                      = {0.0}; // XT distribution of ion density
+inline xt_distr ue_xt                      = {0.0}; // XT distribution of electron velocity
+inline xt_distr ui_xt                      = {0.0}; // XT distribution of ion velocity
+inline xt_distr je_xt                      = {0.0}; // XT distribution of electron current
+inline xt_distr ji_xt                      = {0.0}; // XT distribution of ion current
+inline xt_distr powere_xt                  = {0.0}; // XT distribution of electron power
+inline xt_distr poweri_xt                  = {0.0}; // XT distribution of ion power
+inline xt_distr meanee_xt                  = {0.0}; // XT distribution of electron energy
+inline xt_distr meanei_xt                  = {0.0}; // XT distribution of ion energy
+inline xt_distr counter_e_xt               = {0.0}; // XT counter for electrons
+inline xt_distr counter_i_xt               = {0.0}; // XT counter for ions
+inline xt_distr ioniz_rate_xt              = {0.0}; // XT distribution of ionisation rate
 
-inline xt_distr pot_xt                     = {0.0};                 // XT distribution of the potential
-inline xt_distr efield_xt                  = {0.0};                 // XT distribution of the electric field
-inline xt_distr ne_xt                      = {0.0};                 // XT distribution of the electron density
-inline xt_distr ni_xt                      = {0.0};                 // XT distribution of the ion density
-inline xt_distr ue_xt                      = {0.0};                 // XT distribution of the mean electron velocity
-inline xt_distr ui_xt                      = {0.0};                 // XT distribution of the mean ion velocity
-inline xt_distr je_xt                      = {0.0};                 // XT distribution of the electron current density
-inline xt_distr ji_xt                      = {0.0};                 // XT distribution of the ion current density
-inline xt_distr powere_xt                  = {0.0};                 // XT distribution of the electron powering (power absorption) rate
-inline xt_distr poweri_xt                  = {0.0};                 // XT distribution of the ion powering (power absorption) rate
-inline xt_distr meanee_xt                  = {0.0};                 // XT distribution of the mean electron energy
-inline xt_distr meanei_xt                  = {0.0};                 // XT distribution of the mean ion energy
-inline xt_distr counter_e_xt               = {0.0};                 // XT counter for electron properties
-inline xt_distr counter_i_xt               = {0.0};                 // XT counter for ion properties
-inline xt_distr ioniz_rate_xt              = {0.0};                 // XT distribution of the ionisation rate
+inline double   mean_energy_accu_center    = 0;     // Mean electron energy accumulator (center)
+inline Ullong   mean_energy_counter_center = 0;     // Mean electron energy counter (center)
+inline Ullong   N_e_coll                   = 0;     // Total electron collisions counter
+inline Ullong   N_i_coll                   = 0;     // Total ion collisions counter
+inline double   Time;                               // Total simulated physical time
+inline int      cycle, no_of_cycles, cycles_done;   // Simulation cycle tracking
+inline int      arg1;                               // Command line argument 1
+inline char     st0[80];                            // Command line argument string buffer
+inline FILE     *datafile;                          // Output data file handle
+inline bool     measurement_mode;                   // Measurements & data collection flag
 
-inline double   mean_energy_accu_center    = 0;                     // mean electron energy accumulator in the center of the gap
-inline Ullong   mean_energy_counter_center = 0;                     // mean electron energy counter in the center of the gap
-inline Ullong   N_e_coll                   = 0;                     // counter for electron collisions
-inline Ullong   N_i_coll                   = 0;                     // counter for ion collisions
-inline double   Time;                                               // total simulated time (from the beginning of the simulation)
-inline int      cycle, no_of_cycles, cycles_done;                   // current cycle and total cycles in the run, cycles completed
-inline int      arg1;                                               // used for reading command line arguments
-inline char     st0[80];                                            // used for reading command line arguments
-inline FILE     *datafile;                                          // used for saving data
-inline bool     measurement_mode;                                   // flag that controls measurements and data saving
-
-// null-collision precomputed parameters
+// ============================================================================
+// Null-Collision Precomputed Parameters
+// ============================================================================
 inline double nu_star_e = 0.0;
 inline double P_star_e  = 0.0;
 inline double nu_star_i = 0.0;
 inline double P_star_i  = 0.0;
 
-#include <vector>
-#include <array>
-#include <omp.h>
-
+// ============================================================================
+// WorkerBuffers: Pre-allocated thread-local state for zero-allocation OpenMP
+// ============================================================================
 struct WorkerBuffers {
+    // Thread-local density deposition buffers
     std::vector<std::array<double, N_G>> e_density;
     std::vector<std::array<double, N_G>> i_density;
 
+    // Thread-local electron diagnostic buffers
     std::vector<std::array<double, N_G>> counter_e;
     std::vector<std::array<double, N_G>> ue;
     std::vector<std::array<double, N_G>> meanee;
@@ -79,10 +101,12 @@ struct WorkerBuffers {
     std::vector<double> accu_center;
     std::vector<Ullong> counter_center;
 
+    // Thread-local ion diagnostic buffers
     std::vector<std::array<double, N_G>> counter_i;
     std::vector<std::array<double, N_G>> ui;
     std::vector<std::array<double, N_G>> meanei;
 
+    // Stream compaction & boundary filtering buffers
     std::vector<int> thread_counts;
     std::vector<int> thread_offsets;
     std::vector<std::vector<int>> thread_local_indices;
@@ -91,11 +115,13 @@ struct WorkerBuffers {
     std::vector<std::array<int, N_IFED>> local_ifed_pow;
     std::vector<std::array<int, N_IFED>> local_ifed_gnd;
 
+    // Pre-allocated temporary arrays for surviving particles
     std::vector<double> temp_x;
     std::vector<double> temp_vx;
     std::vector<double> temp_vy;
     std::vector<double> temp_vz;
 
+    // Pre-allocated candidate indices for Null-Collision sampling
     std::vector<int> candidates_e;
     std::vector<int> candidates_i;
 
@@ -141,8 +167,10 @@ struct WorkerBuffers {
 
 inline WorkerBuffers worker_buffers;
 
+// ============================================================================
+// Thread-Local Random Number Generators
+// ============================================================================
 inline thread_local std::random_device rd{}; 
 inline thread_local std::mt19937 MTgen(rd());
 inline thread_local std::uniform_real_distribution<> R01(0.0, 1.0);
 inline thread_local std::normal_distribution<> RMB(0.0, sqrt(K_BOLTZMANN * TEMPERATURE / AR_MASS));
-
