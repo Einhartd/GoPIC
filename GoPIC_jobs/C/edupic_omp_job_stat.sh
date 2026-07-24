@@ -48,17 +48,17 @@ NODE_INFO_FILE="${LOG_DIR}/hardware_topology.txt"
 
 module load gcc
 
-if [ ! -f "${BUILD_DIR}/edupic_omp_c_std" ]; then
-    echo ">> Kompiluję kod OpenMP C++ (wersja Standard)..."
-    g++ -O3 -fno-omit-frame-pointer -march=native -fopenmp "${SOURCE_DIR}/eduPIC.cc" -o "${BUILD_DIR}/edupic_tmp_omp_std_${SLURM_JOB_ID}"
-    mv "${BUILD_DIR}/edupic_tmp_omp_std_${SLURM_JOB_ID}" "${BUILD_DIR}/edupic_omp_c_std"
-fi
 
-if [ ! -f "${BUILD_DIR}/edupic_omp_c_nc" ]; then
-    echo ">> Kompiluję kod OpenMP C++ (wersja Null-Collision)..."
-    g++ -O3 -fno-omit-frame-pointer -march=native -fopenmp -DUSE_NULL_COLLISION "${SOURCE_DIR}/eduPIC.cc" -o "${BUILD_DIR}/edupic_tmp_omp_nc_${SLURM_JOB_ID}"
-    mv "${BUILD_DIR}/edupic_tmp_omp_nc_${SLURM_JOB_ID}" "${BUILD_DIR}/edupic_omp_c_nc"
-fi
+echo ">> Kompiluję kod OpenMP C++ (wersja Standard)..."
+g++ -O3 -fno-omit-frame-pointer -march=native -fopenmp "${SOURCE_DIR}/eduPIC.cc" -o "${BUILD_DIR}/edupic_tmp_omp_std_${SLURM_JOB_ID}"
+mv "${BUILD_DIR}/edupic_tmp_omp_std_${SLURM_JOB_ID}" "${BUILD_DIR}/edupic_omp_c_std"
+
+
+
+echo ">> Kompiluję kod OpenMP C++ (wersja Null-Collision)..."
+g++ -O3 -fno-omit-frame-pointer -march=native -fopenmp -DUSE_NULL_COLLISION "${SOURCE_DIR}/eduPIC.cc" -o "${BUILD_DIR}/edupic_tmp_omp_nc_${SLURM_JOB_ID}"
+mv "${BUILD_DIR}/edupic_tmp_omp_nc_${SLURM_JOB_ID}" "${BUILD_DIR}/edupic_omp_c_nc"
+
 
 if [ "${USE_NULL_COLLISION}" = "true" ] || [ "${USE_NULL_COLLISION}" = "1" ]; then
     echo ">> [Null-Collision OpenMP] Wybrano wersję zoptymalizowaną"
