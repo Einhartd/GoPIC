@@ -32,8 +32,9 @@ inline void step1_compute_electron_density(void) {
     int num_threads = omp_get_max_threads();
     worker_buffers.init_buffers(num_threads);
 
-    // Parallel scatter-add to thread-local density arrays
-    auto work = [&](int tid) {
+    #pragma omp parallel
+    {
+        int tid = omp_get_thread_num();
         worker_buffers.e_density[tid].fill(0.0);
 
         int p;
@@ -45,35 +46,18 @@ inline void step1_compute_electron_density(void) {
             worker_buffers.e_density[tid][p]   += (p + 1 - c0) * FACTOR_W;
             worker_buffers.e_density[tid][p+1] += (c0 - p) * FACTOR_W;
         }
-    };
-
-    if (omp_in_parallel()) {
-        work(omp_get_thread_num());
-    } else {
-        #pragma omp parallel
-        { work(omp_get_thread_num()); }
     }
 
-    // Reduction of thread-local density buffers to global grid
-    auto reduce = [&]() {
-        for (int p = 0; p < N_G; p++) e_density[p] = 0;
-        for (int t = 0; t < num_threads; t++) {
-            for (int p = 0; p < N_G; p++) e_density[p] += worker_buffers.e_density[t][p];
-        }
-
-        // Boundary correction (factor 2x at physical boundaries)
-        e_density[0]     *= 2.0;
-        e_density[N_G-1] *= 2.0;
-
-        for (int p = 0; p < N_G; p++) cumul_e_density[p] += e_density[p];
-    };
-
-    if (omp_in_parallel()) {
-        #pragma omp single
-        { reduce(); }
-    } else {
-        reduce();
+    for (int p = 0; p < N_G; p++) e_density[p] = 0;
+    for (int t = 0; t < num_threads; t++) {
+        for (int p = 0; p < N_G; p++) e_density[p] += worker_buffers.e_density[t][p];
     }
+
+    // Boundary correction (factor 2x at physical boundaries)
+    e_density[0]     *= 2.0;
+    e_density[N_G-1] *= 2.0;
+
+    for (int p = 0; p < N_G; p++) cumul_e_density[p] += e_density[p];
 }
 
 // ============================================================================
@@ -81,21 +65,16 @@ inline void step1_compute_electron_density(void) {
 // ============================================================================
 inline void step1_compute_ion_density(int t) {    
     if ((t % N_SUB) != 0) {
-        if (omp_in_parallel()) {
-            #pragma omp single
-            {
-                for (int p = 0; p < N_G; p++) cumul_i_density[p] += i_density[p];
-            }
-        } else {
-            for (int p = 0; p < N_G; p++) cumul_i_density[p] += i_density[p];
-        }
+        for (int p = 0; p < N_G; p++) cumul_i_density[p] += i_density[p];
         return;
     }
 
     int num_threads = omp_get_max_threads();
     worker_buffers.init_buffers(num_threads);
 
-    auto work = [&](int tid) {
+    #pragma omp parallel
+    {
+        int tid = omp_get_thread_num();
         worker_buffers.i_density[tid].fill(0.0);
 
         int p;
@@ -107,33 +86,17 @@ inline void step1_compute_ion_density(int t) {
             worker_buffers.i_density[tid][p]   += (p + 1 - c0) * FACTOR_W;
             worker_buffers.i_density[tid][p+1] += (c0 - p) * FACTOR_W;
         }
-    };
-
-    if (omp_in_parallel()) {
-        work(omp_get_thread_num());
-    } else {
-        #pragma omp parallel
-        { work(omp_get_thread_num()); }
     }
 
-    auto reduce = [&]() {
-        for (int p = 0; p < N_G; p++) i_density[p] = 0;
-        for (int t2 = 0; t2 < num_threads; t2++) {
-            for (int p = 0; p < N_G; p++) i_density[p] += worker_buffers.i_density[t2][p];
-        }
-
-        i_density[0]     *= 2.0;
-        i_density[N_G-1] *= 2.0;
-
-        for (int p = 0; p < N_G; p++) cumul_i_density[p] += i_density[p];
-    };
-
-    if (omp_in_parallel()) {
-        #pragma omp single
-        { reduce(); }
-    } else {
-        reduce();
+    for (int p = 0; p < N_G; p++) i_density[p] = 0;
+    for (int t2 = 0; t2 < num_threads; t2++) {
+        for (int p = 0; p < N_G; p++) i_density[p] += worker_buffers.i_density[t2][p];
     }
+
+    i_density[0]     *= 2.0;
+    i_density[N_G-1] *= 2.0;
+
+    for (int p = 0; p < N_G; p++) cumul_i_density[p] += i_density[p];
 }
 
 // ============================================================================
@@ -154,7 +117,10 @@ inline void step3_move_electrons(int t_index) {
     int num_threads = omp_get_max_threads();
     worker_buffers.init_buffers(num_threads);
 
-    auto work = [&](int tid) {
+    #pragma omp parallel
+    {
+        int tid = omp_get_thread_num();
+
         worker_buffers.counter_e[tid].fill(0.0);
         worker_buffers.ue[tid].fill(0.0);
         worker_buffers.meanee[tid].fill(0.0);
@@ -168,14 +134,12 @@ inline void step3_move_electrons(int t_index) {
 
         #pragma omp for nowait
         for (int k = 0; k < N_e; k++) {
-            // Field interpolation from grid to particle
             c0  = x_e[k] * INV_DX;
             p   = int(c0);
             c1  = p + 1.0 - c0;
             c2  = c0 - p;
             e_x = c1 * efield[p] + c2 * efield[p+1];
 
-            // Spatiotemporal diagnostics collection
             if (measurement_mode) {
                 mean_v = vx_e[k] - 0.5 * e_x * FACTOR_E;
 
@@ -208,41 +172,24 @@ inline void step3_move_electrons(int t_index) {
                 }
             }
 
-            // Boris / Leapfrog particle push
             vx_e[k] -= e_x * FACTOR_E;
             x_e[k]  += vx_e[k] * DT_E;
         }
-    };
-
-    if (omp_in_parallel()) {
-        work(omp_get_thread_num());
-    } else {
-        #pragma omp parallel
-        { work(omp_get_thread_num()); }
     }
 
     if (measurement_mode) {
-        auto reduce = [&]() {
-            for (int t = 0; t < num_threads; t++) {
-                for (int p = 0; p < N_G; p++) {
-                    counter_e_xt[p][t_index]   += worker_buffers.counter_e[t][p];
-                    ue_xt[p][t_index]          += worker_buffers.ue[t][p];
-                    meanee_xt[p][t_index]      += worker_buffers.meanee[t][p];
-                    ioniz_rate_xt[p][t_index]  += worker_buffers.ioniz[t][p];
-                }
-                for (int i = 0; i < N_EEPF; i++) {
-                    eepf[i] += worker_buffers.eepf[t][i];
-                }
-                mean_energy_accu_center    += worker_buffers.accu_center[t];
-                mean_energy_counter_center += worker_buffers.counter_center[t];
+        for (int t = 0; t < num_threads; t++) {
+            for (int p = 0; p < N_G; p++) {
+                counter_e_xt[p][t_index]   += worker_buffers.counter_e[t][p];
+                ue_xt[p][t_index]          += worker_buffers.ue[t][p];
+                meanee_xt[p][t_index]      += worker_buffers.meanee[t][p];
+                ioniz_rate_xt[p][t_index]  += worker_buffers.ioniz[t][p];
             }
-        };
-
-        if (omp_in_parallel()) {
-            #pragma omp single
-            { reduce(); }
-        } else {
-            reduce();
+            for (int i = 0; i < N_EEPF; i++) {
+                eepf[i] += worker_buffers.eepf[t][i];
+            }
+            mean_energy_accu_center    += worker_buffers.accu_center[t];
+            mean_energy_counter_center += worker_buffers.counter_center[t];
         }
     }
 }
@@ -256,7 +203,10 @@ inline void step4_move_ions(int t_index, int t) {
     int num_threads = omp_get_max_threads();
     worker_buffers.init_buffers(num_threads);
 
-    auto work = [&](int tid) {
+    #pragma omp parallel
+    {
+        int tid = omp_get_thread_num();
+
         worker_buffers.counter_i[tid].fill(0.0);
         worker_buffers.ui[tid].fill(0.0);
         worker_buffers.meanei[tid].fill(0.0);
@@ -291,31 +241,15 @@ inline void step4_move_ions(int t_index, int t) {
             vx_i[k] += e_x * FACTOR_I;
             x_i[k]  += vx_i[k] * DT_I;
         }
-    };
-
-    if (omp_in_parallel()) {
-        work(omp_get_thread_num());
-    } else {
-        #pragma omp parallel
-        { work(omp_get_thread_num()); }
     }
 
     if (measurement_mode) {
-        auto reduce = [&]() {
-            for (int t2 = 0; t2 < num_threads; t2++) {
-                for (int p = 0; p < N_G; p++) {
-                    counter_i_xt[p][t_index] += worker_buffers.counter_i[t2][p];
-                    ui_xt[p][t_index]        += worker_buffers.ui[t2][p];
-                    meanei_xt[p][t_index]    += worker_buffers.meanei[t2][p];
-                }
+        for (int t2 = 0; t2 < num_threads; t2++) {
+            for (int p = 0; p < N_G; p++) {
+                counter_i_xt[p][t_index] += worker_buffers.counter_i[t2][p];
+                ui_xt[p][t_index]        += worker_buffers.ui[t2][p];
+                meanei_xt[p][t_index]    += worker_buffers.meanei[t2][p];
             }
-        };
-
-        if (omp_in_parallel()) {
-            #pragma omp single
-            { reduce(); }
-        } else {
-            reduce();
         }
     }
 }
@@ -327,25 +261,19 @@ inline void step5_check_boundaries_electrons() {
     int num_threads = omp_get_max_threads();
     worker_buffers.init_buffers(num_threads);
 
-    auto prepare = [&]() {
-        for (int t = 0; t < num_threads; ++t) {
-            worker_buffers.thread_local_indices[t].clear();
-            worker_buffers.thread_counts[t] = 0;
-            worker_buffers.thread_offsets[t] = 0;
-            worker_buffers.local_abs_pow[t] = 0;
-            worker_buffers.local_abs_gnd[t] = 0;
-        }
-    };
-
-    if (omp_in_parallel()) {
-        #pragma omp single
-        { prepare(); }
-    } else {
-        prepare();
+    for (int t = 0; t < num_threads; ++t) {
+        worker_buffers.thread_local_indices[t].clear();
+        worker_buffers.thread_counts[t] = 0;
+        worker_buffers.thread_offsets[t] = 0;
+        worker_buffers.local_abs_pow[t] = 0;
+        worker_buffers.local_abs_gnd[t] = 0;
     }
 
-    // Phase 1: Filter surviving particles per thread
-    auto phase1 = [&](int tid, int n_threads) {
+    #pragma omp parallel
+    {
+        int tid = omp_get_thread_num();
+        int n_threads = omp_get_num_threads();
+
         int chunk_size = N_e / n_threads;
         int start = tid * chunk_size;
         int end = (tid == n_threads - 1) ? N_e : start + chunk_size;
@@ -360,36 +288,19 @@ inline void step5_check_boundaries_electrons() {
             }
         }
         worker_buffers.thread_counts[tid] = worker_buffers.thread_local_indices[tid].size();
-    };
-
-    if (omp_in_parallel()) {
-        phase1(omp_get_thread_num(), omp_get_num_threads());
-        #pragma omp barrier
-    } else {
-        #pragma omp parallel
-        { phase1(omp_get_thread_num(), omp_get_num_threads()); }
     }
 
-    // Compute prefix sum offsets for contiguous array packing
     int total_survived = 0;
-    auto offset_calc = [&]() {
-        for (int t = 0; t < num_threads; ++t) {
-            worker_buffers.thread_offsets[t] = total_survived;
-            total_survived += worker_buffers.thread_counts[t];
-            N_e_abs_pow += worker_buffers.local_abs_pow[t];
-            N_e_abs_gnd += worker_buffers.local_abs_gnd[t];
-        }
-    };
-
-    if (omp_in_parallel()) {
-        #pragma omp single
-        { offset_calc(); }
-    } else {
-        offset_calc();
+    for (int t = 0; t < num_threads; ++t) {
+        worker_buffers.thread_offsets[t] = total_survived;
+        total_survived += worker_buffers.thread_counts[t];
+        N_e_abs_pow += worker_buffers.local_abs_pow[t];
+        N_e_abs_gnd += worker_buffers.local_abs_gnd[t];
     }
 
-    // Phase 2: Parallel copy of surviving particles to temp buffer
-    auto phase2 = [&](int tid) {
+    #pragma omp parallel
+    {
+        int tid = omp_get_thread_num();
         int write_idx = worker_buffers.thread_offsets[tid];
         for (int idx : worker_buffers.thread_local_indices[tid]) {
             worker_buffers.temp_x[write_idx]  = x_e[idx];
@@ -398,31 +309,13 @@ inline void step5_check_boundaries_electrons() {
             worker_buffers.temp_vz[write_idx] = vz_e[idx];
             write_idx++;
         }
-    };
-
-    if (omp_in_parallel()) {
-        phase2(omp_get_thread_num());
-        #pragma omp barrier
-    } else {
-        #pragma omp parallel
-        { phase2(omp_get_thread_num()); }
     }
 
-    // Copy temp buffer back to main particle arrays
-    auto copy_back = [&]() {
-        N_e = total_survived;
-        std::copy(worker_buffers.temp_x.begin(), worker_buffers.temp_x.begin() + total_survived, x_e);
-        std::copy(worker_buffers.temp_vx.begin(), worker_buffers.temp_vx.begin() + total_survived, vx_e);
-        std::copy(worker_buffers.temp_vy.begin(), worker_buffers.temp_vy.begin() + total_survived, vy_e);
-        std::copy(worker_buffers.temp_vz.begin(), worker_buffers.temp_vz.begin() + total_survived, vz_e);
-    };
-
-    if (omp_in_parallel()) {
-        #pragma omp single
-        { copy_back(); }
-    } else {
-        copy_back();
-    }
+    N_e = total_survived;
+    std::copy(worker_buffers.temp_x.begin(), worker_buffers.temp_x.begin() + total_survived, x_e);
+    std::copy(worker_buffers.temp_vx.begin(), worker_buffers.temp_vx.begin() + total_survived, vx_e);
+    std::copy(worker_buffers.temp_vy.begin(), worker_buffers.temp_vy.begin() + total_survived, vy_e);
+    std::copy(worker_buffers.temp_vz.begin(), worker_buffers.temp_vz.begin() + total_survived, vz_e);
 }
 
 // ============================================================================
@@ -434,28 +327,23 @@ inline void step6_check_boundaries_ions(int t) {
     int num_threads = omp_get_max_threads();
     worker_buffers.init_buffers(num_threads);
 
-    auto prepare = [&]() {
-        for (int t2 = 0; t2 < num_threads; ++t2) {
-            worker_buffers.thread_local_indices[t2].clear();
-            worker_buffers.thread_counts[t2] = 0;
-            worker_buffers.thread_offsets[t2] = 0;
-            worker_buffers.local_abs_pow[t2] = 0;
-            worker_buffers.local_abs_gnd[t2] = 0;
-            worker_buffers.local_ifed_pow[t2].fill(0);
-            worker_buffers.local_ifed_gnd[t2].fill(0);
-        }
-    };
-
-    if (omp_in_parallel()) {
-        #pragma omp single
-        { prepare(); }
-    } else {
-        prepare();
+    for (int t2 = 0; t2 < num_threads; ++t2) {
+        worker_buffers.thread_local_indices[t2].clear();
+        worker_buffers.thread_counts[t2] = 0;
+        worker_buffers.thread_offsets[t2] = 0;
+        worker_buffers.local_abs_pow[t2] = 0;
+        worker_buffers.local_abs_gnd[t2] = 0;
+        worker_buffers.local_ifed_pow[t2].fill(0);
+        worker_buffers.local_ifed_gnd[t2].fill(0);
     }
 
-    auto phase1 = [&](int tid, int n_threads) {
+    #pragma omp parallel
+    {
         double v_sqr, energy;
         int energy_index;
+
+        int tid = omp_get_thread_num();
+        int n_threads = omp_get_num_threads();
 
         int chunk_size = N_i / n_threads;
         int start = tid * chunk_size;
@@ -483,38 +371,23 @@ inline void step6_check_boundaries_ions(int t) {
             }
         }
         worker_buffers.thread_counts[tid] = worker_buffers.thread_local_indices[tid].size();
-    };
-
-    if (omp_in_parallel()) {
-        phase1(omp_get_thread_num(), omp_get_num_threads());
-        #pragma omp barrier
-    } else {
-        #pragma omp parallel
-        { phase1(omp_get_thread_num(), omp_get_num_threads()); }
     }
 
     int total_survived = 0;
-    auto offset_calc = [&]() {
-        for (int t2 = 0; t2 < num_threads; ++t2) {
-            worker_buffers.thread_offsets[t2] = total_survived;
-            total_survived += worker_buffers.thread_counts[t2];
-            N_i_abs_pow += worker_buffers.local_abs_pow[t2];
-            N_i_abs_gnd += worker_buffers.local_abs_gnd[t2];
-            for (int e = 0; e < N_IFED; ++e) {
-                ifed_pow[e] += worker_buffers.local_ifed_pow[t2][e];
-                ifed_gnd[e] += worker_buffers.local_ifed_gnd[t2][e];
-            }
+    for (int t2 = 0; t2 < num_threads; ++t2) {
+        worker_buffers.thread_offsets[t2] = total_survived;
+        total_survived += worker_buffers.thread_counts[t2];
+        N_i_abs_pow += worker_buffers.local_abs_pow[t2];
+        N_i_abs_gnd += worker_buffers.local_abs_gnd[t2];
+        for (int e = 0; e < N_IFED; ++e) {
+            ifed_pow[e] += worker_buffers.local_ifed_pow[t2][e];
+            ifed_gnd[e] += worker_buffers.local_ifed_gnd[t2][e];
         }
-    };
-
-    if (omp_in_parallel()) {
-        #pragma omp single
-        { offset_calc(); }
-    } else {
-        offset_calc();
     }
 
-    auto phase2 = [&](int tid) {
+    #pragma omp parallel
+    {
+        int tid = omp_get_thread_num();
         int write_idx = worker_buffers.thread_offsets[tid];
         for (int idx : worker_buffers.thread_local_indices[tid]) {
             worker_buffers.temp_x[write_idx]  = x_i[idx];
@@ -523,30 +396,13 @@ inline void step6_check_boundaries_ions(int t) {
             worker_buffers.temp_vz[write_idx] = vz_i[idx];
             write_idx++;
         }
-    };
-
-    if (omp_in_parallel()) {
-        phase2(omp_get_thread_num());
-        #pragma omp barrier
-    } else {
-        #pragma omp parallel
-        { phase2(omp_get_thread_num()); }
     }
 
-    auto copy_back = [&]() {
-        N_i = total_survived;
-        std::copy(worker_buffers.temp_x.begin(), worker_buffers.temp_x.begin() + total_survived, x_i);
-        std::copy(worker_buffers.temp_vx.begin(), worker_buffers.temp_vx.begin() + total_survived, vx_i);
-        std::copy(worker_buffers.temp_vy.begin(), worker_buffers.temp_vy.begin() + total_survived, vy_i);
-        std::copy(worker_buffers.temp_vz.begin(), worker_buffers.temp_vz.begin() + total_survived, vz_i);
-    };
-
-    if (omp_in_parallel()) {
-        #pragma omp single
-        { copy_back(); }
-    } else {
-        copy_back();
-    }
+    N_i = total_survived;
+    std::copy(worker_buffers.temp_x.begin(), worker_buffers.temp_x.begin() + total_survived, x_i);
+    std::copy(worker_buffers.temp_vx.begin(), worker_buffers.temp_vx.begin() + total_survived, vx_i);
+    std::copy(worker_buffers.temp_vy.begin(), worker_buffers.temp_vy.begin() + total_survived, vy_i);
+    std::copy(worker_buffers.temp_vz.begin(), worker_buffers.temp_vz.begin() + total_survived, vz_i);
 }
 
 // ============================================================================
@@ -559,51 +415,34 @@ inline void step7_collisions_electrons() {
     static std::vector<NewParticles> new_electrons;
     static std::vector<NewParticles> new_ions;
 
-    auto prepare = [&]() {
-        if (new_electrons.size() < (size_t)num_threads) {
-            new_electrons.resize(num_threads);
-            new_ions.resize(num_threads);
-        }
-        for (int t = 0; t < num_threads; ++t) {
-            new_electrons[t].x.clear();
-            new_electrons[t].vx.clear();
-            new_electrons[t].vy.clear();
-            new_electrons[t].vz.clear();
-            new_ions[t].x.clear();
-            new_ions[t].vx.clear();
-            new_ions[t].vy.clear();
-            new_ions[t].vz.clear();
-        }
-    };
-
-    if (omp_in_parallel()) {
-        #pragma omp single
-        { prepare(); }
-    } else {
-        prepare();
+    if (new_electrons.size() < (size_t)num_threads) {
+        new_electrons.resize(num_threads);
+        new_ions.resize(num_threads);
+    }
+    for (int t = 0; t < num_threads; ++t) {
+        new_electrons[t].x.clear();
+        new_electrons[t].vx.clear();
+        new_electrons[t].vy.clear();
+        new_electrons[t].vz.clear();
+        new_ions[t].x.clear();
+        new_ions[t].vx.clear();
+        new_ions[t].vy.clear();
+        new_ions[t].vz.clear();
     }
 
 #ifdef USE_NULL_COLLISION
-    int N_coll_star_e = 0;
-    auto null_prep = [&]() {
-        std::binomial_distribution<int> binom_e(N_e, P_star_e);
-        N_coll_star_e = binom_e(MTgen);
-        if (N_coll_star_e > N_e) N_coll_star_e = N_e;
-        if (N_coll_star_e > 0) {
-            random_sample(N_e, N_coll_star_e, worker_buffers.candidates_e);
-        }
-    };
-
-    if (omp_in_parallel()) {
-        #pragma omp single
-        { null_prep(); }
-    } else {
-        null_prep();
-    }
-
+    std::binomial_distribution<int> binom_e(N_e, P_star_e);
+    int N_coll_star_e = binom_e(MTgen);
+    if (N_coll_star_e > N_e) N_coll_star_e = N_e;
+    
     if (N_coll_star_e > 0) {
-        auto null_work = [&](int tid) {
-            #pragma omp for nowait
+        random_sample(N_e, N_coll_star_e, worker_buffers.candidates_e);
+
+        #pragma omp parallel
+        {
+            int tid = omp_get_thread_num();
+            
+            #pragma omp for
             for (int i = 0; i < N_coll_star_e; ++i) {
                 int ki = worker_buffers.candidates_e[i];
 
@@ -623,21 +462,15 @@ inline void step7_collisions_electrons() {
                     N_e_coll++;
                 }
             }
-        };
-
-        if (omp_in_parallel()) {
-            null_work(omp_get_thread_num());
-            #pragma omp barrier
-        } else {
-            #pragma omp parallel
-            { null_work(omp_get_thread_num()); }
         }
     }
 #else
-    auto std_work = [&](int tid) {
+    #pragma omp parallel
+    {
         int k, energy_index;
         double v_sqr, velocity, energy, nu, p_coll;
-        #pragma omp for nowait
+        int tid = omp_get_thread_num();
+        #pragma omp for
         for (k = 0; k < N_e; k++) {
             v_sqr = vx_e[k] * vx_e[k] + vy_e[k] * vy_e[k] + vz_e[k] * vz_e[k];
             velocity = sqrt(v_sqr);
@@ -652,41 +485,24 @@ inline void step7_collisions_electrons() {
                 N_e_coll++;
             }
         }
-    };
-
-    if (omp_in_parallel()) {
-        std_work(omp_get_thread_num());
-        #pragma omp barrier
-    } else {
-        #pragma omp parallel
-        { std_work(omp_get_thread_num()); }
     }
 #endif
 
-    auto copy_new = [&]() {
-        for (int t = 0; t < num_threads; ++t) {
-            for (size_t i = 0; i < new_electrons[t].x.size(); ++i) {
-                x_e[N_e]    = new_electrons[t].x[i];
-                vx_e[N_e]   = new_electrons[t].vx[i];
-                vy_e[N_e]   = new_electrons[t].vy[i];
-                vz_e[N_e]   = new_electrons[t].vz[i];
-                N_e++;
-            }
-            for (size_t i = 0; i < new_ions[t].x.size(); ++i) {
-                x_i[N_i]    = new_ions[t].x[i];
-                vx_i[N_i]   = new_ions[t].vx[i];
-                vy_i[N_i]   = new_ions[t].vy[i];
-                vz_i[N_i]   = new_ions[t].vz[i];
-                N_i++;   
-            }
+    for (int t = 0; t < num_threads; ++t) {
+        for (size_t i = 0; i < new_electrons[t].x.size(); ++i) {
+            x_e[N_e]    = new_electrons[t].x[i];
+            vx_e[N_e]   = new_electrons[t].vx[i];
+            vy_e[N_e]   = new_electrons[t].vy[i];
+            vz_e[N_e]   = new_electrons[t].vz[i];
+            N_e++;
         }
-    };
-
-    if (omp_in_parallel()) {
-        #pragma omp single
-        { copy_new(); }
-    } else {
-        copy_new();
+        for (size_t i = 0; i < new_ions[t].x.size(); ++i) {
+            x_i[N_i]    = new_ions[t].x[i];
+            vx_i[N_i]   = new_ions[t].vx[i];
+            vy_i[N_i]   = new_ions[t].vy[i];
+            vz_i[N_i]   = new_ions[t].vz[i];
+            N_i++;   
+        }
     }
 }
 
@@ -700,29 +516,19 @@ inline void step8_collision_ions(int t) {
     worker_buffers.init_buffers(num_threads);
 
 #ifdef USE_NULL_COLLISION
-    int N_coll_star_i = 0;
-    auto null_prep = [&]() {
-        std::binomial_distribution<int> binom_i(N_i, P_star_i);
-        N_coll_star_i = binom_i(MTgen);
-        if (N_coll_star_i > N_i) N_coll_star_i = N_i;
-        if (N_coll_star_i > 0) {
-            random_sample(N_i, N_coll_star_i, worker_buffers.candidates_i);
-        }
-    };
-
-    if (omp_in_parallel()) {
-        #pragma omp single
-        { null_prep(); }
-    } else {
-        null_prep();
-    }
-
+    std::binomial_distribution<int> binom_i(N_i, P_star_i);
+    int N_coll_star_i = binom_i(MTgen);
+    if (N_coll_star_i > N_i) N_coll_star_i = N_i;
+    
     if (N_coll_star_i > 0) {
-        auto null_work = [&](int tid) {
+        random_sample(N_i, N_coll_star_i, worker_buffers.candidates_i);
+        
+        #pragma omp parallel
+        {
             double vx_a, vy_a, vz_a, gx, gy, gz, g_sqr, g, energy;
             int energy_index;
 
-            #pragma omp for nowait
+            #pragma omp for
             for (int i = 0; i < N_coll_star_i; ++i) {
                 int ki = worker_buffers.candidates_i[i];
 
@@ -745,21 +551,14 @@ inline void step8_collision_ions(int t) {
                     N_i_coll++;
                 }
             }
-        };
-
-        if (omp_in_parallel()) {
-            null_work(omp_get_thread_num());
-            #pragma omp barrier
-        } else {
-            #pragma omp parallel
-            { null_work(omp_get_thread_num()); }
         }
     }
 #else
-    auto std_work = [&](int tid) {
+    #pragma omp parallel
+    {
         int k, energy_index;
         double vx_a, vy_a, vz_a, gx, gy, gz, g_sqr, g, energy, nu, p_coll;
-        #pragma omp for nowait
+        #pragma omp for
         for (k = 0; k < N_i; k++) {
             vx_a = RMB(MTgen);
             vy_a = RMB(MTgen);
@@ -779,14 +578,6 @@ inline void step8_collision_ions(int t) {
                 N_i_coll++;
             }
         }
-    };
-
-    if (omp_in_parallel()) {
-        std_work(omp_get_thread_num());
-        #pragma omp barrier
-    } else {
-        #pragma omp parallel
-        { std_work(omp_get_thread_num()); }
     }
 #endif
 }
@@ -809,50 +600,27 @@ inline void step9_collect_xt_data(int t_index) {
 // Main Time Loop (RF Cycle Executor)
 // ============================================================================
 inline void do_one_cycle(void) {
-    int num_threads = omp_get_max_threads();
-    worker_buffers.init_buffers(num_threads);
+    for (int t = 0; t < N_T; t++) {          // RF period divided into N_T time steps
+        Time += DT_E;                        // Update simulation physical time
+        int t_index = t / N_BIN;             // Index for XT distributions
 
-    // Persistent parallel region across the entire RF period (4000 time steps)
-    #pragma omp parallel
-    {
-        for (int t = 0; t < N_T; t++) {
-            #pragma omp single
-            {
-                Time += DT_E;   // Advance physical simulation time
-            }
-            int t_index = t / N_BIN;
+        step1_compute_electron_density();
+        step1_compute_ion_density(t);
+        step2_solve_poisson(Time);
 
-            // Step 1: Charge density deposition
-            step1_compute_electron_density();
-            step1_compute_ion_density(t);
+        step3_move_electrons(t_index);
+        step4_move_ions(t_index, t);
 
-            // Step 2: Electric field solver (sequential)
-            #pragma omp single
-            {
-                step2_solve_poisson(Time);
-            }
+        step5_check_boundaries_electrons();
+        step6_check_boundaries_ions(t);
 
-            // Step 3 & 4: Push particles & gather diagnostics
-            step3_move_electrons(t_index);
-            step4_move_ions(t_index, t);
+        step7_collisions_electrons();
+        step8_collision_ions(t);
 
-            // Step 5 & 6: Absorbing boundary conditions
-            step5_check_boundaries_electrons();
-            step6_check_boundaries_ions(t);
+        step9_collect_xt_data(t_index);
 
-            // Step 7 & 8: Collisions & Ionization
-            step7_collisions_electrons();
-            step8_collision_ions(t);
-
-            // Step 9: XT data accumulation (sequential)
-            #pragma omp single
-            {
-                step9_collect_xt_data(t_index);
-
-                if ((t % 1000) == 0) {
-                    printf(" c = %8d  t = %8d  #e = %8d  #i = %8d\n", cycle, t, N_e, N_i);
-                }
-            }
+        if ((t % 1000) == 0) {
+            printf(" c = %8d  t = %8d  #e = %8d  #i = %8d\n", cycle, t, N_e, N_i);
         }
     }
     fprintf(datafile, "%8d  %8d  %8d\n", cycle, N_e, N_i);
