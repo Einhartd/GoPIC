@@ -3,6 +3,8 @@
 #include <random>
 #include <cstdio>
 #include <algorithm>
+#include <array>
+#include <vector>
 using namespace std;
 
 //  MPI declarations
@@ -71,3 +73,90 @@ inline thread_local std::random_device rd{};
 inline thread_local std::mt19937 MTgen(rd());
 inline thread_local std::uniform_real_distribution<> R01(0.0, 1.0);
 inline thread_local std::normal_distribution<> RMB(0.0, sqrt(K_BOLTZMANN * TEMPERATURE / AR_MASS));
+
+// Cache-line aligned (64 bytes) per-thread scalar counters to eliminate False Sharing
+struct alignas(64) AlignedThreadCounters {
+    double accu_center = 0.0;
+    Ullong counter_center = 0;
+    Ullong local_abs_pow = 0;
+    Ullong local_abs_gnd = 0;
+};
+
+// ============================================================================
+// WorkerBuffers: Pre-allocated thread-local state for zero-allocation OpenMP+MPI
+// ============================================================================
+struct WorkerBuffers {
+    // Thread-local density deposition buffers
+    std::vector<std::array<double, N_G>> e_density;
+    std::vector<std::array<double, N_G>> i_density;
+
+    // Thread-local electron diagnostic buffers
+    std::vector<std::array<double, N_G>> counter_e;
+    std::vector<std::array<double, N_G>> ue;
+    std::vector<std::array<double, N_G>> meanee;
+    std::vector<std::array<double, N_G>> ioniz;
+    std::vector<std::array<double, N_EEPF>> eepf;
+
+    // Cache-aligned scalar counters per thread (prevents False Sharing)
+    std::vector<AlignedThreadCounters> thread_counters;
+
+    // Thread-local ion diagnostic buffers
+    std::vector<std::array<double, N_G>> counter_i;
+    std::vector<std::array<double, N_G>> ui;
+    std::vector<std::array<double, N_G>> meanei;
+
+    // Stream compaction & boundary filtering buffers
+    std::vector<int> thread_counts;
+    std::vector<int> thread_offsets;
+    std::vector<std::vector<int>> thread_local_indices;
+    std::vector<std::array<int, N_IFED>> local_ifed_pow;
+    std::vector<std::array<int, N_IFED>> local_ifed_gnd;
+
+    // Pre-allocated temporary arrays for surviving particles
+    std::vector<double> temp_x;
+    std::vector<double> temp_vx;
+    std::vector<double> temp_vy;
+    std::vector<double> temp_vz;
+
+    // Pre-allocated candidate indices for Null-Collision sampling
+    std::vector<int> candidates_e;
+    std::vector<int> candidates_i;
+
+    void init_buffers(int num_threads) {
+        if ((int)e_density.size() >= num_threads) return;
+
+        e_density.resize(num_threads);
+        i_density.resize(num_threads);
+
+        counter_e.resize(num_threads);
+        ue.resize(num_threads);
+        meanee.resize(num_threads);
+        ioniz.resize(num_threads);
+        eepf.resize(num_threads);
+        thread_counters.resize(num_threads);
+
+        counter_i.resize(num_threads);
+        ui.resize(num_threads);
+        meanei.resize(num_threads);
+
+        thread_counts.resize(num_threads, 0);
+        thread_offsets.resize(num_threads, 0);
+        thread_local_indices.resize(num_threads);
+        local_ifed_pow.resize(num_threads);
+        local_ifed_gnd.resize(num_threads);
+
+        for (int t = 0; t < num_threads; ++t) {
+            thread_local_indices[t].reserve(MAX_N_P / num_threads);
+        }
+
+        temp_x.resize(MAX_N_P);
+        temp_vx.resize(MAX_N_P);
+        temp_vy.resize(MAX_N_P);
+        temp_vz.resize(MAX_N_P);
+
+        candidates_e.resize(MAX_N_P);
+        candidates_i.resize(MAX_N_P);
+    }
+};
+
+inline WorkerBuffers worker_buffers;
