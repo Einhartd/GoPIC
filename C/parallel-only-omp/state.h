@@ -84,6 +84,14 @@ inline double P_star_e  = 0.0;
 inline double nu_star_i = 0.0;
 inline double P_star_i  = 0.0;
 
+// Cache-line aligned (64 bytes) per-thread scalar counters to eliminate False Sharing
+struct alignas(64) AlignedThreadCounters {
+    double accu_center = 0.0;
+    Ullong counter_center = 0;
+    Ullong local_abs_pow = 0;
+    Ullong local_abs_gnd = 0;
+};
+
 // ============================================================================
 // WorkerBuffers: Pre-allocated thread-local state for zero-allocation OpenMP
 // ============================================================================
@@ -98,8 +106,9 @@ struct WorkerBuffers {
     std::vector<std::array<double, N_G>> meanee;
     std::vector<std::array<double, N_G>> ioniz;
     std::vector<std::array<double, N_EEPF>> eepf;
-    std::vector<double> accu_center;
-    std::vector<Ullong> counter_center;
+
+    // Cache-aligned scalar counters per thread (prevents False Sharing)
+    std::vector<AlignedThreadCounters> thread_counters;
 
     // Thread-local ion diagnostic buffers
     std::vector<std::array<double, N_G>> counter_i;
@@ -110,8 +119,6 @@ struct WorkerBuffers {
     std::vector<int> thread_counts;
     std::vector<int> thread_offsets;
     std::vector<std::vector<int>> thread_local_indices;
-    std::vector<Ullong> local_abs_pow;
-    std::vector<Ullong> local_abs_gnd;
     std::vector<std::array<int, N_IFED>> local_ifed_pow;
     std::vector<std::array<int, N_IFED>> local_ifed_gnd;
 
@@ -136,8 +143,7 @@ struct WorkerBuffers {
         meanee.resize(num_threads);
         ioniz.resize(num_threads);
         eepf.resize(num_threads);
-        accu_center.resize(num_threads, 0.0);
-        counter_center.resize(num_threads, 0);
+        thread_counters.resize(num_threads);
 
         counter_i.resize(num_threads);
         ui.resize(num_threads);
@@ -146,8 +152,6 @@ struct WorkerBuffers {
         thread_counts.resize(num_threads, 0);
         thread_offsets.resize(num_threads, 0);
         thread_local_indices.resize(num_threads);
-        local_abs_pow.resize(num_threads, 0);
-        local_abs_gnd.resize(num_threads, 0);
         local_ifed_pow.resize(num_threads);
         local_ifed_gnd.resize(num_threads);
 
