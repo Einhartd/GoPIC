@@ -10,31 +10,24 @@
 
 using namespace std;
 
-// ============================================================================
 // Cross Sections & Macroscopic Parameters
-// ============================================================================
 inline cross_section    sigma[N_CS];         // Set of cross section arrays
 inline cross_section    sigma_tot_e;         // Total macroscopic cross section of electrons
 inline cross_section    sigma_tot_i;         // Total macroscopic cross section of ions
 
-// ============================================================================
 // Particle Coordinates & Counts
-// ============================================================================
 inline int              N_e = 0;             // Number of active electrons
 inline int              N_i = 0;             // Number of active ions
 inline particle_vector  x_e, vx_e, vy_e, vz_e;// Electron positions & 3V velocities
 inline particle_vector  x_i, vx_i, vy_i, vz_i;// Ion positions & 3V velocities
 
-// ============================================================================
 // Grid Quantities (Electric Field, Potential, Densities)
-// ============================================================================
 inline xvector          efield, pot;         // Electric field and potential on grid
 inline xvector          e_density, i_density;// Instantaneous electron and ion densities
 inline xvector          cumul_e_density, cumul_i_density; // Time-accumulated densities
 
-// ============================================================================
+
 // Absorption Counters & Energy Distributions
-// ============================================================================
 inline Ullong           N_e_abs_pow = 0;     // Electrons absorbed at powered electrode
 inline Ullong           N_e_abs_gnd = 0;     // Electrons absorbed at grounded electrode
 inline Ullong           N_i_abs_pow = 0;     // Ions absorbed at powered electrode
@@ -46,9 +39,8 @@ inline ifed_vector      ifed_gnd = {0};      // IFED at grounded electrode
 inline double           mean_i_energy_pow;   // Mean ion energy at powered electrode
 inline double           mean_i_energy_gnd;   // Mean ion energy at grounded electrode
 
-// ============================================================================
+
 // Spatiotemporal (XT) Diagnostic Arrays
-// ============================================================================
 inline xt_distr pot_xt                     = {0.0}; // XT distribution of potential
 inline xt_distr efield_xt                  = {0.0}; // XT distribution of electric field
 inline xt_distr ne_xt                      = {0.0}; // XT distribution of electron density
@@ -76,9 +68,8 @@ inline char     st0[80];                            // Command line argument str
 inline FILE     *datafile;                          // Output data file handle
 inline bool     measurement_mode;                   // Measurements & data collection flag
 
-// ============================================================================
+
 // Null-Collision Precomputed Parameters
-// ============================================================================
 inline double nu_star_e = 0.0;
 inline double P_star_e  = 0.0;
 inline double nu_star_i = 0.0;
@@ -92,9 +83,7 @@ struct alignas(64) AlignedThreadCounters {
     Ullong local_abs_gnd = 0;
 };
 
-// ============================================================================
 // WorkerBuffers: Pre-allocated thread-local state for zero-allocation OpenMP
-// ============================================================================
 struct WorkerBuffers {
     // Thread-local density deposition buffers
     std::vector<std::array<double, N_G>> e_density;
@@ -171,9 +160,7 @@ struct WorkerBuffers {
 
 inline WorkerBuffers worker_buffers;
 
-// ============================================================================
 // Thread-Local Random Number Generators
-// ============================================================================
 inline thread_local std::random_device rd{}; 
 inline thread_local std::mt19937 MTgen(rd());
 inline thread_local std::uniform_real_distribution<> R01(0.0, 1.0);

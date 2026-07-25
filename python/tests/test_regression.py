@@ -37,7 +37,7 @@ def compare_numeric_files(file1, file2, tolerance=1e-12):
                     return False, f"Linia {idx+1}, kolumna {col+1}: {p1} != {p2}"
     return True, ""
 
-@pytest.mark.parametrize("version", ["native_version", "numpy_version", "numba_version"])
+@pytest.mark.parametrize("version", ["native_version", "numpy_version", "numba_version", "numba_parallel"])
 def test_regression_golden_run(version):
     """
     Test regresyjny (Golden Run):

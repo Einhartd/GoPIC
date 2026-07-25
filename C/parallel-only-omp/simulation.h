@@ -11,9 +11,7 @@
 #include "null_collision.h"
 #endif
 
-// ============================================================================
 // Simulation Initialization
-// ============================================================================
 inline void init(int nseed) {
     for (int i = 0; i < nseed; i++) {
         x_e[i]  = L * R01(MTgen);               // Initial electron position
@@ -25,9 +23,7 @@ inline void init(int nseed) {
     N_i = nseed;    // Initial ion count
 }
 
-// ============================================================================
 // STEP 1a: Compute Electron Charge Density (Scatter-Add / Deposition)
-// ============================================================================
 inline void step1_compute_electron_density_body(int tid, int num_threads) {
     worker_buffers.e_density[tid].fill(0.0);
 
@@ -73,9 +69,7 @@ inline void step1_compute_electron_density(void) {
     }
 }
 
-// ============================================================================
 // STEP 1b: Compute Ion Charge Density (Subcycled)
-// ============================================================================
 inline void step1_compute_ion_density_body(int tid, int num_threads, int t) {
     if ((t % N_SUB) == 0) {
         worker_buffers.i_density[tid].fill(0.0);
@@ -123,9 +117,7 @@ inline void step1_compute_ion_density(int t) {
     }
 }
 
-// ============================================================================
 // STEP 2: Solve Poisson Equation (1D Field Solver)
-// ============================================================================
 inline void step2_solve_poisson(double current_time) {
     xvector rho;
     for (int p = 0; p < N_G; p++) {
@@ -134,9 +126,7 @@ inline void step2_solve_poisson(double current_time) {
     solve_Poisson(rho, Time);
 }
 
-// ============================================================================
 // STEP 3: Push Electrons & Accumulate Diagnostics
-// ============================================================================
 inline void step3_move_electrons_body(int tid, int num_threads, int t_index) {
     if (measurement_mode) {
         worker_buffers.counter_e[tid].fill(0.0);
@@ -243,9 +233,7 @@ inline void step3_move_electrons(int t_index) {
     }
 }
 
-// ============================================================================
 // STEP 4: Push Ions & Accumulate Diagnostics (Subcycled)
-// ============================================================================
 inline void step4_move_ions_body(int tid, int num_threads, int t_index, int t) {
     if ((t % N_SUB) != 0) return;
 
@@ -316,9 +304,7 @@ inline void step4_move_ions(int t_index, int t) {
     }
 }
 
-// ============================================================================
 // STEP 5: Electron Boundary Checks (Parallel Flag + Serial Swap)
-// ============================================================================
 inline void step5_check_boundaries_electrons_body(int tid, int num_threads) {
     static std::vector<uint8_t> absorbed;
     #pragma omp single
@@ -381,9 +367,7 @@ inline void step5_check_boundaries_electrons() {
     }
 }
 
-// ============================================================================
 // STEP 6: Ion Boundary Checks (Parallel Flag + Serial Swap, Subcycled)
-// ============================================================================
 inline void step6_check_boundaries_ions_body(int tid, int num_threads, int t) {
     if ((t % N_SUB) != 0) return;
 
@@ -467,9 +451,7 @@ inline void step6_check_boundaries_ions(int t) {
     }
 }
 
-// ============================================================================
 // STEP 7: Electron Collisions & Ionization
-// ============================================================================
 inline void step7_collisions_electrons_body(int tid, int num_threads) {
     static std::vector<NewParticles> new_electrons;
     static std::vector<NewParticles> new_ions;
@@ -577,9 +559,7 @@ inline void step7_collisions_electrons() {
     }
 }
 
-// ============================================================================
 // STEP 8: Ion Collisions (Subcycled)
-// ============================================================================
 inline void step8_collision_ions_body(int tid, int num_threads, int t) {
     if ((t % N_SUB) != 0) return;
 
@@ -661,9 +641,7 @@ inline void step8_collision_ions(int t) {
     }
 }
 
-// ============================================================================
 // STEP 9: Collect XT Diagnostic Arrays
-// ============================================================================
 inline void step9_collect_xt_data(int t_index) {
     if (!measurement_mode) return;
 
@@ -675,9 +653,7 @@ inline void step9_collect_xt_data(int t_index) {
     }
 }
 
-// ============================================================================
 // Main Time Loop (RF Cycle Executor with Persistent Parallel Region)
-// ============================================================================
 inline void do_one_cycle(void) {
     int num_threads = omp_get_max_threads();
     worker_buffers.init_buffers(num_threads);
