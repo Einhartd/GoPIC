@@ -4,6 +4,8 @@ package gopic
 
 import (
 	"math"
+	"sync"
+	"sync/atomic"
 )
 
 // InitNullCollision does nothing in standard mode.
@@ -12,19 +14,67 @@ func (sim *SimulationState) InitNullCollision() {
 }
 
 func (sim *SimulationState) Step7CollisionsElectrons() {
-	var k, energy_index int
-	var v_sqr, velocity, energy, nu, p_coll float64
 
-	for k = 0; k < sim.N_e; k++ { // checking for occurrence of a collision for all electrons in every time step
-		v_sqr = sim.Vx_e[k]*sim.Vx_e[k] + sim.Vy_e[k]*sim.Vy_e[k] + sim.Vz_e[k]*sim.Vz_e[k]
-		velocity = math.Sqrt(v_sqr)
-		energy = 0.5 * E_MASS * v_sqr / EV_TO_J
-		energy_index = minInt(int(energy/DE_CS+0.5), CS_RANGES-1)
-		nu = sim.SigmaTotE[energy_index] * velocity
-		p_coll = 1 - math.Exp(-nu*DT_E) // collision probability for electrons
-		if sim.R01() < p_coll {         // electron collision takes place
-			sim.CollisionElectron(sim.X_e[k], &sim.Vx_e[k], &sim.Vy_e[k], &sim.Vz_e[k], energy_index)
-			sim.N_e_coll++
+	numWorkers := len(sim.WorkerEDensity)
+
+	//	Reset buforow nowych czastek na workerow
+	for w := 0; w < numWorkers; w++ {
+		sim.WorkerNewElectrons[w] = sim.WorkerNewElectrons[w][:0]
+		sim.WorkerNewIons[w] = sim.WorkerNewIons[w][:0]
+	}
+
+	// Podzial elektronow na chunki
+	chunkSize := (sim.N_e + numWorkers - 1) / numWorkers
+
+	var wg sync.WaitGroup
+
+	for w := 0; w < numWorkers; w++ {
+		start := w * chunkSize
+		end := (w + 1) * chunkSize
+
+		if end > sim.N_e {
+			end = sim.N_e
+		}
+
+		if start >= end {
+			continue
+		}
+
+		workerID, s, e := w, start, end
+		wg.Go(func() {
+			for k := s; k < e; k++ {
+				v_sqr := sim.Vx_e[k]*sim.Vx_e[k] + sim.Vy_e[k]*sim.Vy_e[k] + sim.Vz_e[k]*sim.Vz_e[k]
+				velocity := math.Sqrt(v_sqr)
+				energy := 0.5 * E_MASS * v_sqr / EV_TO_J
+				energy_index := minInt(int(energy/DE_CS+0.5), CS_RANGES-1)
+				nu := sim.SigmaTotE[energy_index] * velocity
+				p_coll := 1 - math.Exp(-nu*DT_E)
+
+				// petla kolizji dla elektronow
+				if sim.WorkerR01(workerID) < p_coll {
+					sim.CollisionElectron(sim.X_e[k], &sim.Vx_e[k], &sim.Vy_e[k], &sim.Vz_e[k], energy_index, workerID)
+					atomic.AddUint64(&sim.N_e_coll, 1)
+				}
+			}
+		})
+
+	}
+	wg.Wait()
+	// Flush buforów workerów do stanu głównego
+	for w := 0; w < numWorkers; w++ {
+		for _, p := range sim.WorkerNewElectrons[w] {
+			sim.X_e[sim.N_e] = p.X
+			sim.Vx_e[sim.N_e] = p.Vx
+			sim.Vy_e[sim.N_e] = p.Vy
+			sim.Vz_e[sim.N_e] = p.Vz
+			sim.N_e++
+		}
+		for _, p := range sim.WorkerNewIons[w] {
+			sim.X_i[sim.N_i] = p.X
+			sim.Vx_i[sim.N_i] = p.Vx
+			sim.Vy_i[sim.N_i] = p.Vy
+			sim.Vz_i[sim.N_i] = p.Vz
+			sim.N_i++
 		}
 	}
 }
@@ -34,25 +84,55 @@ func (sim *SimulationState) Step8CollisionIons(t int) {
 		return
 	}
 
-	var k, energy_index int
-	var vx_a, vy_a, vz_a, gx, gy, gz, g_sqr, g, energy, nu, p_coll float64
+	numWorkers := len(sim.WorkerEDensity)
 
-	for k = 0; k < sim.N_i; k++ {
-		vx_a = sim.RMB() // pick velocity components of a random target gas atom
-		vy_a = sim.RMB()
-		vz_a = sim.RMB()
-		gx = sim.Vx_i[k] - vx_a // compute the relative velocity of the collision partners
-		gy = sim.Vy_i[k] - vy_a
-		gz = sim.Vz_i[k] - vz_a
-		g_sqr = gx*gx + gy*gy + gz*gz
-		g = math.Sqrt(g_sqr)
-		energy = 0.5 * MU_ARAR * g_sqr / EV_TO_J
-		energy_index = minInt(int(energy/DE_CS+0.5), CS_RANGES-1)
-		nu = sim.SigmaTotI[energy_index] * g
-		p_coll = 1 - math.Exp(-nu*DT_I) // collision probability for ions
-		if sim.R01() < p_coll {         // ion collision takes place
-			sim.CollisionIon(&sim.Vx_i[k], &sim.Vy_i[k], &sim.Vz_i[k], &vx_a, &vy_a, &vz_a, energy_index)
-			sim.N_i_coll++
-		}
+	//	Reset buforow nowych czastek na workerow
+	for w := 0; w < numWorkers; w++ {
+		sim.WorkerNewIons[w] = sim.WorkerNewIons[w][:0]
 	}
+
+	// Podzial jonow na chunki
+	chunkSize := (sim.N_i + numWorkers - 1) / numWorkers
+
+	var wg sync.WaitGroup
+
+	for w := 0; w < numWorkers; w++ {
+		start := w * chunkSize
+		end := (w + 1) * chunkSize
+
+		if end > sim.N_i {
+			end = sim.N_i
+		}
+
+		if start >= end {
+			continue
+		}
+
+		workerID, s, e := w, start, end
+		wg.Go(func() {
+			for k := s; k < e; k++ {
+				vx_a := sim.WorkerRMB(workerID)
+				vy_a := sim.WorkerRMB(workerID)
+				vz_a := sim.WorkerRMB(workerID)
+				gx := sim.Vx_i[k] - vx_a
+				gy := sim.Vy_i[k] - vy_a
+				gz := sim.Vz_i[k] - vz_a
+				g_sqr := gx*gx + gy*gy + gz*gz
+				g := math.Sqrt(g_sqr)
+				energy := 0.5 * MU_ARAR * g_sqr / EV_TO_J
+				energy_index := minInt(int(energy/DE_CS+0.5), CS_RANGES-1)
+				nu := sim.SigmaTotI[energy_index] * g
+				p_coll := 1 - math.Exp(-nu*DT_I)
+
+				// petla kolizji dla jonow
+				if sim.WorkerR01(workerID) < p_coll {
+					sim.CollisionIon(&sim.Vx_i[k], &sim.Vy_i[k], &sim.Vz_i[k], &vx_a, &vy_a, &vz_a, energy_index, workerID)
+					atomic.AddUint64(&sim.N_i_coll, 1)
+				}
+			}
+		})
+
+	}
+	wg.Wait()
+
 }

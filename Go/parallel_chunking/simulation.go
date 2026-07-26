@@ -81,23 +81,48 @@ func (sim *SimulationState) Step1ComputeElectronDensity() {
 }
 
 func (sim *SimulationState) Step1ComputeIonDensity(t int) {
-	var k, p int
-	var c0 float64
-
 	if (t % N_SUB) == 0 { // ion density - computed in every N_SUB-th time steps (subcycling)
-		for p = 0; p < N_G; p++ {
-			sim.I_density[p] = 0
+		numWorkers := runtime.GOMAXPROCS(0)
+		var wg sync.WaitGroup
+		chunkSize := sim.N_i / numWorkers
+
+		for w := range numWorkers {
+			start := w * chunkSize
+			end := start + chunkSize
+			if w == numWorkers-1 {
+				end = sim.N_i
+			}
+			workerID := w
+
+			wg.Go(func() {
+				for p := range N_G {
+					sim.WorkerIDensity[workerID][p] = 0.0
+				}
+				var c0 float64
+				var p int
+				for k := start; k < end; k++ {
+					c0 = sim.X_i[k] * INV_DX
+					p = int(c0)
+					sim.WorkerIDensity[workerID][p] += (float64(p) + 1.0 - c0) * FACTOR_W
+					sim.WorkerIDensity[workerID][p+1] += (c0 - float64(p)) * FACTOR_W
+				}
+			})
 		}
-		for k = 0; k < sim.N_i; k++ {
-			c0 = sim.X_i[k] * INV_DX
-			p = int(c0)
-			sim.I_density[p] += (float64(p) + 1.0 - c0) * FACTOR_W
-			sim.I_density[p+1] += (c0 - float64(p)) * FACTOR_W
+		wg.Wait()
+
+		for p := range N_G {
+			sim.I_density[p] = 0.0
 		}
+		for w := range numWorkers {
+			for p := range N_G {
+				sim.I_density[p] += sim.WorkerIDensity[w][p]
+			}
+		}
+
 		sim.I_density[0] *= 2.0
 		sim.I_density[N_G-1] *= 2.0
 	}
-	for p = 0; p < N_G; p++ {
+	for p := range N_G {
 		sim.Cumul_i_density[p] += sim.I_density[p]
 	}
 }
@@ -199,54 +224,115 @@ func (sim *SimulationState) Step4MoveIons(t_index, t int) {
 		return
 	}
 
-	var k, p int
-	var c0, c1, c2, e_x, mean_v, v_sqr, energy float64
+	numWorkers := runtime.GOMAXPROCS(0)
+	var wg sync.WaitGroup
+	chunkSize := sim.N_i / numWorkers
 
-	for k = 0; k < sim.N_i; k++ {
-		c0 = sim.X_i[k] * INV_DX
-		p = int(c0)
-		c1 = float64(p) + 1.0 - c0
-		c2 = c0 - float64(p)
-		e_x = c1*sim.Efield[p] + c2*sim.Efield[p+1]
-
-		if sim.Measurement_mode {
-			// measurements: 'x' and 'v' are needed at the same time, i.e. old 'x' and mean 'v'
-			mean_v = sim.Vx_i[k] + 0.5*e_x*FACTOR_I
-			sim.Counter_i_xt[p][t_index] += c1
-			sim.Counter_i_xt[p+1][t_index] += c2
-			sim.Ui_xt[p][t_index] += c1 * mean_v
-			sim.Ui_xt[p+1][t_index] += c2 * mean_v
-			v_sqr = mean_v*mean_v + sim.Vy_i[k]*sim.Vy_i[k] + sim.Vz_i[k]*sim.Vz_i[k]
-			energy = 0.5 * AR_MASS * v_sqr / EV_TO_J
-			sim.Meanei_xt[p][t_index] += c1 * energy
-			sim.Meanei_xt[p+1][t_index] += c2 * energy
+	for w := range numWorkers {
+		start := w * chunkSize
+		end := start + chunkSize
+		if w == numWorkers-1 {
+			end = sim.N_i
 		}
+		workerID := w
 
-		// update velocity and position and accumulate absorbed energy
-		sim.Vx_i[k] += e_x * FACTOR_I
-		sim.X_i[k] += sim.Vx_i[k] * DT_I
+		wg.Go(func() {
+			diag := &sim.WorkerIDiag[workerID]
+			*diag = ionWorkerDiagnostics{}
+
+			var c0, c1, c2, e_x, mean_v, v_sqr, energy float64
+			var p int
+
+			for k := start; k < end; k++ {
+				c0 = sim.X_i[k] * INV_DX
+				p = int(c0)
+				c1 = float64(p) + 1.0 - c0
+				c2 = c0 - float64(p)
+				e_x = c1*sim.Efield[p] + c2*sim.Efield[p+1]
+
+				if sim.Measurement_mode {
+					mean_v = sim.Vx_i[k] + 0.5*e_x*FACTOR_I
+					diag.counter_i[p] += c1
+					diag.counter_i[p+1] += c2
+					diag.ui[p] += c1 * mean_v
+					diag.ui[p+1] += c2 * mean_v
+					v_sqr = mean_v*mean_v + sim.Vy_i[k]*sim.Vy_i[k] + sim.Vz_i[k]*sim.Vz_i[k]
+					energy = 0.5 * AR_MASS * v_sqr / EV_TO_J
+					diag.meanei[p] += c1 * energy
+					diag.meanei[p+1] += c2 * energy
+				}
+
+				sim.Vx_i[k] += e_x * FACTOR_I
+				sim.X_i[k] += sim.Vx_i[k] * DT_I
+			}
+		})
+	}
+
+	wg.Wait()
+
+	if sim.Measurement_mode {
+		for w := 0; w < numWorkers; w++ {
+			for p := 0; p < N_G; p++ {
+				sim.Counter_i_xt[p][t_index] += sim.WorkerIDiag[w].counter_i[p]
+				sim.Ui_xt[p][t_index] += sim.WorkerIDiag[w].ui[p]
+				sim.Meanei_xt[p][t_index] += sim.WorkerIDiag[w].meanei[p]
+			}
+		}
 	}
 }
 
 func (sim *SimulationState) Step5CheckBoundariesElectrons() {
-	var k int = 0
-	var out bool
-	for k < sim.N_e { // check boundaries for all electrons in every time step
-		out = false
-		if sim.X_e[k] < 0 {
-			sim.N_e_abs_pow++ // the electron is out at the powered electrode
-			out = true
+	numWorkers := runtime.GOMAXPROCS(0)
+	chunkSize := (sim.N_e + numWorkers - 1) / numWorkers
+	var wg sync.WaitGroup
+
+	for w := 0; w < numWorkers; w++ {
+		start := w * chunkSize
+		end := (w + 1) * chunkSize
+		if end > sim.N_e {
+			end = sim.N_e
 		}
-		if sim.X_e[k] > L {
-			sim.N_e_abs_gnd++ // the electron is out at the grounded electrode
-			out = true
+		if start >= end {
+			continue
 		}
-		if out { // remove the electron, if out
-			sim.X_e[k] = sim.X_e[sim.N_e-1]
-			sim.Vx_e[k] = sim.Vx_e[sim.N_e-1]
-			sim.Vy_e[k] = sim.Vy_e[sim.N_e-1]
-			sim.Vz_e[k] = sim.Vz_e[sim.N_e-1]
+
+		workerID, s, e := w, start, end
+		wg.Go(func() {
+			diag := &sim.WorkerEDiag[workerID]
+			diag.abs_pow = 0
+			diag.abs_gnd = 0
+
+			for k := s; k < e; k++ {
+				if sim.X_e[k] < 0 {
+					sim.AbsorbedE[k] = 1
+					diag.abs_pow++
+				} else if sim.X_e[k] > L {
+					sim.AbsorbedE[k] = 2
+					diag.abs_gnd++
+				} else {
+					sim.AbsorbedE[k] = 0
+				}
+			}
+		})
+	}
+	wg.Wait()
+
+	// Reduce absorption counters
+	for w := 0; w < numWorkers; w++ {
+		sim.N_e_abs_pow += sim.WorkerEDiag[w].abs_pow
+		sim.N_e_abs_gnd += sim.WorkerEDiag[w].abs_gnd
+	}
+
+	// Sequential fast-swap deletion of absorbed electrons
+	k := 0
+	for k < sim.N_e {
+		if sim.AbsorbedE[k] != 0 {
 			sim.N_e--
+			sim.X_e[k] = sim.X_e[sim.N_e]
+			sim.Vx_e[k] = sim.Vx_e[sim.N_e]
+			sim.Vy_e[k] = sim.Vy_e[sim.N_e]
+			sim.Vz_e[k] = sim.Vz_e[sim.N_e]
+			sim.AbsorbedE[k] = sim.AbsorbedE[sim.N_e]
 		} else {
 			k++
 		}
@@ -258,39 +344,80 @@ func (sim *SimulationState) Step6CheckBoundariesIons(t int) {
 		return
 	}
 
-	var k, energy_index int
-	var out bool
-	var v_sqr, energy float64
+	numWorkers := runtime.GOMAXPROCS(0)
+	chunkSize := (sim.N_i + numWorkers - 1) / numWorkers
+	var wg sync.WaitGroup
 
-	k = 0
+	for w := 0; w < numWorkers; w++ {
+		start := w * chunkSize
+		end := (w + 1) * chunkSize
+		if end > sim.N_i {
+			end = sim.N_i
+		}
+		if start >= end {
+			continue
+		}
+
+		workerID, s, e := w, start, end
+		wg.Go(func() {
+			diag := &sim.WorkerIDiag[workerID]
+			diag.abs_pow = 0
+			diag.abs_gnd = 0
+			for idx := range N_IFED {
+				diag.ifed_pow[idx] = 0
+				diag.ifed_gnd[idx] = 0
+			}
+
+			var v_sqr, energy float64
+			var energy_index int
+
+			for k := s; k < e; k++ {
+				if sim.X_i[k] < 0 {
+					sim.AbsorbedI[k] = 1
+					diag.abs_pow++
+					v_sqr = sim.Vx_i[k]*sim.Vx_i[k] + sim.Vy_i[k]*sim.Vy_i[k] + sim.Vz_i[k]*sim.Vz_i[k]
+					energy = 0.5 * AR_MASS * v_sqr / EV_TO_J
+					energy_index = int(energy / DE_IFED)
+					if energy_index < N_IFED {
+						diag.ifed_pow[energy_index]++
+					}
+				} else if sim.X_i[k] > L {
+					sim.AbsorbedI[k] = 2
+					diag.abs_gnd++
+					v_sqr = sim.Vx_i[k]*sim.Vx_i[k] + sim.Vy_i[k]*sim.Vy_i[k] + sim.Vz_i[k]*sim.Vz_i[k]
+					energy = 0.5 * AR_MASS * v_sqr / EV_TO_J
+					energy_index = int(energy / DE_IFED)
+					if energy_index < N_IFED {
+						diag.ifed_gnd[energy_index]++
+					}
+				} else {
+					sim.AbsorbedI[k] = 0
+				}
+			}
+		})
+	}
+	wg.Wait()
+
+	// Reduce absorption counters and IFED energy distributions
+	for w := 0; w < numWorkers; w++ {
+		sim.N_i_abs_pow += sim.WorkerIDiag[w].abs_pow
+		sim.N_i_abs_gnd += sim.WorkerIDiag[w].abs_gnd
+		for eIdx := 0; eIdx < N_IFED; eIdx++ {
+			sim.Ifed_pow[eIdx] += sim.WorkerIDiag[w].ifed_pow[eIdx]
+			sim.Ifed_gnd[eIdx] += sim.WorkerIDiag[w].ifed_gnd[eIdx]
+		}
+	}
+
+	// Sequential fast-swap deletion of absorbed ions
+	k := 0
 	for k < sim.N_i {
-		out = false
-		if sim.X_i[k] < 0 { // the ion is out at the powered electrode
-			sim.N_i_abs_pow++
-			out = true
-			v_sqr = sim.Vx_i[k]*sim.Vx_i[k] + sim.Vy_i[k]*sim.Vy_i[k] + sim.Vz_i[k]*sim.Vz_i[k]
-			energy = 0.5 * AR_MASS * v_sqr / EV_TO_J
-			energy_index = int(energy / DE_IFED)
-			if energy_index < N_IFED {
-				sim.Ifed_pow[energy_index]++ // save IFED at the powered electrode
-			}
-		}
-		if sim.X_i[k] > L { // the ion is out at the grounded electrode
-			sim.N_i_abs_gnd++
-			out = true
-			v_sqr = sim.Vx_i[k]*sim.Vx_i[k] + sim.Vy_i[k]*sim.Vy_i[k] + sim.Vz_i[k]*sim.Vz_i[k]
-			energy = 0.5 * AR_MASS * v_sqr / EV_TO_J
-			energy_index = int(energy / DE_IFED)
-			if energy_index < N_IFED {
-				sim.Ifed_gnd[energy_index]++ // save IFED at the grounded electrode
-			}
-		}
-		if out { // delete the ion, if out
-			sim.X_i[k] = sim.X_i[sim.N_i-1]
-			sim.Vx_i[k] = sim.Vx_i[sim.N_i-1]
-			sim.Vy_i[k] = sim.Vy_i[sim.N_i-1]
-			sim.Vz_i[k] = sim.Vz_i[sim.N_i-1]
+		if sim.AbsorbedI[k] != 0 {
 			sim.N_i--
+			sim.X_i[k] = sim.X_i[sim.N_i]
+			sim.Vx_i[k] = sim.Vx_i[sim.N_i]
+			sim.Vy_i[k] = sim.Vy_i[sim.N_i]
+			sim.Vz_i[k] = sim.Vz_i[sim.N_i]
+			sim.AbsorbedI[k] = sim.AbsorbedI[sim.N_i]
 		} else {
 			k++
 		}

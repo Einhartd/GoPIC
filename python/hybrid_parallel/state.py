@@ -8,14 +8,21 @@ from mpi4py import MPI
 
 
 class SimulationState:
+    """
+    Zarządza stanem symulacji w wersji Hybrydowej (MPI + Numba).
+    Każdy proces MPI posiada własną instancję SimulationState z własnym podzbiorem cząstek.
+    """
     def __init__(self, comm=None):
-        # MPI setup
+        # Inicjalizacja kontekstu MPI (komunikator globalny, rank procesora, liczba procesów)
         self.comm = comm if comm is not None else MPI.COMM_WORLD
         self.rank: int = self.comm.Get_rank()
+        """unikalny identyfikator procesu MPI (0, 1, ..., N-1)"""
         self.size: int = self.comm.Get_size()
+        """całkowita liczba uruchomionych procesów MPI"""
 
         # Cross sections
         self.sigma: cs.cross_section       = np.zeros((cs.N_CS, cs.CS_RANGES), dtype=np.float64)
+        """set of cross section arrays"""
         """set of cross section arrays"""
         self.sigma_tot_e: cs.cross_section = np.zeros(cs.CS_RANGES, dtype=np.float64)
         """total macroscopic cross section of electrons"""

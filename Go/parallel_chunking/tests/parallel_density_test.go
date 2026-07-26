@@ -68,3 +68,61 @@ func TestParallelVsSequentialDensity(t *testing.T) {
 		}
 	}
 }
+
+// TestParallelVsSequentialIonDensity verifies that parallel Step1ComputeIonDensity
+// produces identical charge density arrays across different GOMAXPROCS worker counts.
+func TestParallelVsSequentialIonDensity(t *testing.T) {
+	const numParticles = 20000
+
+	createState := func(seed int64) *gopic.SimulationState {
+		sim := gopic.NewSimulationState(seed)
+		sim.N_i = numParticles
+
+		r := rand.New(rand.NewSource(seed))
+		for k := 0; k < numParticles; k++ {
+			sim.X_i[k] = gopic.L * r.Float64()
+		}
+		return sim
+	}
+
+	origProcs := runtime.GOMAXPROCS(1)
+	defer runtime.GOMAXPROCS(origProcs)
+
+	simSeq := createState(8888)
+	simSeq.Step1ComputeIonDensity(0) // t = 0 (subcycling step)
+
+	runtime.GOMAXPROCS(4)
+	simPar := createState(8888)
+	simPar.Step1ComputeIonDensity(0)
+
+	isCloseRel := func(a, b, relTol float64) bool {
+		diff := a - b
+		if diff < 0 {
+			diff = -diff
+		}
+		if diff == 0 {
+			return true
+		}
+		mag := a
+		if mag < 0 {
+			mag = -mag
+		}
+		bMag := b
+		if bMag < 0 {
+			bMag = -bMag
+		}
+		if bMag > mag {
+			mag = bMag
+		}
+		return (diff / mag) <= relTol
+	}
+
+	for p := 0; p < gopic.N_G; p++ {
+		if !isCloseRel(simSeq.I_density[p], simPar.I_density[p], 1e-12) {
+			t.Fatalf("Discrepancy in I_density[%d]: seq=%.15e, par=%.15e", p, simSeq.I_density[p], simPar.I_density[p])
+		}
+		if !isCloseRel(simSeq.Cumul_i_density[p], simPar.Cumul_i_density[p], 1e-12) {
+			t.Fatalf("Discrepancy in Cumul_i_density[%d]: seq=%.15e, par=%.15e", p, simSeq.Cumul_i_density[p], simPar.Cumul_i_density[p])
+		}
+	}
+}

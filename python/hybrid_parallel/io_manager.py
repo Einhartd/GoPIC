@@ -12,19 +12,32 @@ from mpi4py import MPI
 
 def save_particle_data(sim: SimulationState):
     """
-    Zapisuje stan symulacji do pliku binarnego z udziałem procesów MPI.
-    Process 0 zbiera cząstki ze wszystkich procesów i zapisuje standardowy plik.
+    Zapisuje stan symulacji do pliku binarnego picdata.bin.
+    Wykorzystuje operacje zbiorcze MPI (comm.gather i comm.Gatherv):
+    1. Procesy wysyłają swoje liczby cząstek (N_e, N_i) do Ranka 0.
+    2. Rank 0 wylicza przesunięcia (displacements) i alokuje zbiorcze tablice.
+    3. Operacja comm.Gatherv scala lokalne podzbiory cząstek z każdego ranka w ciągłe tablice na Rank 0.
+    4. Rank 0 zapisuje plik binarne picdata.bin w standardowym formacie.
     """
     comm = sim.comm
     rank = sim.rank
     size = sim.size
 
-    counts_e = comm.gather(sim.N_e, root=0)
-    counts_i = comm.gather(sim.N_i, root=0)
+    # Zbieranie liczby cząstek ze wszystkich procesów do listy na Rank 0
+    counts_e: list[int] | None = comm.gather(sim.N_e, root=0)
+    counts_i: list[int] | None = comm.gather(sim.N_i, root=0)
+
+    # Ensure totals are defined for all branches (static analyzers)
+    total_e = 0
+    total_i = 0
 
     if rank == 0:
+        if counts_e is None or counts_i is None:
+            raise RuntimeError("Failed to gather particle counts")
+
         total_e = sum(counts_e)
         total_i = sum(counts_i)
+        # Obliczenie wektorów przesunięć (displacements) w pamięci dla Gatherv
         disps_e = np.insert(np.cumsum(counts_e), 0, 0)[:-1]
         disps_i = np.insert(np.cumsum(counts_i), 0, 0)[:-1]
 
@@ -43,6 +56,7 @@ def save_particle_data(sim: SimulationState):
         x_e_g = vx_e_g = vy_e_g = vz_e_g = None
         x_i_g = vx_i_g = vy_i_g = vz_i_g = None
 
+    # Zbiorcza redukcja wektorowa (Gatherv) cząstek ze wszystkich procesów do Ranka 0
     comm.Gatherv(sim.x_e[:sim.N_e], [x_e_g, counts_e, disps_e, MPI.DOUBLE], root=0)
     comm.Gatherv(sim.vx_e[:sim.N_e], [vx_e_g, counts_e, disps_e, MPI.DOUBLE], root=0)
     comm.Gatherv(sim.vy_e[:sim.N_e], [vy_e_g, counts_e, disps_e, MPI.DOUBLE], root=0)
@@ -54,6 +68,10 @@ def save_particle_data(sim: SimulationState):
     comm.Gatherv(sim.vz_i[:sim.N_i], [vz_i_g, counts_i, disps_i, MPI.DOUBLE], root=0)
 
     if rank == 0:
+        # Ensure gathered arrays are present on rank 0
+        assert x_e_g is not None and vx_e_g is not None and vy_e_g is not None and vz_e_g is not None, "Missing electron arrays on rank 0"
+        assert x_i_g is not None and vx_i_g is not None and vy_i_g is not None and vz_i_g is not None, "Missing ion arrays on rank 0"
+
         with open("picdata.bin", "wb") as f:
             f.write(struct.pack("d", sim.Time))
             f.write(struct.pack("d", float(sim.cycles_done)))
@@ -75,7 +93,11 @@ def save_particle_data(sim: SimulationState):
 
 def load_particle_data(sim: SimulationState):
     """
-    Wczytuje stan z pliku binarnego na Rank 0 i rozdziela (Scatterv) cząstki między procesy MPI.
+    Wczytuje stan z pliku binarnego picdata.bin na Rank 0 i dystrybuuje cząstki między procesy MPI.
+    1. Rank 0 wczytuje plik binarny z dysku.
+    2. Rozgłasza skalarne wartości (Time, cycles_done, total_e, total_i) do wszystkich procesów przez comm.bcast.
+    3. Każdy proces oblicza swoją lokalną porcję cząstek (counts_e[rank], counts_i[rank]).
+    4. Operacja comm.Scatterv rozdziela ciągłe tablice z Ranka 0 do lokalnych buforów sim.x_e, sim.vx_e itp.
     """
     comm = sim.comm
     rank = sim.rank
@@ -113,11 +135,13 @@ def load_particle_data(sim: SimulationState):
         x_e_g = vx_e_g = vy_e_g = vz_e_g = None
         x_i_g = vx_i_g = vy_i_g = vz_i_g = None
 
+    # Rozgłoszenie wartości nagłówkowych z Ranka 0 do wszystkich procesów MPI
     sim.Time = comm.bcast(time_val, root=0)
     sim.cycles_done = comm.bcast(cycles_done_val, root=0)
     total_e = comm.bcast(total_e, root=0)
     total_i = comm.bcast(total_i, root=0)
 
+    # Obliczenie podziału cząstek na procesy MPI
     counts_e = [total_e // size + (1 if i < total_e % size else 0) for i in range(size)]
     counts_i = [total_i // size + (1 if i < total_i % size else 0) for i in range(size)]
     disps_e = np.insert(np.cumsum(counts_e), 0, 0)[:-1]
@@ -126,6 +150,7 @@ def load_particle_data(sim: SimulationState):
     sim.N_e = counts_e[rank]
     sim.N_i = counts_i[rank]
 
+    # Rozdzielenie wektorowe (Scatterv) tablic cząstek z Ranka 0 do lokalnych buforów procesów
     comm.Scatterv([x_e_g, counts_e, disps_e, MPI.DOUBLE], sim.x_e[:sim.N_e], root=0)
     comm.Scatterv([vx_e_g, counts_e, disps_e, MPI.DOUBLE], sim.vx_e[:sim.N_e], root=0)
     comm.Scatterv([vy_e_g, counts_e, disps_e, MPI.DOUBLE], sim.vy_e[:sim.N_e], root=0)

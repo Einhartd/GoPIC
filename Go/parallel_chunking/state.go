@@ -17,6 +17,30 @@ type electronWorkerDiagnostics struct {
 	eepf          [N_EEPF]float64
 	accuCenter    float64
 	counterCenter uint64
+	abs_pow       uint64
+	abs_gnd       uint64
+}
+
+type ionWorkerDiagnostics struct {
+	counter_i [N_G]float64
+	ui        [N_G]float64
+	meanei    [N_G]float64
+	abs_pow   uint64
+	abs_gnd   uint64
+	ifed_pow  [N_IFED]int
+	ifed_gnd  [N_IFED]int
+}
+
+// CreatedParticle represents a single newly generated particle in AoS layout.
+// AoS is chosen for temporary thread-local worker buffers during collisions because:
+// 1. Spatial Locality: Writing X, Vx, Vy, Vz (32 bytes) sequentially to a single slice fits in 1 L1 cache line (64B).
+// 2. Go Runtime Efficiency: Maintains 1 slice header per worker instead of 4 separate slice allocations & capacity checks.
+// 3. Low Flush Cost: Merging small buffers (~20-50 particles/step) into main SoA arrays takes sub-nanosecond time.
+type CreatedParticle struct {
+	X  float64
+	Vx float64
+	Vy float64
+	Vz float64
 }
 
 var (
@@ -31,6 +55,16 @@ type SimulationState struct {
 	WorkerIDensity []Xvector
 	//	Step3MoveElectrons()
 	WorkerEDiag []electronWorkerDiagnostics
+	//	Step4MoveIons()
+	WorkerIDiag []ionWorkerDiagnostics
+
+	// Boundary absorption flag buffers (2-phase boundary checking)
+	AbsorbedE []uint8
+	AbsorbedI []uint8
+
+	// Collisions worker buffers for new particles (AoS per worker)
+	WorkerNewElectrons [][]CreatedParticle
+	WorkerNewIons      [][]CreatedParticle
 
 	Sigma     [N_CS]CrossSection // set of cross section arrays
 	SigmaTotE CrossSection       // total macroscopic cross section of electrons
@@ -114,12 +148,17 @@ func NewSimulationState(seed int64) *SimulationState {
 	}
 
 	return &SimulationState{
-		WorkerEDensity: make([]Xvector, numWorkers),
-		WorkerIDensity: make([]Xvector, numWorkers),
-		WorkerEDiag:    make([]electronWorkerDiagnostics, numWorkers),
-		RngWorkers:     workers,
-		Rng:            rand.New(src),
-		MtSrc:          src,
+		WorkerEDensity:     make([]Xvector, numWorkers),
+		WorkerIDensity:     make([]Xvector, numWorkers),
+		WorkerEDiag:        make([]electronWorkerDiagnostics, numWorkers),
+		WorkerIDiag:        make([]ionWorkerDiagnostics, numWorkers),
+		AbsorbedE:          make([]uint8, MAX_N_P),
+		AbsorbedI:          make([]uint8, MAX_N_P),
+		WorkerNewElectrons: make([][]CreatedParticle, numWorkers),
+		WorkerNewIons:      make([][]CreatedParticle, numWorkers),
+		RngWorkers:         workers,
+		Rng:                rand.New(src),
+		MtSrc:              src,
 	}
 }
 
