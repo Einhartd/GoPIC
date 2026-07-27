@@ -5,7 +5,7 @@
 #SBATCH --nodes=1
 #SBATCH --mem-per-cpu=4G
 #SBATCH --ntasks=1
-#SBATCH --cpus-per-task=4   # Zmień tę wartość, aby zmienić liczbę rdzeni przydzielonych do joba
+#SBATCH --cpus-per-task=2   # Zmień tę wartość, aby zmienić liczbę rdzeni przydzielonych do joba
 #SBATCH --time=3:30:00
 
 set -e
@@ -48,17 +48,16 @@ NODE_INFO_FILE="${LOG_DIR}/hardware_topology.txt"
 
 module load gcc
 
-if [ ! -f "${BUILD_DIR}/edupic_omp_c_std" ]; then
-    echo ">> Kompiluję kod OpenMP C++ (wersja Standard)..."
-    g++ -O3 -fno-omit-frame-pointer -march=native -fopenmp "${SOURCE_DIR}/eduPIC.cc" -o "${BUILD_DIR}/edupic_tmp_omp_std_${SLURM_JOB_ID}"
-    mv "${BUILD_DIR}/edupic_tmp_omp_std_${SLURM_JOB_ID}" "${BUILD_DIR}/edupic_omp_c_std"
-fi
 
-if [ ! -f "${BUILD_DIR}/edupic_omp_c_nc" ]; then
-    echo ">> Kompiluję kod OpenMP C++ (wersja Null-Collision)..."
-    g++ -O3 -fno-omit-frame-pointer -march=native -fopenmp -DUSE_NULL_COLLISION "${SOURCE_DIR}/eduPIC.cc" -o "${BUILD_DIR}/edupic_tmp_omp_nc_${SLURM_JOB_ID}"
-    mv "${BUILD_DIR}/edupic_tmp_omp_nc_${SLURM_JOB_ID}" "${BUILD_DIR}/edupic_omp_c_nc"
-fi
+echo ">> Kompiluję kod OpenMP C++ (wersja Standard)..."
+g++ -O3 -fno-omit-frame-pointer -march=native -fopenmp "${SOURCE_DIR}/eduPIC.cc" -o "${BUILD_DIR}/edupic_tmp_omp_std_${SLURM_JOB_ID}"
+mv "${BUILD_DIR}/edupic_tmp_omp_std_${SLURM_JOB_ID}" "${BUILD_DIR}/edupic_omp_c_std"
+
+
+echo ">> Kompiluję kod OpenMP C++ (wersja Null-Collision)..."
+g++ -O3 -fno-omit-frame-pointer -march=native -fopenmp -DUSE_NULL_COLLISION "${SOURCE_DIR}/eduPIC.cc" -o "${BUILD_DIR}/edupic_tmp_omp_nc_${SLURM_JOB_ID}"
+mv "${BUILD_DIR}/edupic_tmp_omp_nc_${SLURM_JOB_ID}" "${BUILD_DIR}/edupic_omp_c_nc"
+
 
 if [ "${USE_NULL_COLLISION}" = "true" ] || [ "${USE_NULL_COLLISION}" = "1" ]; then
     echo ">> [Null-Collision OpenMP] Wybrano wersję zoptymalizowaną"
@@ -79,7 +78,13 @@ echo ">> Uruchamiam fazę inicjalizacji..."
 echo ">> Uruchamianie pomiaru drzewa wywołań (perf record) z OMP_NUM_THREADS=${OMP_NUM_THREADS}..."
 perf record -F 99 -g -o "${DATA_DIR}/perf_${SLURM_JOB_ID}.data" -- "${BINARY}" 1000 m
 
-echo ">> Konwertuję logi perf record do formatu tekstowego..."
+echo ">> Konwertuję logi perf record do formatu tekstowego (raport ogólny)..."
 perf report -i "${DATA_DIR}/perf_${SLURM_JOB_ID}.data" --stdio > "${DATA_DIR}/perf_report.txt"
+
+echo ">> Generowanie raportu w podziale na rdzenie CPU..."
+perf report -i "${DATA_DIR}/perf_${SLURM_JOB_ID}.data" --stdio --sort=cpu,symbol > "${DATA_DIR}/perf_report_per_cpu.txt"
+
+echo ">> Generowanie raportu w podziale na wątki (threads)..."
+perf report -i "${DATA_DIR}/perf_${SLURM_JOB_ID}.data" --stdio --per-thread > "${DATA_DIR}/perf_report_per_thread.txt"
 
 echo ">> Zadanie OMP RECORD zakończone. Wyniki w: ${DATA_DIR}"

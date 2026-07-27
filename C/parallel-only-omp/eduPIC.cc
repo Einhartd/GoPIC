@@ -53,7 +53,8 @@ int main (int argc, char *argv[]){
         arg1 = atol(st0);
         if (argc > 2) {
             if (strcmp (argv[2],"m") == 0){
-                measurement_mode = true;                  // measurements will be done
+                // measurements will be done
+                measurement_mode = true;
             } else {
                 measurement_mode = false;
             }
@@ -80,15 +81,19 @@ int main (int argc, char *argv[]){
             exit(0);
         } 
         no_of_cycles = 1;
-        cycle = 1;                                        // init cycle
-        init(N_INIT);                                     // seed initial electrons & ions
+        // init cycle
+        cycle = 1;
+        // seed initial electrons & ions
+        init(N_INIT);
         printf(">> eduPIC: running initializing cycle\n");
         Time = 0;
         do_one_cycle();
         cycles_done = 1;
     } else {
-        no_of_cycles = arg1;                              // run number of cycles specified in command line
-        load_particle_data();                             // read previous configuration from file
+        // run number of cycles specified in command line
+        no_of_cycles = arg1;
+        // read previous configuration from file
+        load_particle_data();
         printf(">> eduPIC: running %d cycle(s)\n",no_of_cycles);
         for (cycle=cycles_done+1;cycle<=cycles_done+no_of_cycles;cycle++) {do_one_cycle();}
         cycles_done += no_of_cycles;

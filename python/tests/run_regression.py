@@ -12,7 +12,7 @@ def get_adapter_and_modules(version: str):
         if mod_name in sys.modules:
             del sys.modules[mod_name]
     for path in list(sys.path):
-        if any(path.endswith(v) for v in ["native_version", "numpy_version", "numba_version"]):
+        if any(path.endswith(v) for v in ["native_version", "numpy_version", "numba_version", "numba_parallel"]):
             sys.path.remove(path)
             
     version_dir = os.path.join(ROOT_DIR, version)
@@ -33,7 +33,7 @@ def seed_rng(version: str, sim):
     elif version == "numpy_version":
         import numpy as np
         sim.rng = np.random.default_rng(SEED)
-    elif version == "numba_version":
+    elif version in ("numba_version", "numba_parallel"):
         import numba
         import numpy as np
         # Zasilenie globalnego stanu numpy (dla wywołań w kodzie Pythona, np. w main.init)
@@ -53,7 +53,7 @@ def save_rng_state(version: str, sim, filepath="rng_state.pkl"):
         state = sim.rng.bit_generator.state
         with open(filepath, "wb") as f:
             pickle.dump(state, f)
-    elif version == "numba_version":
+    elif version in ("numba_version", "numba_parallel"):
         with open(filepath, "wb") as f:
             f.write(b"")
 

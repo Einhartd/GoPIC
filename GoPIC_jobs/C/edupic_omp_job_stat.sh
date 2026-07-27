@@ -5,7 +5,7 @@
 #SBATCH --nodes=1
 #SBATCH --mem-per-cpu=4G
 #SBATCH --ntasks=1
-#SBATCH --cpus-per-task=4   # Zmień tę wartość, aby zmienić liczbę rdzeni przydzielonych do joba
+#SBATCH --cpus-per-task=2   # Zmień tę wartość, aby zmienić liczbę rdzeni przydzielonych do joba
 #SBATCH --time=3:30:00
 
 set -e
@@ -48,17 +48,17 @@ NODE_INFO_FILE="${LOG_DIR}/hardware_topology.txt"
 
 module load gcc
 
-if [ ! -f "${BUILD_DIR}/edupic_omp_c_std" ]; then
-    echo ">> Kompiluję kod OpenMP C++ (wersja Standard)..."
-    g++ -O3 -fno-omit-frame-pointer -march=native -fopenmp "${SOURCE_DIR}/eduPIC.cc" -o "${BUILD_DIR}/edupic_tmp_omp_std_${SLURM_JOB_ID}"
-    mv "${BUILD_DIR}/edupic_tmp_omp_std_${SLURM_JOB_ID}" "${BUILD_DIR}/edupic_omp_c_std"
-fi
 
-if [ ! -f "${BUILD_DIR}/edupic_omp_c_nc" ]; then
-    echo ">> Kompiluję kod OpenMP C++ (wersja Null-Collision)..."
-    g++ -O3 -fno-omit-frame-pointer -march=native -fopenmp -DUSE_NULL_COLLISION "${SOURCE_DIR}/eduPIC.cc" -o "${BUILD_DIR}/edupic_tmp_omp_nc_${SLURM_JOB_ID}"
-    mv "${BUILD_DIR}/edupic_tmp_omp_nc_${SLURM_JOB_ID}" "${BUILD_DIR}/edupic_omp_c_nc"
-fi
+echo ">> Kompiluję kod OpenMP C++ (wersja Standard)..."
+g++ -O3 -fno-omit-frame-pointer -march=native -fopenmp "${SOURCE_DIR}/eduPIC.cc" -o "${BUILD_DIR}/edupic_tmp_omp_std_${SLURM_JOB_ID}"
+mv "${BUILD_DIR}/edupic_tmp_omp_std_${SLURM_JOB_ID}" "${BUILD_DIR}/edupic_omp_c_std"
+
+
+
+echo ">> Kompiluję kod OpenMP C++ (wersja Null-Collision)..."
+g++ -O3 -fno-omit-frame-pointer -march=native -fopenmp -DUSE_NULL_COLLISION "${SOURCE_DIR}/eduPIC.cc" -o "${BUILD_DIR}/edupic_tmp_omp_nc_${SLURM_JOB_ID}"
+mv "${BUILD_DIR}/edupic_tmp_omp_nc_${SLURM_JOB_ID}" "${BUILD_DIR}/edupic_omp_c_nc"
+
 
 if [ "${USE_NULL_COLLISION}" = "true" ] || [ "${USE_NULL_COLLISION}" = "1" ]; then
     echo ">> [Null-Collision OpenMP] Wybrano wersję zoptymalizowaną"
@@ -76,12 +76,11 @@ chmod +x "${BINARY}"
 echo ">> Uruchamiam fazę inicjalizacji..."
 "${BINARY}" 0
 
-echo ">> Uruchamianie pomiaru liczników sprzętowych (perf stat) z OMP_NUM_THREADS=${OMP_NUM_THREADS}..."
+echo ">> Uruchamianie pomiaru liczników sprzętowych (perf stat) dla każdego wątku (per-thread) z OMP_NUM_THREADS=${OMP_NUM_THREADS}..."
 perf stat \
-    -e cycles,instructions \
-    -e L1-dcache-loads,L1-dcache-load-misses \
-    -e LLC-loads,LLC-load-misses \
-    -e branch-loads,branch-misses \
+    -e cycles:u,instructions:u \
+    -e L1-dcache-loads:u,L1-dcache-load-misses:u \
+    -e branch-loads:u,branch-misses:u \
     -o "${DATA_DIR}/perf_cpu_stats.txt" \
     "${BINARY}" 1000 m
 

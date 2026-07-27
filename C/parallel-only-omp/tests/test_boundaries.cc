@@ -135,7 +135,7 @@ TEST_F(BoundaryTest, ParallelIonBoundaryEquivalence) {
     }
 }
 
-TEST_F(BoundaryTest, DeterministicStreamCompactionElectrons) {
+TEST_F(BoundaryTest, DeterministicSwapWithLastElectrons) {
     N_e = 5;
     // index 0: stays
     x_e[0] = L * 0.25;  vx_e[0] = 10.0; vy_e[0] = 11.0; vz_e[0] = 12.0;
@@ -155,15 +155,31 @@ TEST_F(BoundaryTest, DeterministicStreamCompactionElectrons) {
     EXPECT_EQ(N_e_abs_pow, 1);
     EXPECT_EQ(N_e_abs_gnd, 1);
 
-    // Surviving: 0, 2, 4. In stable compaction, they end up at 0, 1, 2
-    EXPECT_NEAR(x_e[0],  L * 0.25, 1e-12);
-    EXPECT_NEAR(vx_e[0], 10.0,    1e-12);
+    // Swap-with-last does NOT preserve order. Collect surviving particles
+    // and sort by position to verify the correct SET is present.
+    struct Particle { double x, vx, vy, vz; };
+    std::vector<Particle> survived(N_e);
+    for (int k = 0; k < N_e; k++) {
+        survived[k] = {x_e[k], vx_e[k], vy_e[k], vz_e[k]};
+    }
+    std::sort(survived.begin(), survived.end(),
+              [](const Particle& a, const Particle& b) { return a.x < b.x; });
 
-    EXPECT_NEAR(x_e[1],  L * 0.5,  1e-12);
-    EXPECT_NEAR(vx_e[1], 30.0,    1e-12);
+    // After sorting by position: 0.25L, 0.5L, 0.75L
+    EXPECT_NEAR(survived[0].x,  L * 0.25, 1e-12);
+    EXPECT_NEAR(survived[0].vx, 10.0,     1e-12);
+    EXPECT_NEAR(survived[0].vy, 11.0,     1e-12);
+    EXPECT_NEAR(survived[0].vz, 12.0,     1e-12);
 
-    EXPECT_NEAR(x_e[2],  L * 0.75, 1e-12);
-    EXPECT_NEAR(vx_e[2], 50.0,    1e-12);
+    EXPECT_NEAR(survived[1].x,  L * 0.5,  1e-12);
+    EXPECT_NEAR(survived[1].vx, 30.0,     1e-12);
+    EXPECT_NEAR(survived[1].vy, 31.0,     1e-12);
+    EXPECT_NEAR(survived[1].vz, 32.0,     1e-12);
+
+    EXPECT_NEAR(survived[2].x,  L * 0.75, 1e-12);
+    EXPECT_NEAR(survived[2].vx, 50.0,     1e-12);
+    EXPECT_NEAR(survived[2].vy, 51.0,     1e-12);
+    EXPECT_NEAR(survived[2].vz, 52.0,     1e-12);
 }
 
 TEST_F(BoundaryTest, DeterministicIonFluxEnergyDistribution) {

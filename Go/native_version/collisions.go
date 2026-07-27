@@ -9,8 +9,7 @@ import (
 //----------------------------------------------------------------------//
 
 func (sim *SimulationState) CollisionElectron(xe float64, vxe, vye, vze *float64, eindex int) {
-	const F1 float64 = E_MASS / (E_MASS + AR_MASS)
-	const F2 float64 = AR_MASS / (E_MASS + AR_MASS)
+
 	var t0, t1, t2, rnd float64
 	var g, g2, gx, gy, gz, wx, wy, wz, theta, phi float64
 	var chi, eta, chi2, eta2, sc, cc, se, ce, st, ct, sp, cp, energy, e_sc, e_ej float64
