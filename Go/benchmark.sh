@@ -1,6 +1,6 @@
 #!/bin/bash
 # ============================================================================
-# Benchmark: Go Sequential vs Parallel Chunking (Worker Pool)
+# Benchmark: Go Sequential vs Parallel Chunking vs Parallel Channels (CSP)
 # ============================================================================
 set -euo pipefail
 
@@ -10,7 +10,8 @@ PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 N_CYCLES="${1:-5}"
 
 NATIVE_DIR="$SCRIPT_DIR/native_version"
-PARALLEL_DIR="$SCRIPT_DIR/parallel_chunking"
+CHUNKING_DIR="$SCRIPT_DIR/parallel_chunking"
+CHANNELS_DIR="$SCRIPT_DIR/parallel_channels"
 BUILD_DIR="$SCRIPT_DIR/bench_build"
 WORK_DIR="$SCRIPT_DIR/bench_work"
 
@@ -20,9 +21,9 @@ CYAN='\033[0;36m'
 BOLD='\033[1m'
 NC='\033[0m'
 
-echo -e "${BOLD}═════════════════════════════════════════════════════════════${NC}"
-echo -e "${CYAN}  GoPIC Benchmarking: Sequential vs Parallel Chunking${NC}"
-echo -e "${BOLD}═════════════════════════════════════════════════════════════${NC}"
+echo -e "${BOLD}═════════════════════════════════════════════════════════════════════${NC}"
+echo -e "${CYAN}  GoPIC Benchmarking: Sequential vs Chunking vs Channels (CSP)${NC}"
+echo -e "${BOLD}═════════════════════════════════════════════════════════════════════${NC}"
 echo ""
 
 NUM_CORES=$(nproc)
@@ -38,7 +39,11 @@ echo -n "  Budowanie Sequential (native_version)... "
 echo -e "${GREEN}OK${NC}"
 
 echo -n "  Budowanie Parallel Chunking (parallel_chunking)... "
-(cd "$PARALLEL_DIR" && go build -o "$BUILD_DIR/edupic_go_par" ./cmd/pic)
+(cd "$CHUNKING_DIR" && go build -o "$BUILD_DIR/edupic_go_chunk" ./cmd/pic)
+echo -e "${GREEN}OK${NC}"
+
+echo -n "  Budowanie Parallel Channels (parallel_channels)... "
+(cd "$CHANNELS_DIR" && go build -o "$BUILD_DIR/edupic_go_chan" ./cmd/pic)
 echo -e "${GREEN}OK${NC}"
 echo ""
 
@@ -73,23 +78,15 @@ run_bench() {
 
 echo -e "${BOLD}[3/4] Uruchamianie serii benchmarków...${NC}"
 run_bench "Sequential_Native" "$BUILD_DIR/edupic_go_seq" 1
-run_bench "Parallel_Chunking_1W" "$BUILD_DIR/edupic_go_par" 1
 
-if [ "$NUM_CORES" -ge 2 ]; then
-    run_bench "Parallel_Chunking_2W" "$BUILD_DIR/edupic_go_par" 2
-fi
-
-if [ "$NUM_CORES" -ge 4 ]; then
-    run_bench "Parallel_Chunking_4W" "$BUILD_DIR/edupic_go_par" 4
-fi
-
-if [ "$NUM_CORES" -ge 8 ]; then
-    run_bench "Parallel_Chunking_8W" "$BUILD_DIR/edupic_go_par" 8
-fi
-
-if [ "$NUM_CORES" -ne 1 ] && [ "$NUM_CORES" -ne 2 ] && [ "$NUM_CORES" -ne 4 ] && [ "$NUM_CORES" -ne 8 ]; then
-    run_bench "Parallel_Chunking_${NUM_CORES}W" "$BUILD_DIR/edupic_go_par" "$NUM_CORES"
-fi
+for w in 1 2 4 8 "$NUM_CORES"; do
+    # avoid duplicate run if NUM_CORES is 1, 2, 4 or 8
+    if [ "$w" -gt "$NUM_CORES" ]; then
+        continue
+    fi
+    run_bench "Parallel_Chunking_${w}W" "$BUILD_DIR/edupic_go_chunk" "$w"
+    run_bench "Parallel_Channels_${w}W" "$BUILD_DIR/edupic_go_chan" "$w"
+done
 
 echo -e "${BOLD}[4/4] Czyszczenie katalogów roboczych...${NC}"
 rm -rf "$WORK_DIR"
