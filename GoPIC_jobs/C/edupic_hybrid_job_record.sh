@@ -6,12 +6,15 @@
 #SBATCH --mem-per-cpu=4G
 #SBATCH --ntasks=2            # Liczba procesów MPI
 #SBATCH --cpus-per-task=2      # Liczba wątków OpenMP na proces MPI
-#SBATCH --time=3:30:00
+#SBATCH --time=00:30:00        # Skrócony czas (profilowanie 20 cykli trwa ok. 1-2 min)
 
 set -e
 
 # Konfiguracja środowiska hybrydowego
 export OMP_NUM_THREADS=$SLURM_CPUS_PER_TASK
+
+# Liczba cykli symulacji dla perf record (20 cykli daje pełen, reprezentatywny profil przy plikach ~15-30 MB per rank)
+N_CYCLES_RECORD="${N_CYCLES_RECORD:-20}"
 
 WORK_DIR=$(pwd)
 LOG_DIR="${WORK_DIR}/saved_logs_C/logs_job_${SLURM_JOB_ID}_HYBRID_RECORD"
@@ -19,7 +22,8 @@ mkdir -p "${LOG_DIR}"
 exec > "${LOG_DIR}/job_output.log" 2>&1
 
 echo "========================================================"
-echo " RUNNING HYBRID JOB WITH MPI TASKS: ${SLURM_NTASKS} AND OMP THREADS: ${OMP_NUM_THREADS}"
+echo " RUNNING HYBRID RECORD JOB WITH MPI TASKS: ${SLURM_NTASKS} AND OMP THREADS: ${OMP_NUM_THREADS}"
+echo " CYCLES TO RECORD: ${N_CYCLES_RECORD}"
 echo "========================================================"
 
 SOURCE_DIR="$HOME/GoPIC/C/parallel-hybrid"
@@ -43,23 +47,20 @@ NODE_INFO_FILE="${LOG_DIR}/hardware_topology.txt"
     echo "Węzeł obliczeniowy: ${SLURM_JOB_NODELIST}"
     echo "Liczba procesów MPI (ntasks): ${SLURM_NTASKS}"
     echo "Liczba wątków OpenMP na proces (cpus-per-task): ${OMP_NUM_THREADS}"
+    echo "Liczba cykli dla perf record: ${N_CYCLES_RECORD}"
     echo "--- CPU topology (lscpu) ---"
     lscpu
 } > "${NODE_INFO_FILE}" 2>&1
 
 module load gcc openmpi
 
-if [ ! -f "${BUILD_DIR}/edupic_hybrid_c_std" ]; then
-    echo ">> Kompiluję hybrydowy kod MPI+OpenMP (wersja Standard)..."
-    mpicxx -O3 -fno-omit-frame-pointer -march=native -fopenmp "${SOURCE_DIR}/eduPIC.cc" -o "${BUILD_DIR}/edupic_tmp_hybrid_std_${SLURM_JOB_ID}"
-    mv "${BUILD_DIR}/edupic_tmp_hybrid_std_${SLURM_JOB_ID}" "${BUILD_DIR}/edupic_hybrid_c_std"
-fi
+echo ">> Kompiluję świeży hybrydowy kod MPI+OpenMP (wersja Standard)..."
+mpicxx -O3 -fno-omit-frame-pointer -march=native -fopenmp "${SOURCE_DIR}/eduPIC.cc" -o "${BUILD_DIR}/edupic_tmp_hybrid_std_${SLURM_JOB_ID}"
+mv "${BUILD_DIR}/edupic_tmp_hybrid_std_${SLURM_JOB_ID}" "${BUILD_DIR}/edupic_hybrid_c_std"
 
-if [ ! -f "${BUILD_DIR}/edupic_hybrid_c_nc" ]; then
-    echo ">> Kompiluję hybrydowy kod MPI+OpenMP (wersja Null-Collision)..."
-    mpicxx -O3 -fno-omit-frame-pointer -march=native -fopenmp -DUSE_NULL_COLLISION "${SOURCE_DIR}/eduPIC.cc" -o "${BUILD_DIR}/edupic_tmp_hybrid_nc_${SLURM_JOB_ID}"
-    mv "${BUILD_DIR}/edupic_tmp_hybrid_nc_${SLURM_JOB_ID}" "${BUILD_DIR}/edupic_hybrid_c_nc"
-fi
+echo ">> Kompiluję świeży hybrydowy kod MPI+OpenMP (wersja Null-Collision)..."
+mpicxx -O3 -fno-omit-frame-pointer -march=native -fopenmp -DUSE_NULL_COLLISION "${SOURCE_DIR}/eduPIC.cc" -o "${BUILD_DIR}/edupic_tmp_hybrid_nc_${SLURM_JOB_ID}"
+mv "${BUILD_DIR}/edupic_tmp_hybrid_nc_${SLURM_JOB_ID}" "${BUILD_DIR}/edupic_hybrid_c_nc"
 
 if [ "${USE_NULL_COLLISION}" = "true" ] || [ "${USE_NULL_COLLISION}" = "1" ]; then
     echo ">> [Null-Collision Hybrid] Wybrano wersję zoptymalizowaną"
@@ -77,15 +78,23 @@ chmod +x "${BINARY}"
 echo ">> Uruchamiam fazę inicjalizacji..."
 mpirun -np "${SLURM_NTASKS}" "${BINARY}" 0
 
-echo ">> Uruchamianie pomiaru drzewa wywołań (perf record) osobno dla każdej rangi MPI..."
-mpirun -np "${SLURM_NTASKS}" bash -c "perf record -F 99 -g -o ${DATA_DIR}/perf_${SLURM_JOB_ID}_rank_\${OMPI_COMM_WORLD_RANK}.data -- ${BINARY} 1000 m"
+SCRATCH_BASE="${SCRATCH:-${DATA_DIR}}"
+
+echo ">> Uruchamianie pomiaru drzewa wywołań (perf record) dla ${N_CYCLES_RECORD} cykli osobno dla każdej rangi MPI..."
+mpirun -np "${SLURM_NTASKS}" bash -c "perf record --max-size=100M -F 49 -g -o ${SCRATCH_BASE}/perf_${SLURM_JOB_ID}_rank_\${OMPI_COMM_WORLD_RANK}.data -- ${BINARY} ${N_CYCLES_RECORD} m"
 
 # Generowanie raportów per-rank
 for r in $(seq 0 $((SLURM_NTASKS - 1))); do
     echo ">> Generuję raporty tekstowe dla rangi MPI ${r}..."
-    perf report -i "${DATA_DIR}/perf_${SLURM_JOB_ID}_rank_${r}.data" --stdio > "${DATA_DIR}/perf_report_rank_${r}.txt"
-    perf report -i "${DATA_DIR}/perf_${SLURM_JOB_ID}_rank_${r}.data" --stdio --sort=cpu,symbol > "${DATA_DIR}/perf_report_rank_${r}_per_cpu.txt"
-    perf report -i "${DATA_DIR}/perf_${SLURM_JOB_ID}_rank_${r}.data" --stdio --per-thread > "${DATA_DIR}/perf_report_rank_${r}_per_thread.txt"
+    PERF_RANK_FILE="${SCRATCH_BASE}/perf_${SLURM_JOB_ID}_rank_${r}.data"
+    perf report -i "${PERF_RANK_FILE}" --stdio > "${DATA_DIR}/perf_report_rank_${r}.txt"
+    perf report -i "${PERF_RANK_FILE}" --stdio --sort=cpu,symbol > "${DATA_DIR}/perf_report_rank_${r}_per_cpu.txt"
+    perf report -i "${PERF_RANK_FILE}" --stdio --per-thread > "${DATA_DIR}/perf_report_rank_${r}_per_thread.txt"
+    
+    echo "========================================================"
+    echo " TOP 25 HOTSPOTS (Ranga MPI ${r}):"
+    echo "========================================================"
+    perf report -i "${PERF_RANK_FILE}" --stdio --no-children --sort=comm,dso,symbol | head -n 35 || true
 done
 
 echo ">> Zadanie HYBRID RECORD zakończone. Wyniki w: ${DATA_DIR}"

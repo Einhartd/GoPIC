@@ -1,89 +1,83 @@
 #!/bin/bash -l
 
-#SBATCH --job-name=edupic_omp_rec
+#SBATCH --job-name=edupic_chunk_go_rec
 #SBATCH --partition=plgrid-lem-cpu
 #SBATCH --nodes=1
 #SBATCH --mem-per-cpu=4G
 #SBATCH --ntasks=1
-#SBATCH --cpus-per-task=2   # Zmień tę wartość, aby zmienić liczbę rdzeni przydzielonych do joba
+#SBATCH --cpus-per-task=12   # Zmień tę wartość, aby zmienić liczbę rdzeni GOMAXPROCS
 #SBATCH --time=00:30:00     # Skrócony czas (profilowanie 20 cykli trwa ok. 1-2 min)
 
 set -e
 
-# Pobranie liczby rdzeni z konfiguracji Slurma
-export OMP_NUM_THREADS=$SLURM_CPUS_PER_TASK
+export GOMAXPROCS=$SLURM_CPUS_PER_TASK
 
-# Liczba cykli symulacji dla perf record (20 cykli daje pełen, reprezentatywny profil przy pliku ~15-30 MB)
+# Liczba cykli symulacji dla perf record (20 cykli daje reprezentatywny profil przy pliku ~15-30 MB)
 N_CYCLES_RECORD="${N_CYCLES_RECORD:-20}"
 
 WORK_DIR=$(pwd)
-LOG_DIR="${WORK_DIR}/saved_logs_C/logs_job_${SLURM_JOB_ID}_OMP_RECORD"
+LOG_DIR="${WORK_DIR}/saved_logs_Go/logs_job_${SLURM_JOB_ID}_CHUNKING_RECORD"
 mkdir -p "${LOG_DIR}"
+
 exec > "${LOG_DIR}/job_output.log" 2>&1
 
 echo "========================================================"
-echo " RUNNING OPENMP RECORD JOB WITH CORES: ${OMP_NUM_THREADS}"
+echo " RUNNING GO CHUNKING PARALLEL RECORD JOB WITH CORES: ${GOMAXPROCS}"
 echo " CYCLES TO RECORD: ${N_CYCLES_RECORD}"
 echo "========================================================"
 
-SOURCE_DIR="$HOME/GoPIC/C/parallel-only-omp"
-BUILD_DIR="$HOME/GoPIC_build/C"
+SOURCE_DIR="$HOME/GoPIC/Go/parallel_chunking"
+BUILD_DIR="$HOME/GoPIC_build/Go"
 DATA_DIR="${LOG_DIR}/edupic_data"
 
 mkdir -p "${DATA_DIR}"
 mkdir -p "${BUILD_DIR}"
 
-if [ ! -f "${SOURCE_DIR}/eduPIC.cc" ]; then
-    echo "ERROR: Plik ${SOURCE_DIR}/eduPIC.cc nie istnieje w ${SOURCE_DIR}!"
+if [ ! -d "${SOURCE_DIR}" ]; then
+    echo "ERROR: Katalog ${SOURCE_DIR} nie istnieje!"
     exit 1
 fi
 
 NODE_INFO_FILE="${LOG_DIR}/hardware_topology.txt"
-
 {
     echo "========================================================"
     echo " HARDWARE & TOPOLOGY INFO — $(date '+%Y-%m-%d %H:%M:%S')"
     echo "========================================================"
     echo "Węzeł obliczeniowy: ${SLURM_JOB_NODELIST}"
-    echo "Liczba przydzielonych rdzeni: ${OMP_NUM_THREADS}"
+    echo "Liczba przydzielonych rdzeni (GOMAXPROCS): ${GOMAXPROCS}"
     echo "Liczba cykli dla perf record: ${N_CYCLES_RECORD}"
     echo "--- CPU topology (lscpu) ---"
     lscpu
 } > "${NODE_INFO_FILE}" 2>&1
 
-module load gcc
+cd "${SOURCE_DIR}"
+module load go || true
 
+echo ">> Kompiluję świeży kod Go Chunking Parallel (wersja Standard)..."
+go build -o "${BUILD_DIR}/edupic_tmp_chunk_std_${SLURM_JOB_ID}" ./cmd/pic
+mv "${BUILD_DIR}/edupic_tmp_chunk_std_${SLURM_JOB_ID}" "${BUILD_DIR}/edupic_go_chunk_std"
 
-echo ">> Kompiluję kod OpenMP C++ (wersja Standard)..."
-g++ -O3 -fno-omit-frame-pointer -march=native -fopenmp "${SOURCE_DIR}/eduPIC.cc" -o "${BUILD_DIR}/edupic_tmp_omp_std_${SLURM_JOB_ID}"
-mv "${BUILD_DIR}/edupic_tmp_omp_std_${SLURM_JOB_ID}" "${BUILD_DIR}/edupic_omp_c_std"
-
-
-echo ">> Kompiluję kod OpenMP C++ (wersja Null-Collision)..."
-g++ -O3 -fno-omit-frame-pointer -march=native -fopenmp -DUSE_NULL_COLLISION "${SOURCE_DIR}/eduPIC.cc" -o "${BUILD_DIR}/edupic_tmp_omp_nc_${SLURM_JOB_ID}"
-mv "${BUILD_DIR}/edupic_tmp_omp_nc_${SLURM_JOB_ID}" "${BUILD_DIR}/edupic_omp_c_nc"
-
+echo ">> Kompiluję świeży kod Go Chunking Parallel (wersja Null-Collision)..."
+go build -tags nullcollision -o "${BUILD_DIR}/edupic_tmp_chunk_nc_${SLURM_JOB_ID}" ./cmd/pic
+mv "${BUILD_DIR}/edupic_tmp_chunk_nc_${SLURM_JOB_ID}" "${BUILD_DIR}/edupic_go_chunk_nc"
 
 if [ "${USE_NULL_COLLISION}" = "true" ] || [ "${USE_NULL_COLLISION}" = "1" ]; then
-    echo ">> [Null-Collision OpenMP] Wybrano wersję zoptymalizowaną"
-    BINARY="${BUILD_DIR}/edupic_omp_c_nc"
+    echo ">> [Null-Collision Chunking] Wybrano wersję zoptymalizowaną"
+    BINARY="${BUILD_DIR}/edupic_go_chunk_nc"
 else
-    echo ">> [Standard OpenMP] Wybrano wersję klasyczną"
-    BINARY="${BUILD_DIR}/edupic_omp_c_std"
+    echo ">> [Standard Chunking] Wybrano wersję klasyczną"
+    BINARY="${BUILD_DIR}/edupic_go_chunk_std"
 fi
 
 cd "${DATA_DIR}"
-
-# Zapewnienie uprawnień wykonywalnych dla binarium
 chmod +x "${BINARY}"
 
 echo ">> Uruchamiam fazę inicjalizacji (krok 0)..."
 "${BINARY}" 0
 
-# Lokalizacja pliku perf.data (preferowany $SCRATCH jeśli istnieje, w przeciwnym razie $DATA_DIR)
 PERF_DATA_FILE="${SCRATCH:-${DATA_DIR}}/perf_${SLURM_JOB_ID}.data"
 
-echo ">> Uruchamianie pomiaru drzewa wywołań (perf record) dla ${N_CYCLES_RECORD} cykli z OMP_NUM_THREADS=${OMP_NUM_THREADS}..."
+echo ">> Uruchamianie pomiaru drzewa wywołań (perf record) dla ${N_CYCLES_RECORD} cykli z GOMAXPROCS=${GOMAXPROCS}..."
 echo ">> Plik surowego nagrania: ${PERF_DATA_FILE}"
 
 perf record --max-size=100M -F 49 -g -o "${PERF_DATA_FILE}" -- "${BINARY}" "${N_CYCLES_RECORD}" m
@@ -102,4 +96,4 @@ echo " TOP 25 HOTSPOTS (Podsumowanie profilera):"
 echo "========================================================"
 perf report -i "${PERF_DATA_FILE}" --stdio --no-children --sort=comm,dso,symbol | head -n 35 || true
 
-echo ">> Zadanie OMP RECORD zakończone sukcesem. Raporty w: ${DATA_DIR}"
+echo ">> Zadanie Go Chunking RECORD zakończone sukcesem. Wyniki w: ${DATA_DIR}"

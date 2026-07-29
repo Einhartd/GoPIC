@@ -49,17 +49,13 @@ NODE_INFO_FILE="${LOG_DIR}/hardware_topology.txt"
 
 module load gcc openmpi
 
-if [ ! -f "${BUILD_DIR}/edupic_hybrid_c_std" ]; then
-    echo ">> Kompiluję hybrydowy kod MPI+OpenMP (wersja Standard)..."
-    mpicxx -O3 -fno-omit-frame-pointer -march=native -fopenmp "${SOURCE_DIR}/eduPIC.cc" -o "${BUILD_DIR}/edupic_tmp_hybrid_std_${SLURM_JOB_ID}"
-    mv "${BUILD_DIR}/edupic_tmp_hybrid_std_${SLURM_JOB_ID}" "${BUILD_DIR}/edupic_hybrid_c_std"
-fi
+echo ">> Kompiluję świeży hybrydowy kod MPI+OpenMP (wersja Standard)..."
+mpicxx -O3 -fno-omit-frame-pointer -march=native -fopenmp "${SOURCE_DIR}/eduPIC.cc" -o "${BUILD_DIR}/edupic_tmp_hybrid_std_${SLURM_JOB_ID}"
+mv "${BUILD_DIR}/edupic_tmp_hybrid_std_${SLURM_JOB_ID}" "${BUILD_DIR}/edupic_hybrid_c_std"
 
-if [ ! -f "${BUILD_DIR}/edupic_hybrid_c_nc" ]; then
-    echo ">> Kompiluję hybrydowy kod MPI+OpenMP (wersja Null-Collision)..."
-    mpicxx -O3 -fno-omit-frame-pointer -march=native -fopenmp -DUSE_NULL_COLLISION "${SOURCE_DIR}/eduPIC.cc" -o "${BUILD_DIR}/edupic_tmp_hybrid_nc_${SLURM_JOB_ID}"
-    mv "${BUILD_DIR}/edupic_tmp_hybrid_nc_${SLURM_JOB_ID}" "${BUILD_DIR}/edupic_hybrid_c_nc"
-fi
+echo ">> Kompiluję świeży hybrydowy kod MPI+OpenMP (wersja Null-Collision)..."
+mpicxx -O3 -fno-omit-frame-pointer -march=native -fopenmp -DUSE_NULL_COLLISION "${SOURCE_DIR}/eduPIC.cc" -o "${BUILD_DIR}/edupic_tmp_hybrid_nc_${SLURM_JOB_ID}"
+mv "${BUILD_DIR}/edupic_tmp_hybrid_nc_${SLURM_JOB_ID}" "${BUILD_DIR}/edupic_hybrid_c_nc"
 
 if [ "${USE_NULL_COLLISION}" = "true" ] || [ "${USE_NULL_COLLISION}" = "1" ]; then
     echo ">> [Null-Collision Hybrid] Wybrano wersję zoptymalizowaną"
@@ -77,13 +73,12 @@ chmod +x "${BINARY}"
 echo ">> Uruchamiam fazę inicjalizacji..."
 mpirun -np "${SLURM_NTASKS}" "${BINARY}" 0
 
-echo ">> Uruchamianie pomiaru liczników sprzętowych (perf stat) dla każdego wątku na poszczególnych procesach MPI..."
-mpirun -np "${SLURM_NTASKS}" bash -c "perf stat --per-thread \
-    -e cycles,instructions \
-    -e L1-dcache-loads,L1-dcache-load-misses \
-    -e LLC-loads,LLC-load-misses \
-    -e branch-loads,branch-misses \
-    -o ${DATA_DIR}/perf_cpu_stats_rank_\${OMPI_COMM_WORLD_RANK}.txt \
-    ${BINARY} 1000 m"
+echo ">> Uruchamianie pomiaru liczników sprzętowych (perf stat) dla każdej rangi MPI z OMP_NUM_THREADS=${OMP_NUM_THREADS}..."
+perf stat \
+    -e cycles:u,instructions:u \
+    -e L1-dcache-loads:u,L1-dcache-load-misses:u \
+    -e branch-loads:u,branch-misses:u \
+    -o "${DATA_DIR}/perf_cpu_stats.txt" \
+    mpirun -np "${SLURM_NTASKS}" "${BINARY}" 1000 m
 
 echo ">> Zadanie HYBRID STAT zakończone. Wyniki w: ${DATA_DIR}"

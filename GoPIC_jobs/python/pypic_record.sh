@@ -6,9 +6,12 @@
 #SBATCH --mem-per-cpu=4G
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=1
-#SBATCH --time=16:30:00
+#SBATCH --time=00:30:00     # Skrócony czas (profilowanie 20 cykli trwa ok. 1-2 min)
 
 set -e
+
+# Liczba cykli symulacji dla perf record (20 cykli daje reprezentatywny profil przy pliku ~15 MB)
+N_CYCLES_RECORD="${N_CYCLES_RECORD:-20}"
 
 WORK_DIR=$(pwd)
 LOG_DIR="${WORK_DIR}/saved_logs_python/logs_job_${SLURM_JOB_ID}_RECORD"
@@ -16,17 +19,10 @@ mkdir -p "${LOG_DIR}"
 
 exec > "${LOG_DIR}/job_output.log" 2>&1
 
-#   WSKAZANIE WERSJI PYTHONA DO URUCHOMIENIA
-#PYTHON_VERSION_DIR="${WORK_DIR}/GoPIC/python/native_version"
-
-PYTHON_VERSION_DIR="${WORK_DIR}/GoPIC/python/numba_version"
-
-#PYTHON_VERSION_DIR="${WORK_DIR}/GoPIC/python/numpy_version"
-
-
+# WSKAZANIE WERSJI PYTHONA DO URUCHOMIENIA
+PYTHON_VERSION_DIR="${WORK_DIR}/GoPIC/python/numpy_version"
 
 DATA_DIR="${LOG_DIR}/edupic_data"
-
 mkdir -p "${DATA_DIR}"
 
 if [ -f "${WORK_DIR}/GoPIC/GoPIC_jobs/python/pypic.profile" ]; then
@@ -57,6 +53,7 @@ NODE_INFO_FILE="${LOG_DIR}/hardware_topology.txt"
     echo " HARDWARE & TOPOLOGY INFO — $(date '+%Y-%m-%d %H:%M:%S')"
     echo "========================================================"
     echo "Węzeł obliczeniowy: ${SLURM_JOB_NODELIST}"
+    echo "Liczba cykli dla perf record: ${N_CYCLES_RECORD}"
     echo "--- CPU topology (lscpu) ---"
     lscpu
 } > "${NODE_INFO_FILE}" 2>&1
@@ -66,10 +63,17 @@ cd "${DATA_DIR}"
 echo ">> Uruchamiam fazę inicjalizacji..."
 python3 "${PYTHON_VERSION_DIR}/main.py" 0
 
-echo ">> Uruchamianie pomiaru drzewa wywołań (perf record)..."
-perf record -F 99 -g -o "${DATA_DIR}/perf_${SLURM_JOB_ID}.data" -- python3 "${PYTHON_VERSION_DIR}/main.py" 1000 m
+PERF_DATA_FILE="${SCRATCH:-${DATA_DIR}}/perf_${SLURM_JOB_ID}.data"
+
+echo ">> Uruchamianie pomiaru drzewa wywołań (perf record) dla ${N_CYCLES_RECORD} cykli..."
+perf record --max-size=100M -F 49 -g -o "${PERF_DATA_FILE}" -- python3 "${PYTHON_VERSION_DIR}/main.py" "${N_CYCLES_RECORD}" m
 
 echo ">> Konwertuję logi perf record do formatu tekstowego..."
-perf report -i "${DATA_DIR}/perf_${SLURM_JOB_ID}.data" --stdio > "${DATA_DIR}/perf_report.txt"
+perf report -i "${PERF_DATA_FILE}" --stdio > "${DATA_DIR}/perf_report.txt"
+
+echo "========================================================"
+echo " TOP 25 HOTSPOTS (Podsumowanie profilera):"
+echo "========================================================"
+perf report -i "${PERF_DATA_FILE}" --stdio --no-children --sort=comm,dso,symbol | head -n 35 || true
 
 echo ">> Zadanie Python RECORD zakończone. Wyniki w: ${DATA_DIR}"

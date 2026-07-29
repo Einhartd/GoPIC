@@ -1,17 +1,17 @@
 #!/bin/bash -l
 
-#SBATCH --job-name=edupic_seq_go
+#SBATCH --job-name=edupic_seq_go_stat
 #SBATCH --partition=plgrid-lem-cpu
 #SBATCH --nodes=1
 #SBATCH --mem-per-cpu=4G
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=1
-#SBATCH --time=6:00:00
+#SBATCH --time=03:30:00
 
 set -e
 
 WORK_DIR=$(pwd)
-LOG_DIR="${WORK_DIR}/saved_logs_Go/logs_job_${SLURM_JOB_ID}_STAT"
+LOG_DIR="${WORK_DIR}/saved_logs_Go/logs_job_${SLURM_JOB_ID}_SEQ_STAT"
 mkdir -p "${LOG_DIR}"
 
 exec > "${LOG_DIR}/job_output.log" 2>&1
@@ -23,14 +23,12 @@ DATA_DIR="${LOG_DIR}/edupic_data"
 mkdir -p "${DATA_DIR}"
 mkdir -p "${BUILD_DIR}"
 
-# Weryfikacja czy katalog źródłowy istnieje
 if [ ! -d "${SOURCE_DIR}" ]; then
     echo "ERROR: Katalog ${SOURCE_DIR} nie istnieje!"
     exit 1
 fi
 
 NODE_INFO_FILE="${LOG_DIR}/hardware_topology.txt"
-
 {
     echo "========================================================"
     echo " HARDWARE & TOPOLOGY INFO — $(date '+%Y-%m-%d %H:%M:%S')"
@@ -40,58 +38,38 @@ NODE_INFO_FILE="${LOG_DIR}/hardware_topology.txt"
     lscpu
 } > "${NODE_INFO_FILE}" 2>&1
 
-# -------------------------------------------------------------------
-# KOMPILACJA GO
-# -------------------------------------------------------------------
-
+# Kompilacja zawsze świeżego pliku wykonywalnego Go
 cd "${SOURCE_DIR}"
-if [ ! -f "go.mod" ]; then
-    echo ">> Brak pliku go.mod. Inicjalizuję nowy moduł Go..."
-    go mod init edupic
-fi
+module load go || true
 
-echo ">> Pobieram brakujące biblioteki (go mod tidy)..."
-go get github.com/seehuhn/mt19937
-go mod tidy
+echo ">> Kompiluję świeży kod Go Sequential (wersja Standard)..."
+go build -o "${BUILD_DIR}/edupic_tmp_seq_std_${SLURM_JOB_ID}" ./cmd/pic
+mv "${BUILD_DIR}/edupic_tmp_seq_std_${SLURM_JOB_ID}" "${BUILD_DIR}/edupic_go_seq_std"
 
-export GOAMD64=v4
-
-# Usuwamy stare pliki, aby wymusić poprawną kompilację wykonywalną
-rm -f "${BUILD_DIR}/edupic_go_std" "${BUILD_DIR}/edupic_go_nc"
-
-echo ">> Kompiluję kod Go (wersja Standard)..."
-go build -o "${BUILD_DIR}/edupic_go_std" ./cmd/pic
-
-echo ">> Kompiluję kod Go (wersja Null-Collision)..."
-go build -tags nullcollision -o "${BUILD_DIR}/edupic_go_nc" ./cmd/pic
+echo ">> Kompiluję świeży kod Go Sequential (wersja Null-Collision)..."
+go build -tags nullcollision -o "${BUILD_DIR}/edupic_tmp_seq_nc_${SLURM_JOB_ID}" ./cmd/pic
+mv "${BUILD_DIR}/edupic_tmp_seq_nc_${SLURM_JOB_ID}" "${BUILD_DIR}/edupic_go_seq_nc"
 
 if [ "${USE_NULL_COLLISION}" = "true" ] || [ "${USE_NULL_COLLISION}" = "1" ]; then
     echo ">> [Null-Collision] Wybrano wersję zoptymalizowaną"
-    BINARY="${BUILD_DIR}/edupic_go_nc"
+    BINARY="${BUILD_DIR}/edupic_go_seq_nc"
 else
     echo ">> [Standard] Wybrano wersję klasyczną"
-    BINARY="${BUILD_DIR}/edupic_go_std"
+    BINARY="${BUILD_DIR}/edupic_go_seq_std"
 fi
 
 cd "${DATA_DIR}"
-
-# Zapewnienie uprawnień wykonywalnych dla binarium
 chmod +x "${BINARY}"
 
-if [ ! -f "picdata.bin" ]; then
-    echo ">> Brak pliku picdata.bin. Uruchamiam fazę inicjalizacji..."
-    "${BINARY}" 0
-    echo ">> Inicjalizacja zakończona."
-else
-    echo ">> Znaleziono picdata.bin. Pomijam inicjalizację."
-fi
+echo ">> Uruchamiam fazę inicjalizacji (krok 0)..."
+"${BINARY}" 0
 
+echo ">> Uruchamianie pomiaru liczników sprzętowych (perf stat)..."
 perf stat \
-    -e cycles,instructions \
-    -e L1-dcache-loads,L1-dcache-load-misses \
-    -e LLC-loads,LLC-load-misses \
-    -e branch-loads,branch-misses \
+    -e cycles:u,instructions:u \
+    -e L1-dcache-loads:u,L1-dcache-load-misses:u \
+    -e branch-loads:u,branch-misses:u \
     -o "${DATA_DIR}/perf_cpu_stats.txt" \
     "${BINARY}" 1000 m
 
-echo ">> Zadanie zakończone. Wszystkie dane i logi w: ${DATA_DIR}"
+echo ">> Zadanie Go Sequential STAT zakończone. Wyniki w: ${DATA_DIR}"
