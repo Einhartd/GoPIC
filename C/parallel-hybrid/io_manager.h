@@ -17,14 +17,9 @@ inline void save_particle_data(){
     int total_N_e = 0;
     int total_N_i = 0;
 
-    //  talblice z liczbami czastek
-    std::vector<int> recv_counts_e;
-    std::vector<int> recv_counts_i;
-    
-    if (mpi_rank == 0) {
-        recv_counts_e.resize(mpi_size);
-        recv_counts_i.resize(mpi_size);
-    }
+    //  tablice z liczbami czastek (zaalokowane na wszystkich rangach dla bezpieczenstwa MPI_Gather)
+    std::vector<int> recv_counts_e(mpi_size, 0);
+    std::vector<int> recv_counts_i(mpi_size, 0);
 
     MPI_Gather(&local_N_e, 1, MPI_INT, recv_counts_e.data(), 1, MPI_INT, 0, MPI_COMM_WORLD);
     MPI_Gather(&local_N_i, 1, MPI_INT, recv_counts_i.data(), 1, MPI_INT, 0, MPI_COMM_WORLD);
