@@ -52,7 +52,8 @@ NODE_INFO_FILE="${LOG_DIR}/hardware_topology.txt"
     lscpu
 } > "${NODE_INFO_FILE}" 2>&1
 
-module load gcc openmpi
+module purge
+module load openmpi
 
 echo ">> Kompiluję świeży hybrydowy kod MPI+OpenMP (wersja Standard)..."
 mpicxx -O3 -fno-omit-frame-pointer -march=native -fopenmp "${SOURCE_DIR}/eduPIC.cc" -o "${BUILD_DIR}/edupic_tmp_hybrid_std_${SLURM_JOB_ID}"

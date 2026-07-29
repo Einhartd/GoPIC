@@ -43,6 +43,7 @@ NODE_INFO_FILE="${LOG_DIR}/hardware_topology.txt"
 } > "${NODE_INFO_FILE}" 2>&1
 
 
+module purge
 module load gcc
 
 echo ">> Kompiluję świeży kod C++ (wersja Standard)..."

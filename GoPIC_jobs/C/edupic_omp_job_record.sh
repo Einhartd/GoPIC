@@ -51,6 +51,7 @@ NODE_INFO_FILE="${LOG_DIR}/hardware_topology.txt"
     lscpu
 } > "${NODE_INFO_FILE}" 2>&1
 
+module purge
 module load gcc
 
 

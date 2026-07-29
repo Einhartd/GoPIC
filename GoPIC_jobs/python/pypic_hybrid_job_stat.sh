@@ -33,6 +33,7 @@ mkdir -p "${DATA_DIR}"
 if [ -f "$HOME/GoPIC/GoPIC_jobs/python/pypic.profile" ]; then
     echo ">> Wczytuję profil środowiska GoPIC..."
     source "$HOME/GoPIC/GoPIC_jobs/python/pypic.profile"
+    module load openmpi || true
 else
     echo ">> Błąd: plik pypic.profile nie został znaleziony!"
     exit 1
