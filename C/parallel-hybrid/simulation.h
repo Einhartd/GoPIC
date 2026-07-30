@@ -53,9 +53,9 @@ inline void step1_compute_electron_density_body(int tid, int num_threads) {
 
     #pragma omp single
     {
+        MPI_Allreduce(MPI_IN_PLACE, e_density, N_G, MPI_DOUBLE, MPI_SUM, MPI_COMM_WORLD);
         e_density[0]     *= 2.0;
         e_density[N_G-1] *= 2.0;
-        MPI_Allreduce(MPI_IN_PLACE, e_density, N_G, MPI_DOUBLE, MPI_SUM, MPI_COMM_WORLD);
     }
 
     #pragma omp for schedule(static)
@@ -103,9 +103,9 @@ inline void step1_compute_ion_density_body(int tid, int num_threads, int t) {
 
         #pragma omp single
         {
+            MPI_Allreduce(MPI_IN_PLACE, i_density, N_G, MPI_DOUBLE, MPI_SUM, MPI_COMM_WORLD);
             i_density[0]     *= 2.0;
             i_density[N_G-1] *= 2.0;
-            MPI_Allreduce(MPI_IN_PLACE, i_density, N_G, MPI_DOUBLE, MPI_SUM, MPI_COMM_WORLD);
         }
     }
 
@@ -318,56 +318,67 @@ inline void step4_move_ions(int t_index, int t) {
 }
 
 // ============================================================================
-// STEP 5: Electron Boundary Checks (Parallel Flag + Serial Swap)
+// STEP 5: Electron Boundary Checks (Parallel Stream Compaction)
 // ============================================================================
 inline void step5_check_boundaries_electrons_body(int tid, int num_threads) {
-    static std::vector<uint8_t> absorbed;
-    #pragma omp single
-    {
-        if (absorbed.size() < (size_t)MAX_N_P) absorbed.resize(MAX_N_P, 0);
-    }
-
-    worker_buffers.thread_counters[tid].local_abs_pow = 0;
-    worker_buffers.thread_counters[tid].local_abs_gnd = 0;
-
+    worker_buffers.thread_local_indices[tid].clear();
     Ullong local_pow = 0, local_gnd = 0;
 
-    #pragma omp for
+    #pragma omp for nowait
     for (int k = 0; k < N_e; k++) {
         if (x_e[k] < 0) {
-            absorbed[k] = 1;
             local_pow++;
         } else if (x_e[k] > L) {
-            absorbed[k] = 2;
             local_gnd++;
         } else {
-            absorbed[k] = 0;
+            worker_buffers.thread_local_indices[tid].push_back(k);
         }
     }
 
     worker_buffers.thread_counters[tid].local_abs_pow = local_pow;
     worker_buffers.thread_counters[tid].local_abs_gnd = local_gnd;
+    worker_buffers.thread_counts[tid] = (int)worker_buffers.thread_local_indices[tid].size();
 
     #pragma omp barrier
 
     #pragma omp single
     {
+        int offset = 0;
         for (int t = 0; t < num_threads; t++) {
             N_e_abs_pow += worker_buffers.thread_counters[t].local_abs_pow;
             N_e_abs_gnd += worker_buffers.thread_counters[t].local_abs_gnd;
+            worker_buffers.thread_offsets[t] = offset;
+            offset += worker_buffers.thread_counts[t];
         }
+        worker_buffers.thread_counts[num_threads - 1] = offset;
+    }
 
-        int k = 0;
-        while (k < N_e) {
-            if (absorbed[k]) {
-                N_e--;
-                x_e[k]  = x_e[N_e];   vx_e[k] = vx_e[N_e];
-                vy_e[k] = vy_e[N_e];  vz_e[k] = vz_e[N_e];
-                absorbed[k] = absorbed[N_e];
-            } else {
-                k++;
-            }
-        }
+    int total_surviving = worker_buffers.thread_counts[num_threads - 1];
+    int my_offset = worker_buffers.thread_offsets[tid];
+    int count = (int)worker_buffers.thread_local_indices[tid].size();
+
+    for (int i = 0; i < count; i++) {
+        int orig_idx = worker_buffers.thread_local_indices[tid][i];
+        int dest_idx = my_offset + i;
+        worker_buffers.temp_x[dest_idx]  = x_e[orig_idx];
+        worker_buffers.temp_vx[dest_idx] = vx_e[orig_idx];
+        worker_buffers.temp_vy[dest_idx] = vy_e[orig_idx];
+        worker_buffers.temp_vz[dest_idx] = vz_e[orig_idx];
+    }
+
+    #pragma omp barrier
+
+    #pragma omp for schedule(static)
+    for (int i = 0; i < total_surviving; i++) {
+        x_e[i]  = worker_buffers.temp_x[i];
+        vx_e[i] = worker_buffers.temp_vx[i];
+        vy_e[i] = worker_buffers.temp_vy[i];
+        vz_e[i] = worker_buffers.temp_vz[i];
+    }
+
+    #pragma omp single
+    {
+        N_e = total_surviving;
     }
 }
 
@@ -383,17 +394,12 @@ inline void step5_check_boundaries_electrons() {
 }
 
 // ============================================================================
-// STEP 6: Ion Boundary Checks (Parallel Flag + Serial Swap, Subcycled)
+// STEP 6: Ion Boundary Checks (Parallel Stream Compaction, Subcycled)
 // ============================================================================
 inline void step6_check_boundaries_ions_body(int tid, int num_threads, int t) {
     if ((t % N_SUB) != 0) return;
 
-    static std::vector<uint8_t> absorbed;
-    #pragma omp single
-    {
-        if (absorbed.size() < (size_t)MAX_N_P) absorbed.resize(MAX_N_P, 0);
-    }
-
+    worker_buffers.thread_local_indices[tid].clear();
     worker_buffers.thread_counters[tid].local_abs_pow = 0;
     worker_buffers.thread_counters[tid].local_abs_gnd = 0;
     worker_buffers.local_ifed_pow[tid].fill(0);
@@ -401,10 +407,9 @@ inline void step6_check_boundaries_ions_body(int tid, int num_threads, int t) {
 
     Ullong local_pow = 0, local_gnd = 0;
 
-    #pragma omp for
+    #pragma omp for nowait
     for (int k = 0; k < N_i; k++) {
         if (x_i[k] < 0) {
-            absorbed[k] = 1;
             local_pow++;
             double v_sqr  = vx_i[k] * vx_i[k] + vy_i[k] * vy_i[k] + vz_i[k] * vz_i[k];
             double energy = 0.5 * AR_MASS * v_sqr / EV_TO_J;
@@ -413,7 +418,6 @@ inline void step6_check_boundaries_ions_body(int tid, int num_threads, int t) {
                 worker_buffers.local_ifed_pow[tid][energy_index]++;
             }
         } else if (x_i[k] > L) {
-            absorbed[k] = 2;
             local_gnd++;
             double v_sqr  = vx_i[k] * vx_i[k] + vy_i[k] * vy_i[k] + vz_i[k] * vz_i[k];
             double energy = 0.5 * AR_MASS * v_sqr / EV_TO_J;
@@ -422,17 +426,19 @@ inline void step6_check_boundaries_ions_body(int tid, int num_threads, int t) {
                 worker_buffers.local_ifed_gnd[tid][energy_index]++;
             }
         } else {
-            absorbed[k] = 0;
+            worker_buffers.thread_local_indices[tid].push_back(k);
         }
     }
 
     worker_buffers.thread_counters[tid].local_abs_pow = local_pow;
     worker_buffers.thread_counters[tid].local_abs_gnd = local_gnd;
+    worker_buffers.thread_counts[tid] = (int)worker_buffers.thread_local_indices[tid].size();
 
     #pragma omp barrier
 
     #pragma omp single
     {
+        int offset = 0;
         for (int t2 = 0; t2 < num_threads; ++t2) {
             N_i_abs_pow += worker_buffers.thread_counters[t2].local_abs_pow;
             N_i_abs_gnd += worker_buffers.thread_counters[t2].local_abs_gnd;
@@ -440,19 +446,38 @@ inline void step6_check_boundaries_ions_body(int tid, int num_threads, int t) {
                 ifed_pow[e] += worker_buffers.local_ifed_pow[t2][e];
                 ifed_gnd[e] += worker_buffers.local_ifed_gnd[t2][e];
             }
+            worker_buffers.thread_offsets[t2] = offset;
+            offset += worker_buffers.thread_counts[t2];
         }
+        worker_buffers.thread_counts[num_threads - 1] = offset;
+    }
 
-        int k = 0;
-        while (k < N_i) {
-            if (absorbed[k]) {
-                N_i--;
-                x_i[k]  = x_i[N_i];   vx_i[k] = vx_i[N_i];
-                vy_i[k] = vy_i[N_i];  vz_i[k] = vz_i[N_i];
-                absorbed[k] = absorbed[N_i];
-            } else {
-                k++;
-            }
-        }
+    int total_surviving = worker_buffers.thread_counts[num_threads - 1];
+    int my_offset = worker_buffers.thread_offsets[tid];
+    int count = (int)worker_buffers.thread_local_indices[tid].size();
+
+    for (int i = 0; i < count; i++) {
+        int orig_idx = worker_buffers.thread_local_indices[tid][i];
+        int dest_idx = my_offset + i;
+        worker_buffers.temp_x[dest_idx]  = x_i[orig_idx];
+        worker_buffers.temp_vx[dest_idx] = vx_i[orig_idx];
+        worker_buffers.temp_vy[dest_idx] = vy_i[orig_idx];
+        worker_buffers.temp_vz[dest_idx] = vz_i[orig_idx];
+    }
+
+    #pragma omp barrier
+
+    #pragma omp for schedule(static)
+    for (int i = 0; i < total_surviving; i++) {
+        x_i[i]  = worker_buffers.temp_x[i];
+        vx_i[i] = worker_buffers.temp_vx[i];
+        vy_i[i] = worker_buffers.temp_vy[i];
+        vz_i[i] = worker_buffers.temp_vz[i];
+    }
+
+    #pragma omp single
+    {
+        N_i = total_surviving;
     }
 }
 
