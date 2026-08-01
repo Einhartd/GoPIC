@@ -15,10 +15,14 @@
 // ============================================================================
 inline void init(int nseed){
     for (int i = 0; i < nseed; i++){
-        x_e[i]  = L * R01(MTgen);               // initial random position of the electron
-        vx_e[i] = 0; vy_e[i] = 0; vz_e[i] = 0;  // initial velocity components of the electron
-        x_i[i]  = L * R01(MTgen);               // initial random position of the ion
-        vx_i[i] = 0; vy_i[i] = 0; vz_i[i] = 0;  // initial velocity components of the ion
+        // initial random position of the electron
+        x_e[i]  = L * R01(MTgen);
+        // initial velocity components of the electron
+        vx_e[i] = 0; vy_e[i] = 0; vz_e[i] = 0;
+        // initial random position of the ion
+        x_i[i]  = L * R01(MTgen);
+        // initial velocity components of the ion
+        vx_i[i] = 0; vy_i[i] = 0; vz_i[i] = 0;
     }
     N_e = nseed;    // initial number of electrons
     N_i = nseed;    // initial number of ions
@@ -32,15 +36,13 @@ inline void step1_compute_electron_density_body(int tid, int num_threads) {
 
     int p;
     double c0;
-    #pragma omp for nowait
+    #pragma omp for
     for (int k = 0; k < N_e; k++) {
         c0 = x_e[k] * INV_DX;
         p  = int(c0);
         worker_buffers.e_density[tid][p]   += (p + 1 - c0) * FACTOR_W;
         worker_buffers.e_density[tid][p+1] += (c0 - p) * FACTOR_W;
     }
-
-    #pragma omp barrier
 
     #pragma omp for schedule(static)
     for (int p = 0; p < N_G; p++) {
@@ -51,12 +53,13 @@ inline void step1_compute_electron_density_body(int tid, int num_threads) {
         e_density[p] = sum;
     }
 
-    #pragma omp single
+    #pragma omp master
     {
         MPI_Allreduce(MPI_IN_PLACE, e_density, N_G, MPI_DOUBLE, MPI_SUM, MPI_COMM_WORLD);
         e_density[0]     *= 2.0;
         e_density[N_G-1] *= 2.0;
     }
+    #pragma omp barrier
 
     #pragma omp for schedule(static)
     for (int p = 0; p < N_G; p++) cumul_e_density[p] += e_density[p];
@@ -82,15 +85,13 @@ inline void step1_compute_ion_density_body(int tid, int num_threads, int t) {
 
         int p;
         double c0;
-        #pragma omp for nowait
+        #pragma omp for
         for (int k = 0; k < N_i; k++) {
             c0 = x_i[k] * INV_DX;
             p  = int(c0);
             worker_buffers.i_density[tid][p]   += (p + 1 - c0) * FACTOR_W;
             worker_buffers.i_density[tid][p+1] += (c0 - p) * FACTOR_W;
         }
-
-        #pragma omp barrier
 
         #pragma omp for schedule(static)
         for (int p = 0; p < N_G; p++) {
@@ -101,12 +102,13 @@ inline void step1_compute_ion_density_body(int tid, int num_threads, int t) {
             i_density[p] = sum;
         }
 
-        #pragma omp single
+        #pragma omp master
         {
             MPI_Allreduce(MPI_IN_PLACE, i_density, N_G, MPI_DOUBLE, MPI_SUM, MPI_COMM_WORLD);
             i_density[0]     *= 2.0;
             i_density[N_G-1] *= 2.0;
         }
+        #pragma omp barrier
     }
 
     #pragma omp for schedule(static)
@@ -152,7 +154,7 @@ inline void step3_move_electrons_body(int tid, int num_threads, int t_index) {
     int p, energy_index;
     double c0, c1, c2, e_x, mean_v, v_sqr, energy, velocity, rate;
 
-    #pragma omp for nowait
+    #pragma omp for
     for (int k = 0; k < N_e; k++) {
         c0  = x_e[k] * INV_DX;
         p   = int(c0);
@@ -195,8 +197,6 @@ inline void step3_move_electrons_body(int tid, int num_threads, int t_index) {
         vx_e[k] -= e_x * FACTOR_E;
         x_e[k]  += vx_e[k] * DT_E;
     }
-
-    #pragma omp barrier
 
     if (measurement_mode) {
         #pragma omp for nowait schedule(static)
@@ -259,7 +259,7 @@ inline void step4_move_ions_body(int tid, int num_threads, int t_index, int t) {
     int p;
     double c0, c1, c2, e_x, mean_v, v_sqr, energy;
 
-    #pragma omp for nowait
+    #pragma omp for
     for (int k = 0; k < N_i; k++) {
         c0  = x_i[k] * INV_DX;
         p   = int(c0);
@@ -286,8 +286,6 @@ inline void step4_move_ions_body(int tid, int num_threads, int t_index, int t) {
         vx_i[k] += e_x * FACTOR_I;
         x_i[k]  += vx_i[k] * DT_I;
     }
-
-    #pragma omp barrier
 
     if (measurement_mode) {
         #pragma omp for schedule(static)
@@ -493,9 +491,7 @@ inline void step6_check_boundaries_ions(int t) {
     }
 }
 
-// ============================================================================
 // STEP 7: Electron Collisions & Ionization
-// ============================================================================
 inline void step7_collisions_electrons_body(int tid, int num_threads) {
     static std::vector<NewParticles> new_electrons;
     static std::vector<NewParticles> new_ions;
@@ -508,14 +504,25 @@ inline void step7_collisions_electrons_body(int tid, int num_threads) {
         }
     }
 
+    int estimated_max_ioniz = std::max(128, (int)(N_e * 0.05 / num_threads) + 64);
+
     new_electrons[tid].x.clear();
     new_electrons[tid].vx.clear();
     new_electrons[tid].vy.clear();
     new_electrons[tid].vz.clear();
+    new_electrons[tid].x.reserve(estimated_max_ioniz);
+    new_electrons[tid].vx.reserve(estimated_max_ioniz);
+    new_electrons[tid].vy.reserve(estimated_max_ioniz);
+    new_electrons[tid].vz.reserve(estimated_max_ioniz);
+
     new_ions[tid].x.clear();
     new_ions[tid].vx.clear();
     new_ions[tid].vy.clear();
     new_ions[tid].vz.clear();
+    new_ions[tid].x.reserve(estimated_max_ioniz);
+    new_ions[tid].vx.reserve(estimated_max_ioniz);
+    new_ions[tid].vy.reserve(estimated_max_ioniz);
+    new_ions[tid].vz.reserve(estimated_max_ioniz);
 
 #ifdef USE_NULL_COLLISION
     static int N_coll_star_e = 0;
@@ -738,18 +745,34 @@ inline void do_one_cycle(void) {
             step7_collisions_electrons_body(tid, nthreads);
             step8_collision_ions_body(tid, nthreads, t);
 
-            #pragma omp single
+            #pragma omp master
             {
                 step9_collect_xt_data(t_index);
                 if ((t % 1000) == 0) {
-                    int global_N_e = 0, global_N_i = 0;
-                    MPI_Reduce(&N_e, &global_N_e, 1, MPI_INT, MPI_SUM, 0, MPI_COMM_WORLD);
-                    MPI_Reduce(&N_i, &global_N_i, 1, MPI_INT, MPI_SUM, 0, MPI_COMM_WORLD);
+                    // Dodano logowanie wskaźnika nierównowagi obciążenia cząstkami (MPI Load Imbalance Ratio)
+                    std::vector<int> rank_N_e(mpi_size, 0);
+                    std::vector<int> rank_N_i(mpi_size, 0);
+                    MPI_Gather(&N_e, 1, MPI_INT, rank_N_e.data(), 1, MPI_INT, 0, MPI_COMM_WORLD);
+                    MPI_Gather(&N_i, 1, MPI_INT, rank_N_i.data(), 1, MPI_INT, 0, MPI_COMM_WORLD);
+
                     if (mpi_rank == 0) {
-                        printf(" c = %8d  t = %8d  #e = %8d  #i = %8d\n", cycle, t, global_N_e, global_N_i);
+                        int global_N_e = 0, global_N_i = 0;
+                        int min_e = rank_N_e[0], max_e = rank_N_e[0];
+                        for (int r = 0; r < mpi_size; ++r) {
+                            global_N_e += rank_N_e[r];
+                            global_N_i += rank_N_i[r];
+                            if (rank_N_e[r] < min_e) min_e = rank_N_e[r];
+                            if (rank_N_e[r] > max_e) max_e = rank_N_e[r];
+                        }
+                        double avg_e = (double)global_N_e / mpi_size;
+                        double imb_ratio = (avg_e > 0) ? ((double)max_e / avg_e) : 1.0;
+
+                        printf(" c = %8d  t = %8d  #e = %8d  #i = %8d  [e-imb: %.2fx, min: %d, max: %d]\n",
+                               cycle, t, global_N_e, global_N_i, imb_ratio, min_e, max_e);
                     }
                 }
             }
+            #pragma omp barrier
         }
     }
 

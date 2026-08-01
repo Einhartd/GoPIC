@@ -1,34 +1,10 @@
-//-------------------------------------------------------------------//
-//         eduPIC : educational 1d3v PIC/MCC simulation code         //
-//           version 1.0, release date: March 16, 2021               //
-//                       :) Share & enjoy :)                         //
-//-------------------------------------------------------------------//
-// When you use this code, you are required to acknowledge the       //
-// authors by citing the paper:                                      //
-// Z. Donko, A. Derzsi, M. Vass, B. Horvath, S. Wilczek              //
-// B. Hartmann, P. Hartmann:                                         //
-// "eduPIC: an introductory particle based  code for radio-frequency //
-// plasma simulation"                                                //
-// Plasma Sources Science and Technology, vol 30, pp. 095017 (2021)  //
-//-------------------------------------------------------------------//
-// Disclaimer: The eduPIC (educational Particle-in-Cell/Monte Carlo  //
-// Collisions simulation code), Copyright (C) 2021                   //
-// Zoltan Donko et al. is free software: you can redistribute it     //
-// and/or modify it under the terms of the GNU General Public License//
-// as published by the Free Software Foundation, version 3.          //
-// This program is distributed in the hope that it will be useful,   //
-// but WITHOUT ANY WARRANTY; without even the implied warranty of    //
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU  //
-// General Public License for more details at                        //
-// https://www.gnu.org/licenses/gpl-3.0.html.                        //
-//-------------------------------------------------------------------//
-
 #include "constants.h"
 #include "state.h"
 #include "cross_sections.h"
 #include "simulation.h"
 #include "io_manager.h"
 #include <mpi.h>
+#include <omp.h>
 
 //------------------------------------------------------------------------------------------//
 // main                                                                                     //
@@ -40,12 +16,21 @@
 int main (int argc, char *argv[]){
 
     // MPI init
-    int required = MPI_THREAD_FUNNELED;
+    // Dla 1 watku OMP wystarczy MPI_THREAD_SINGLE, dla >1 wymagane MPI_THREAD_FUNNELED
+    int required = (omp_get_max_threads() > 1) ? MPI_THREAD_FUNNELED : MPI_THREAD_SINGLE;
     int provided;
     MPI_Init_thread(&argc, &argv, required, &provided);
 
     MPI_Comm_rank(MPI_COMM_WORLD, &mpi_rank);
     MPI_Comm_size(MPI_COMM_WORLD, &mpi_size);
+
+    if (provided < required) {
+        if (mpi_rank == 0) {
+            fprintf(stderr, ">> eduPIC ERROR: MPI thread support too low (required %d, provided %d)\n",
+            required, provided);    
+        }
+        MPI_Abort(MPI_COMM_WORLD, 1);
+    }
 
     if (mpi_rank == 0) {
         printf(">> eduPIC: starting...\n");

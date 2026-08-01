@@ -24,7 +24,7 @@ inline void compute_null_collision_params() {
 
 // losuje count unikalnych indeksow z zakresu [0, n)
 inline void random_sample(int n , int count, std::vector<int> &out) {
-    static std::vector<int> pool;
+    thread_local static std::vector<int> pool;
 
     if (pool.size() < (size_t)n) {
         pool.resize(n);

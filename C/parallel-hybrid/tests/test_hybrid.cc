@@ -331,7 +331,7 @@ TEST(HybridCommTest, ParticleGatherScatter) {
 
 int main(int argc, char **argv) {
     ::testing::InitGoogleTest(&argc, argv);
-    int required = MPI_THREAD_FUNNELED;
+    int required = (omp_get_max_threads() > 1) ? MPI_THREAD_FUNNELED : MPI_THREAD_SINGLE;
     int provided;
     MPI_Init_thread(&argc, &argv, required, &provided);
     MPI_Comm_rank(MPI_COMM_WORLD, &mpi_rank);

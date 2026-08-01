@@ -218,10 +218,10 @@ inline void save_eepf(void) {
 }
 
 inline void save_ifed(void) {
-    std::vector<Ullong> global_ifed_pow(N_IFED, 0);
-    std::vector<Ullong> global_ifed_gnd(N_IFED, 0);
-    MPI_Reduce(ifed_pow, global_ifed_pow.data(), N_IFED, MPI_UNSIGNED_LONG_LONG, MPI_SUM, 0, MPI_COMM_WORLD);
-    MPI_Reduce(ifed_gnd, global_ifed_gnd.data(), N_IFED, MPI_UNSIGNED_LONG_LONG, MPI_SUM, 0, MPI_COMM_WORLD);
+    std::vector<int> global_ifed_pow(N_IFED, 0);
+    std::vector<int> global_ifed_gnd(N_IFED, 0);
+    MPI_Reduce(ifed_pow, global_ifed_pow.data(), N_IFED, MPI_INT, MPI_SUM, 0, MPI_COMM_WORLD);
+    MPI_Reduce(ifed_gnd, global_ifed_gnd.data(), N_IFED, MPI_INT, MPI_SUM, 0, MPI_COMM_WORLD);
 
     if (mpi_rank == 0) {
         FILE   *f;
