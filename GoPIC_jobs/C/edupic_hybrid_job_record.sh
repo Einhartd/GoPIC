@@ -80,12 +80,12 @@ cd "${DATA_DIR}"
 chmod +x "${BINARY}"
 
 echo ">> Uruchamiam fazę inicjalizacji..."
-mpirun -np "${SLURM_NTASKS}" "${BINARY}" 0
+mpirun --bind-to none -np "${SLURM_NTASKS}" "${BINARY}" 0
 
 SCRATCH_BASE="${SCRATCH:-${DATA_DIR}}"
 
 echo ">> Uruchamianie pomiaru drzewa wywołań (perf record) dla ${N_CYCLES_RECORD} cykli osobno dla każdej rangi MPI..."
-mpirun -np "${SLURM_NTASKS}" bash -c "perf record --max-size=100M -F 49 -g -o ${SCRATCH_BASE}/perf_${SLURM_JOB_ID}_rank_\${OMPI_COMM_WORLD_RANK}.data -- ${BINARY} ${N_CYCLES_RECORD} m"
+mpirun --bind-to none -np "${SLURM_NTASKS}" bash -c "perf record --max-size=100M -F 49 -g -o ${SCRATCH_BASE}/perf_${SLURM_JOB_ID}_rank_\${OMPI_COMM_WORLD_RANK}.data -- ${BINARY} ${N_CYCLES_RECORD} m"
 
 # Generowanie raportów per-rank
 for r in $(seq 0 $((SLURM_NTASKS - 1))); do

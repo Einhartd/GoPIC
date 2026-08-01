@@ -75,7 +75,7 @@ cd "${DATA_DIR}"
 chmod +x "${BINARY}"
 
 echo ">> Uruchamiam fazę inicjalizacji..."
-mpirun -np "${SLURM_NTASKS}" "${BINARY}" 0
+mpirun --bind-to none -np "${SLURM_NTASKS}" "${BINARY}" 0
 
 echo ">> Uruchamianie pomiaru liczników sprzętowych (perf stat) dla każdej rangi MPI z OMP_NUM_THREADS=${OMP_NUM_THREADS}..."
 perf stat \
