@@ -10,6 +10,9 @@
 
 set -e
 
+# Ustawienie lokalnego katalogu tymczasowego dla OpenMPI / PRTE
+export TMPDIR=/tmp
+
 export GOMAXPROCS=$SLURM_CPUS_PER_TASK
 
 # Liczba cykli symulacji dla perf record (20 cykli daje reprezentatywny profil przy pliku ~15-30 MB)

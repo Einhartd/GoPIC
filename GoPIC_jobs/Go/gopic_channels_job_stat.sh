@@ -10,6 +10,9 @@
 
 set -e
 
+# Ustawienie lokalnego katalogu tymczasowego dla OpenMPI / PRTE
+export TMPDIR=/tmp
+
 export GOMAXPROCS=$SLURM_CPUS_PER_TASK
 
 WORK_DIR=$(pwd)

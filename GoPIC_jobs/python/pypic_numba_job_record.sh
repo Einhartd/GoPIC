@@ -10,6 +10,9 @@
 
 set -e
 
+# Ustawienie lokalnego katalogu tymczasowego dla OpenMPI / PRTE
+export TMPDIR=/tmp
+
 # Pobranie liczby rdzeni z konfiguracji Slurma dla Numba
 export NUMBA_NUM_THREADS=$SLURM_CPUS_PER_TASK
 export OMP_NUM_THREADS=$SLURM_CPUS_PER_TASK

@@ -10,6 +10,9 @@
 
 set -e
 
+# Ustawienie lokalnego katalogu tymczasowego dla OpenMPI / PRTE
+export TMPDIR=/tmp
+
 # Liczba cykli symulacji dla perf record (20 cykli daje reprezentatywny profil przy pliku ~15 MB)
 N_CYCLES_RECORD="${N_CYCLES_RECORD:-20}"
 

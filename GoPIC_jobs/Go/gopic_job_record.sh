@@ -10,6 +10,9 @@
 
 set -e
 
+# Ustawienie lokalnego katalogu tymczasowego dla OpenMPI / PRTE
+export TMPDIR=/tmp
+
 N_CYCLES_RECORD="${N_CYCLES_RECORD:-20}"
 
 WORK_DIR=$(pwd)
