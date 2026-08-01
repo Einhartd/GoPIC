@@ -168,3 +168,7 @@ class SimulationState:
         self.thread_coll_indices_i: np.ndarray = np.zeros((self.num_threads, cs.MAX_N_P), dtype=np.int64)
         self.thread_coll_counts_i: np.ndarray  = np.zeros(self.num_threads, dtype=np.int64)
         self.null_coll_buffer: np.ndarray      = np.zeros(cs.MAX_N_P, dtype=np.int64)
+
+        self.thread_coll_vxa_i: np.ndarray = np.zeros((self.num_threads, cs.MAX_N_P), dtype=np.float64)
+        self.thread_coll_vya_i: np.ndarray = np.zeros((self.num_threads, cs.MAX_N_P), dtype=np.float64)
+        self.thread_coll_vza_i: np.ndarray = np.zeros((self.num_threads, cs.MAX_N_P), dtype=np.float64)

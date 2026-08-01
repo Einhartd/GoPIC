@@ -339,9 +339,10 @@ def _find_colliding_electrons_parallel(
 @numba.njit(parallel=True, cache=True)
 def _find_colliding_ions_parallel(
     vx_i, vy_i, vz_i, N_i,
-    sigma_tot_i, DT_I, DE_CS, CS_RANGES, AR_MASS, MU_ARAR, EV_TO_J,
+    sigma_tot_i, DT_I, DE_CS, CS_RANGES, MU_ARAR, EV_TO_J,
     NORMAL_DISTRIBUTION,
-    thread_coll_indices, thread_coll_counts, num_threads
+    thread_coll_indices, thread_coll_counts, thread_coll_vxa_i,
+    thread_coll_vya_i, thread_coll_vza_i
 ):
     thread_coll_counts.fill(0)
     for k in numba.prange(N_i):
@@ -363,6 +364,11 @@ def _find_colliding_ions_parallel(
         if np.random.uniform(0.0, 1.0) < p_coll:
             tid = numba.get_thread_id()
             idx = thread_coll_counts[tid]
+
+            thread_coll_vxa_i[tid, idx] = vx_a
+            thread_coll_vya_i[tid, idx] = vy_a
+            thread_coll_vza_i[tid, idx] = vz_a
+
             thread_coll_indices[tid, idx] = k
             thread_coll_counts[tid] = idx + 1
 
@@ -445,11 +451,12 @@ def step7_collisions_electrons(x_e, vx_e, vy_e, vz_e, N_e,
 def step8_collisions_ions(vx_i, vy_i, vz_i, N_i,
                             sigma, sigma_tot_i,
                             thread_coll_indices, thread_coll_counts, null_coll_buffer, num_threads,
-                            DT_I, DE_CS, CS_RANGES, AR_MASS, MU_ARAR, EV_TO_J,
+                            DT_I, DE_CS, CS_RANGES, MU_ARAR, EV_TO_J,
                             NORMAL_DISTRIBUTION, PI, TWO_PI,
                             I_ISO, I_BACK,
                             t, N_SUB,
-                            use_null_collision, nu_star_i, P_star_i):
+                            use_null_collision, nu_star_i, P_star_i,
+                            thread_coll_vxa_i, thread_coll_vya_i, thread_coll_vza_i):
     if t % N_SUB != 0:
         return 0
 
@@ -497,18 +504,19 @@ def step8_collisions_ions(vx_i, vy_i, vz_i, N_i,
 
         _find_colliding_ions_parallel(
             vx_i, vy_i, vz_i, N_i,
-            sigma_tot_i, DT_I, DE_CS, CS_RANGES, AR_MASS, MU_ARAR, EV_TO_J,
+            sigma_tot_i, DT_I, DE_CS, CS_RANGES, MU_ARAR, EV_TO_J,
             NORMAL_DISTRIBUTION,
-            thread_coll_indices, thread_coll_counts, num_threads
+            thread_coll_indices, thread_coll_counts,
+            thread_coll_vxa_i, thread_coll_vya_i, thread_coll_vza_i
         )
 
         for tid in range(num_threads):
             count = thread_coll_counts[tid]
             for c in range(count):
                 k = thread_coll_indices[tid, c]
-                vx_a = np.random.normal(0.0, NORMAL_DISTRIBUTION)
-                vy_a = np.random.normal(0.0, NORMAL_DISTRIBUTION)
-                vz_a = np.random.normal(0.0, NORMAL_DISTRIBUTION)
+                vx_a = thread_coll_vxa_i[tid, c]
+                vy_a = thread_coll_vya_i[tid, c]
+                vz_a = thread_coll_vza_i[tid, c]
 
                 gx    = vx_i[k] - vx_a
                 gy    = vy_i[k] - vy_a
@@ -567,7 +575,8 @@ def _do_one_cycle_jit(
     FACTOR_E, E_MASS, EV_TO_J, DE_CS, DE_EEPF, N_EEPF, CS_RANGES, GAS_DENSITY, MIN_X, MAX_X, E_ION,
     FACTOR_I, DT_I, AR_MASS, DE_IFED, N_IFED,
     NORMAL_DISTRIBUTION, F1, F2, PI, TWO_PI, E_EXC_TH, E_ION_TH, E_ELA, E_EXC,
-    MU_ARAR, I_ISO, I_BACK, USE_NULL_COLLISION, L_param
+    MU_ARAR, I_ISO, I_BACK, USE_NULL_COLLISION, L_param,
+    thread_coll_vxa_i, thread_coll_vya_i, thread_coll_vza_i
 ):
     for t in range(N_T):
         Time += DT_E
@@ -644,10 +653,11 @@ def _do_one_cycle_jit(
             vx_i, vy_i, vz_i, N_i,
             sigma, sigma_tot_i,
             thread_coll_indices_i, thread_coll_counts_i, null_coll_buffer, num_threads,
-            DT_I, DE_CS, CS_RANGES, AR_MASS, MU_ARAR, EV_TO_J,
+            DT_I, DE_CS, CS_RANGES, MU_ARAR, EV_TO_J,
             NORMAL_DISTRIBUTION, PI, TWO_PI, I_ISO, I_BACK,
             t, N_SUB,
-            USE_NULL_COLLISION, nu_star_i, P_star_i
+            USE_NULL_COLLISION, nu_star_i, P_star_i,
+            thread_coll_vxa_i, thread_coll_vya_i, thread_coll_vza_i
         )
         N_i_coll += coll_i
 
@@ -701,7 +711,8 @@ def do_one_cycle(sim: SimulationState, datafile_path: str = "conv.dat"):
         cs.FACTOR_E, cs.E_MASS, cs.EV_TO_J, cs.DE_CS, cs.DE_EEPF, cs.N_EEPF, cs.CS_RANGES, cs.GAS_DENSITY, cs.MIN_X, cs.MAX_X, cs.E_ION,
         cs.FACTOR_I, cs.DT_I, cs.AR_MASS, cs.DE_IFED, cs.N_IFED,
         cs.NORMAL_DISTRIBUTION, cs.F1, cs.F2, cs.PI, cs.TWO_PI, cs.E_EXC_TH, cs.E_ION_TH, cs.E_ELA, cs.E_EXC,
-        cs.MU_ARAR, cs.I_ISO, cs.I_BACK, cs.USE_NULL_COLLISION, cs.L
+        cs.MU_ARAR, cs.I_ISO, cs.I_BACK, cs.USE_NULL_COLLISION, cs.L,
+        sim.thread_coll_vxa_i, sim.thread_coll_vya_i, sim.thread_coll_vza_i
     )
 
     with open(datafile_path, "a") as f:
