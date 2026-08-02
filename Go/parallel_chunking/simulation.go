@@ -34,15 +34,18 @@ func (sim *SimulationState) InitParticles(nseed int) {
 func (sim *SimulationState) Step1ComputeElectronDensity() {
 	numWorkers := runtime.GOMAXPROCS(0)
 	var wg sync.WaitGroup
-	chunkSize := sim.N_e / numWorkers
+	chunkSize := (sim.N_e + numWorkers - 1) / numWorkers
 
-	for w := range numWorkers {
+	for w := 0; w < numWorkers; w++ {
 		start := w * chunkSize
-		end := start + chunkSize
-		if w == numWorkers-1 {
+		end := (w + 1) * chunkSize
+		if end > sim.N_e {
 			end = sim.N_e
 		}
-		workerID := w
+		if start >= end {
+			continue
+		}
+		workerID, s, e := w, start, end
 
 		wg.Go(func() {
 			// zerowanie tablicy dla workera
@@ -52,7 +55,7 @@ func (sim *SimulationState) Step1ComputeElectronDensity() {
 			// Depozycja czastek przypisanych do workera
 			var c0 float64
 			var p int
-			for k := start; k < end; k++ {
+			for k := s; k < e; k++ {
 				c0 = sim.X_e[k] * INV_DX
 				p = int(c0)
 				sim.WorkerEDensity[workerID][p] += (float64(p) + 1.0 - c0) * FACTOR_W
@@ -84,15 +87,18 @@ func (sim *SimulationState) Step1ComputeIonDensity(t int) {
 	if (t % N_SUB) == 0 { // ion density - computed in every N_SUB-th time steps (subcycling)
 		numWorkers := runtime.GOMAXPROCS(0)
 		var wg sync.WaitGroup
-		chunkSize := sim.N_i / numWorkers
+		chunkSize := (sim.N_i + numWorkers - 1) / numWorkers
 
-		for w := range numWorkers {
+		for w := 0; w < numWorkers; w++ {
 			start := w * chunkSize
-			end := start + chunkSize
-			if w == numWorkers-1 {
+			end := (w + 1) * chunkSize
+			if end > sim.N_i {
 				end = sim.N_i
 			}
-			workerID := w
+			if start >= end {
+				continue
+			}
+			workerID, s, e := w, start, end
 
 			wg.Go(func() {
 				for p := range N_G {
@@ -100,7 +106,7 @@ func (sim *SimulationState) Step1ComputeIonDensity(t int) {
 				}
 				var c0 float64
 				var p int
-				for k := start; k < end; k++ {
+				for k := s; k < e; k++ {
 					c0 = sim.X_i[k] * INV_DX
 					p = int(c0)
 					sim.WorkerIDensity[workerID][p] += (float64(p) + 1.0 - c0) * FACTOR_W
@@ -138,15 +144,18 @@ func (sim *SimulationState) Step2SolvePoisson(currentTime float64) {
 func (sim *SimulationState) Step3MoveElectrons(t_index int) {
 	numWorkers := runtime.GOMAXPROCS(0)
 	var wg sync.WaitGroup
-	chunkSize := sim.N_e / numWorkers
+	chunkSize := (sim.N_e + numWorkers - 1) / numWorkers
 
-	for w := range numWorkers {
+	for w := 0; w < numWorkers; w++ {
 		start := w * chunkSize
-		end := start + chunkSize
-		if w == numWorkers-1 {
+		end := (w + 1) * chunkSize
+		if end > sim.N_e {
 			end = sim.N_e
 		}
-		workerID := w
+		if start >= end {
+			continue
+		}
+		workerID, s, e := w, start, end
 
 		wg.Go(func() {
 			diag := &sim.WorkerEDiag[workerID]
@@ -155,7 +164,7 @@ func (sim *SimulationState) Step3MoveElectrons(t_index int) {
 			var c0, c1, c2, e_x, mean_v, v_sqr, energy, velocity, rate float64
 			var p, energy_index int
 
-			for k := start; k < end; k++ {
+			for k := s; k < e; k++ {
 				c0 = sim.X_e[k] * INV_DX
 				p = int(c0)
 				c1 = float64(p) + 1.0 - c0
@@ -226,15 +235,18 @@ func (sim *SimulationState) Step4MoveIons(t_index, t int) {
 
 	numWorkers := runtime.GOMAXPROCS(0)
 	var wg sync.WaitGroup
-	chunkSize := sim.N_i / numWorkers
+	chunkSize := (sim.N_i + numWorkers - 1) / numWorkers
 
-	for w := range numWorkers {
+	for w := 0; w < numWorkers; w++ {
 		start := w * chunkSize
-		end := start + chunkSize
-		if w == numWorkers-1 {
+		end := (w + 1) * chunkSize
+		if end > sim.N_i {
 			end = sim.N_i
 		}
-		workerID := w
+		if start >= end {
+			continue
+		}
+		workerID, s, e := w, start, end
 
 		wg.Go(func() {
 			diag := &sim.WorkerIDiag[workerID]
@@ -243,7 +255,7 @@ func (sim *SimulationState) Step4MoveIons(t_index, t int) {
 			var c0, c1, c2, e_x, mean_v, v_sqr, energy float64
 			var p int
 
-			for k := start; k < end; k++ {
+			for k := s; k < e; k++ {
 				c0 = sim.X_i[k] * INV_DX
 				p = int(c0)
 				c1 = float64(p) + 1.0 - c0

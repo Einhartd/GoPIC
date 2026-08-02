@@ -132,6 +132,9 @@ type SimulationState struct {
 	PStarE  float64
 	NuStarI float64
 	PStarI  float64
+
+	// Pre-allocated pool for random sampling without GC allocations
+	CandidatePool []int
 }
 
 // NewSimulationState creates and initializes a SimulationState with mt19937 RNG.
@@ -156,6 +159,7 @@ func NewSimulationState(seed int64) *SimulationState {
 		AbsorbedI:          make([]uint8, MAX_N_P),
 		WorkerNewElectrons: make([][]CreatedParticle, numWorkers),
 		WorkerNewIons:      make([][]CreatedParticle, numWorkers),
+		CandidatePool:      make([]int, MAX_N_P),
 		RngWorkers:         workers,
 		Rng:                rand.New(src),
 		MtSrc:              src,

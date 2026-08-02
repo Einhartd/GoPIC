@@ -42,6 +42,7 @@ func (sim *SimulationState) Step7CollisionsElectrons() {
 
 		workerID, s, e := w, start, end
 		wg.Go(func() {
+			var localColl uint64
 			for k := s; k < e; k++ {
 				v_sqr := sim.Vx_e[k]*sim.Vx_e[k] + sim.Vy_e[k]*sim.Vy_e[k] + sim.Vz_e[k]*sim.Vz_e[k]
 				velocity := math.Sqrt(v_sqr)
@@ -53,8 +54,11 @@ func (sim *SimulationState) Step7CollisionsElectrons() {
 				// petla kolizji dla elektronow
 				if sim.WorkerR01(workerID) < p_coll {
 					sim.CollisionElectron(sim.X_e[k], &sim.Vx_e[k], &sim.Vy_e[k], &sim.Vz_e[k], energy_index, workerID)
-					atomic.AddUint64(&sim.N_e_coll, 1)
+					localColl++
 				}
+			}
+			if localColl > 0 {
+				atomic.AddUint64(&sim.N_e_coll, localColl)
 			}
 		})
 
@@ -110,6 +114,7 @@ func (sim *SimulationState) Step8CollisionIons(t int) {
 
 		workerID, s, e := w, start, end
 		wg.Go(func() {
+			var localColl uint64
 			for k := s; k < e; k++ {
 				vx_a := sim.WorkerRMB(workerID)
 				vy_a := sim.WorkerRMB(workerID)
@@ -127,8 +132,11 @@ func (sim *SimulationState) Step8CollisionIons(t int) {
 				// petla kolizji dla jonow
 				if sim.WorkerR01(workerID) < p_coll {
 					sim.CollisionIon(&sim.Vx_i[k], &sim.Vy_i[k], &sim.Vz_i[k], &vx_a, &vy_a, &vz_a, energy_index, workerID)
-					atomic.AddUint64(&sim.N_i_coll, 1)
+					localColl++
 				}
+			}
+			if localColl > 0 {
+				atomic.AddUint64(&sim.N_i_coll, localColl)
 			}
 		})
 

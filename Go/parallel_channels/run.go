@@ -40,7 +40,6 @@ func Run() {
 
 	// Inicjalizacja stanu symulacji dynamicznym ziarnem (czas systemowy)
 	sim := NewSimulationState(time.Now().UnixNano())
-	sim.InitWorkers()
 	defer sim.StopWorkers()
 	sim.Measurement_mode = measurement_mode
 	sim.Arg1 = arg1
