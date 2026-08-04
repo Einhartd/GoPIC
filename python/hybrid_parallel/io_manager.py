@@ -212,7 +212,7 @@ def save_ifed(sim: SimulationState):
             sim.mean_i_energy_gnd += energy * (float(sim.ifed_gnd[i]) / h_gnd if h_gnd > 0 else 0.0)
 
 
-def save_xt_1(distr: np.ndarray, fname: str):
+def save_xt(distr: np.ndarray, fname: str):
     """
     Zapisuje dwuwymiarowy rozkład czasowo-przestrzenny (XT) do pliku tekstowego.
     Przyjmuje tablicę 2D oraz docelową nazwę pliku.
@@ -265,14 +265,18 @@ def save_all_xt(sim: SimulationState):
     """
     Zapisanie wszystkich plików XT
     """
-    save_xt_1(sim.pot_xt, "pot_xt.dat")
-    save_xt_1(sim.efield_xt, "efield_xt.dat")
-    save_xt_1(sim.ne_xt, "ne_xt.dat")
-    save_xt_1(sim.ni_xt, "ni_xt.dat")
-    save_xt_1(sim.je_xt, "je_xt.dat")
-    save_xt_1(sim.ji_xt, "ji_xt.dat")
-    save_xt_1(sim.powere_xt, "powere_xt.dat")
-    save_xt_1(sim.ioniz_rate_xt, "ioniz_xt.dat")
+    save_xt(sim.pot_xt, "pot_xt.dat")
+    save_xt(sim.efield_xt, "efield_xt.dat")
+    save_xt(sim.ne_xt, "ne_xt.dat")
+    save_xt(sim.ni_xt, "ni_xt.dat")
+    save_xt(sim.je_xt, "je_xt.dat")
+    save_xt(sim.ji_xt, "ji_xt.dat")
+    save_xt(sim.powere_xt, "powere_xt.dat")
+    save_xt(sim.ioniz_rate_xt, "ioniz_xt.dat")
+    save_xt(sim.poweri_xt, "poweri_xt.dat")
+    save_xt(sim.meanee_xt, "meanee_xt.dat")
+    save_xt(sim.meanei_xt, "meanei_xt.dat")
+
 
 
 def reduce_diagnostics_mpi(sim: SimulationState):
@@ -294,8 +298,7 @@ def reduce_diagnostics_mpi(sim: SimulationState):
     sim.mean_energy_counter_center = comm.reduce(sim.mean_energy_counter_center, op=MPI.SUM, root=0) or 0
 
     for attr in ["eepf", "counter_e_xt", "counter_i_xt",
-                 "ue_xt", "ui_xt", "meanee_xt", "meanei_xt", "ioniz_rate_xt",
-                 "ne_xt", "ni_xt"]:
+                 "ue_xt", "ui_xt", "meanee_xt", "meanei_xt", "ioniz_rate_xt"]:
         arr = getattr(sim, attr)
         recv_buf = np.zeros_like(arr) if rank == 0 else None
         comm.Reduce(arr, recv_buf, op=MPI.SUM, root=0)

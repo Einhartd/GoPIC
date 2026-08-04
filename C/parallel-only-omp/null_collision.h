@@ -28,8 +28,9 @@ inline void random_sample(int n , int count, std::vector<int> &out) {
 
     if (pool.size() < (size_t)n) {
         pool.resize(n);
-        std::iota(pool.begin(), pool.end(), 0);
     }
+
+    std::iota(pool.begin(), pool.begin() + n, 0);
 
     for (int i = 0; i < count; i++) {
         int j = i + (int)(R01(MTgen) * (n - i));
