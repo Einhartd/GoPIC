@@ -64,8 +64,8 @@ NODE_INFO_FILE="${LOG_DIR}/hardware_topology.txt"
 
 cd "${DATA_DIR}"
 
-echo ">> Uruchamiam fazę inicjalizacji (krok 0)..."
-python3 "${PYTHON_VERSION_DIR}/main.py" 0
+echo ">> Kopiuję stan początkowy (picdata.bin) z golden_record..."
+cp "$HOME/GoPIC/golden_record/picdata.bin" ./picdata.bin
 
 echo ">> Uruchamianie pomiaru liczników sprzętowych (perf stat) dla ${NUMBA_NUM_THREADS} wątków..."
 perf stat \
@@ -73,6 +73,6 @@ perf stat \
     -e L1-dcache-loads:u,L1-dcache-load-misses:u \
     -e branch-loads:u,branch-misses:u \
     -o "${DATA_DIR}/perf_cpu_stats.txt" \
-    python3 "${PYTHON_VERSION_DIR}/main.py" 1000 m
+    python3 "${PYTHON_VERSION_DIR}/main.py" 100 m
 
 echo ">> Zadanie Numba STAT zakończone. Wyniki w: ${DATA_DIR}"

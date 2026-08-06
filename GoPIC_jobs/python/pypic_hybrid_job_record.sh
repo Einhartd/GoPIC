@@ -74,8 +74,8 @@ NODE_INFO_FILE="${LOG_DIR}/hardware_topology.txt"
 
 cd "${DATA_DIR}"
 
-echo ">> Uruchamiam fazę inicjalizacji (krok 0)..."
-mpirun -np "${SLURM_NTASKS}" python3 "${PYTHON_VERSION_DIR}/main.py" 0
+echo ">> Kopiuję stan początkowy (picdata.bin) z golden_record..."
+cp "$HOME/GoPIC/golden_record/picdata.bin" ./picdata.bin
 
 SCRATCH_BASE="${SCRATCH:-${DATA_DIR}}"
 

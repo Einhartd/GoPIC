@@ -77,8 +77,8 @@ cd "${DATA_DIR}"
 # Zapewnienie uprawnień wykonywalnych dla binarium
 chmod +x "${BINARY}"
 
-echo ">> Uruchamiam fazę inicjalizacji..."
-"${BINARY}" 0
+echo ">> Kopiuję stan początkowy (picdata.bin) z golden_record..."
+cp "$HOME/GoPIC/golden_record/picdata.bin" ./picdata.bin
 
 echo ">> Uruchamianie pomiaru liczników sprzętowych (perf stat) dla każdego wątku (per-thread) z OMP_NUM_THREADS=${OMP_NUM_THREADS}..."
 perf stat \
@@ -86,6 +86,6 @@ perf stat \
     -e L1-dcache-loads:u,L1-dcache-load-misses:u \
     -e branch-loads:u,branch-misses:u \
     -o "${DATA_DIR}/perf_cpu_stats.txt" \
-    "${BINARY}" 1000 m
+    "${BINARY}" 100 m
 
 echo ">> Zadanie OMP STAT zakończone. Wyniki w: ${DATA_DIR}"

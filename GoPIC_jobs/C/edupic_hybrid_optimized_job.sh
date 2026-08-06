@@ -20,7 +20,7 @@ export OMP_NUM_THREADS=$SLURM_CPUS_PER_TASK
 # 3. Odblokowanie przypisywania rdzeni OpenMPI (zapobiega ściskaniu wątków OMP na 1 rdzeniu)
 export OMPI_MCA_hwloc_base_binding_policy=none
 
-# Liczba cykli symulacji (domyślnie 1000 cykli RF)
+# Liczba cykli symulacji (domyślnie 100 cykli RF)
 N_CYCLES="${N_CYCLES:-1000}"
 
 WORK_DIR=$(pwd)
@@ -70,8 +70,8 @@ BINARY="${BUILD_DIR}/edupic_hybrid_c_opt"
 cd "${DATA_DIR}"
 chmod +x "${BINARY}"
 
-echo ">> Uruchamiam fazę inicjalizacji (cykl 0)..."
-mpirun --bind-to none -np "${SLURM_NTASKS}" "${BINARY}" 0
+echo ">> Kopiuję stan początkowy (picdata.bin) z golden_record..."
+cp "$HOME/GoPIC/golden_record/picdata.bin" ./picdata.bin
 
 echo ">> Uruchamiam pełną symulację hybrydową (${N_CYCLES} cykli w trybie pomiarowym 'm')..."
 echo ">> [MPI Bind-to: NONE, OMP Threads: ${OMP_NUM_THREADS}]"

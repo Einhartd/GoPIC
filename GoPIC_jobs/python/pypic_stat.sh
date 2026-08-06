@@ -70,8 +70,8 @@ NODE_INFO_FILE="${LOG_DIR}/hardware_topology.txt"
 
 cd "${DATA_DIR}"
 
-echo ">> Uruchamiam fazę inicjalizacji..."
-python3 "${PYTHON_VERSION_DIR}/main.py" 0
+echo ">> Kopiuję stan początkowy (picdata.bin) z golden_record..."
+cp "$HOME/GoPIC/golden_record/picdata.bin" ./picdata.bin
 
 echo ">> Uruchamianie pomiaru liczników sprzętowych (perf stat)..."
 perf stat \
@@ -80,6 +80,6 @@ perf stat \
     -e LLC-loads,LLC-load-misses \
     -e branch-loads,branch-misses \
     -o "${DATA_DIR}/perf_cpu_stats.txt" \
-    python3 "${PYTHON_VERSION_DIR}/main.py" 1000 m
+    python3 "${PYTHON_VERSION_DIR}/main.py" 100 m
 
 echo ">> Zadanie Python STAT zakończone. Wyniki w: ${DATA_DIR}"

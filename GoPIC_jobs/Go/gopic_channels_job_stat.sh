@@ -70,8 +70,8 @@ fi
 cd "${DATA_DIR}"
 chmod +x "${BINARY}"
 
-echo ">> Uruchamiam fazę inicjalizacji (krok 0)..."
-"${BINARY}" 0
+echo ">> Kopiuję stan początkowy (picdata.bin) z golden_record..."
+cp "$HOME/GoPIC/golden_record/picdata.bin" ./picdata.bin
 
 echo ">> Uruchamianie pomiaru liczników sprzętowych (perf stat) dla ${GOMAXPROCS} rdzeni..."
 perf stat \
@@ -79,6 +79,6 @@ perf stat \
     -e L1-dcache-loads:u,L1-dcache-load-misses:u \
     -e branch-loads:u,branch-misses:u \
     -o "${DATA_DIR}/perf_cpu_stats.txt" \
-    "${BINARY}" 1000 m
+    "${BINARY}" 100 m
 
 echo ">> Zadanie Go Channels STAT zakończone. Wyniki w: ${DATA_DIR}"

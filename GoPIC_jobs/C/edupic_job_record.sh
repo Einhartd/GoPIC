@@ -70,8 +70,8 @@ cd "${DATA_DIR}"
 # Zapewnienie uprawnień wykonywalnych dla binarium
 chmod +x "${BINARY}"
 
-echo ">> Uruchamiam fazę inicjalizacji..."
-"${BINARY}" 0
+echo ">> Kopiuję stan początkowy (picdata.bin) z golden_record..."
+cp "$HOME/GoPIC/golden_record/picdata.bin" ./picdata.bin
 
 PERF_DATA_FILE="${SCRATCH:-${DATA_DIR}}/perf_${SLURM_JOB_ID}.data"
 

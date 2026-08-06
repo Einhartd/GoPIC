@@ -79,8 +79,8 @@ cd "${DATA_DIR}"
 # Zapewnienie uprawnień wykonywalnych dla binarium
 chmod +x "${BINARY}"
 
-echo ">> Uruchamiam fazę inicjalizacji..."
-mpirun --bind-to none -np "${SLURM_NTASKS}" "${BINARY}" 0
+echo ">> Kopiuję stan początkowy (picdata.bin) z golden_record..."
+cp "$HOME/GoPIC/golden_record/picdata.bin" ./picdata.bin
 
 SCRATCH_BASE="${SCRATCH:-${DATA_DIR}}"
 

@@ -66,8 +66,8 @@ NODE_INFO_FILE="${LOG_DIR}/hardware_topology.txt"
 
 cd "${DATA_DIR}"
 
-echo ">> Uruchamiam fazę inicjalizacji (krok 0)..."
-mpirun -np "${SLURM_NTASKS}" python3 "${PYTHON_VERSION_DIR}/main.py" 0
+echo ">> Kopiuję stan początkowy (picdata.bin) z golden_record..."
+cp "$HOME/GoPIC/golden_record/picdata.bin" ./picdata.bin
 
 echo ">> Uruchamianie pomiaru liczników sprzętowych (perf stat)..."
 perf stat \
@@ -75,6 +75,6 @@ perf stat \
     -e L1-dcache-loads,L1-dcache-load-misses \
     -e branch-loads,branch-misses \
     -o "${DATA_DIR}/perf_cpu_stats.txt" \
-    mpirun -np "${SLURM_NTASKS}" python3 "${PYTHON_VERSION_DIR}/main.py" 1000 m
+    mpirun -np "${SLURM_NTASKS}" python3 "${PYTHON_VERSION_DIR}/main.py" 100 m
 
 echo ">> Zadanie Python HYBRID STAT zakończone. Wyniki w: ${DATA_DIR}"
