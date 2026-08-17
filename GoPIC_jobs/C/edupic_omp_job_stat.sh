@@ -5,8 +5,8 @@
 #SBATCH --nodes=1
 #SBATCH --mem-per-cpu=4G
 #SBATCH --ntasks=1
-#SBATCH --cpus-per-task=2   # Zmień tę wartość, aby zmienić liczbę rdzeni przydzielonych do joba
-#SBATCH --time=3:30:00
+#SBATCH --cpus-per-task=64   # Zmień tę wartość, aby zmienić liczbę rdzeni przydzielonych do joba
+#SBATCH --time=00:30:00
 
 set -e
 
@@ -86,6 +86,6 @@ perf stat \
     -e L1-dcache-loads:u,L1-dcache-load-misses:u \
     -e branch-loads:u,branch-misses:u \
     -o "${DATA_DIR}/perf_cpu_stats.txt" \
-    "${BINARY}" 100 m
+    "${BINARY}" 100
 
 echo ">> Zadanie OMP STAT zakończone. Wyniki w: ${DATA_DIR}"
