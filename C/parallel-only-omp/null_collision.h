@@ -22,22 +22,17 @@ inline void compute_null_collision_params() {
     printf(">> eduPIC: null-collision: nu*_i = %e, P*_i = %e\n", nu_star_i, P_star_i);
 }
 
-// losuje count unikalnych indeksow z zakresu [0, n)
-inline void random_sample(int n , int count, std::vector<int> &out) {
-    static std::vector<int> pool;
-
-    if (pool.size() < (size_t)n) {
-        pool.resize(n);
+// losuje 'count' unikalnych indeksow z zakresu [0, n) i zapisuje je
+// bezposrednio do lokalnego bufora danego watku.
+inline void random_sample(int n, int count, std::vector<int> &buffer) {
+    if (buffer.size() < (size_t)n) {
+        buffer.resize(n);
     }
 
-    std::iota(pool.begin(), pool.begin() + n, 0);
+    std::iota(buffer.begin(), buffer.begin() + n, 0);
 
     for (int i = 0; i < count; i++) {
         int j = i + (int)(R01(MTgen) * (n - i));
-        std::swap(pool[i], pool[j]);
+        std::swap(buffer[i], buffer[j]);
     }
-    if (out.size() < (size_t)count) {
-        out.resize(count);
-    }
-    std::copy(pool.begin(), pool.begin() + count, out.begin());
 }

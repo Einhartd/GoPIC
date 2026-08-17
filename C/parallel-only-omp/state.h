@@ -75,8 +75,11 @@ inline double P_star_e  = 0.0;
 inline double nu_star_i = 0.0;
 inline double P_star_i  = 0.0;
 
-// Cache-line aligned (64 bytes) per-thread scalar counters to eliminate False Sharing
+// Cache-line aligned (64 bytes) per-thread scalar counters to eliminate False Sharing.
+// --Kazdy watek otrzymuje swoja strukture, ktora jest wyrownana do nowej linii cache, czyli
+// co 64 bajty, bo sama struktura zajmuje tylko 32 bajty, co powodowaloby false sharing
 struct alignas(64) AlignedThreadCounters {
+    //  
     double accu_center = 0.0;
     Ullong counter_center = 0;
     Ullong local_abs_pow = 0;
@@ -84,6 +87,8 @@ struct alignas(64) AlignedThreadCounters {
 };
 
 // WorkerBuffers: Pre-allocated thread-local state for zero-allocation OpenMP
+// -- Tworzymy jeden globalny obiekt, ktory posiada w sobie wektory
+// O wielkosci rownej liczbie przydzielonych watkow
 struct WorkerBuffers {
     // Thread-local density deposition buffers
     std::vector<std::array<double, N_G>> e_density;
@@ -117,9 +122,10 @@ struct WorkerBuffers {
     std::vector<double> temp_vy;
     std::vector<double> temp_vz;
 
-    // Pre-allocated candidate indices for Null-Collision sampling
-    std::vector<int> candidates_e;
-    std::vector<int> candidates_i;
+    // Per-thread candidate indices for Null-Collision sampling.
+    // Each thread owns its own scratch buffer to avoid shared mutable state.
+    std::vector<std::vector<int>> candidates_e;
+    std::vector<std::vector<int>> candidates_i;
 
     void init_buffers(int num_threads) {
         if ((int)e_density.size() >= num_threads) return;
@@ -144,17 +150,19 @@ struct WorkerBuffers {
         local_ifed_pow.resize(num_threads);
         local_ifed_gnd.resize(num_threads);
 
+        candidates_e.resize(num_threads);
+        candidates_i.resize(num_threads);
+
         for (int t = 0; t < num_threads; ++t) {
             thread_local_indices[t].reserve(MAX_N_P / num_threads);
+            candidates_e[t].resize(MAX_N_P);
+            candidates_i[t].resize(MAX_N_P);
         }
 
         temp_x.resize(MAX_N_P);
         temp_vx.resize(MAX_N_P);
         temp_vy.resize(MAX_N_P);
         temp_vz.resize(MAX_N_P);
-
-        candidates_e.resize(MAX_N_P);
-        candidates_i.resize(MAX_N_P);
     }
 };
 
