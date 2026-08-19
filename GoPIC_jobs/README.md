@@ -1,0 +1,220 @@
+# Przewodnik uruchamiania zadań HPC (Slurm Job Commands)
+
+Ten dokument zawiera komendy do zlecania zadań Slurm (`sbatch`) dla wszystkich implementacji symulacji **GoPIC** (Go, C++, Python), z podziałem na pomiary liczników sprzętowych (`perf stat`) oraz profilowanie (`perf record`).
+
+> [!NOTE]
+> **Liczbę rdzeni CPU** ustawia się bezpośrednio w nagłówku danego skryptu: `#SBATCH --cpus-per-task=...`.
+> Poniższe komendy skupiają się na wyborze wersji (**Null-Collision** vs **Standard**) oraz opcjonalnej liczbie gorutyn (**NUM_WORKERS**).
+
+---
+
+## Spis treści
+1. [Szybka ściągawka (Cheat Sheet)](#1-szybka-ściągawka-cheat-sheet)
+2. [Go — Zadania równoległe i sekwencyjne](#2-go)
+   - [Go Chunking](#21-go-chunking)
+   - [Go Channels](#22-go-channels)
+   - [Go Sequential](#23-go-sequential)
+3. [C++ — Zadania OpenMP, MPI i sekwencyjne](#3-c)
+   - [C++ OpenMP](#31-c-openmp)
+   - [C++ Hybrid (MPI + OpenMP)](#32-c-hybrid-mpi--openmp)
+   - [C++ Sequential](#33-c-sequential)
+4. [Python — Zadania sekwencyjne, Numba i hybrydowe](#4-python)
+5. [Zarządzanie zadaniami Slurm](#5-zarządzanie-zadaniami-slurm)
+
+---
+
+## 1. Szybka ściągawka (Cheat Sheet)
+
+```bash
+# Go Chunking (Null-Collision, gorutyny = rdzenie ze skryptu):
+sbatch --export=ALL,USE_NULL_COLLISION=1 GoPIC_jobs/Go/gopic_chunking_job_stat.sh
+
+# Go Chunking (Null-Collision, wymuszenie innej liczby gorutyn np. 16):
+sbatch --export=ALL,USE_NULL_COLLISION=1,NUM_WORKERS=16 GoPIC_jobs/Go/gopic_chunking_job_stat.sh
+
+# C++ OpenMP (Null-Collision):
+sbatch --export=ALL,USE_NULL_COLLISION=1 GoPIC_jobs/C/edupic_omp_job_stat.sh
+
+# C++ OpenMP (Standard MCC):
+sbatch GoPIC_jobs/C/edupic_omp_job_stat.sh
+```
+
+---
+
+## 2. Go
+
+W zadaniach Go dostępne są flagi eksportowane przez `--export`:
+- `USE_NULL_COLLISION=1` — wybór wersji zoptymalizowanej Null-Collision (brak flagi = Standard MCC).
+- `NUM_WORKERS=K` — liczba gorutyn workerów (domyślnie równa liczbie rdzeni ze skryptu `$SLURM_CPUS_PER_TASK`).
+
+### 2.1. Go Chunking
+
+#### Pomiary liczników sprzętowych (`perf stat` — 100 cykli):
+```bash
+# Wersja Null-Collision (liczba gorutyn = liczba rdzeni ze skryptu):
+sbatch --export=ALL,USE_NULL_COLLISION=1 GoPIC_jobs/Go/gopic_chunking_job_stat.sh
+
+# Wersja Null-Collision z oversubscription (np. 16, 32, 64 gorutyny):
+sbatch --export=ALL,USE_NULL_COLLISION=1,NUM_WORKERS=16 GoPIC_jobs/Go/gopic_chunking_job_stat.sh
+sbatch --export=ALL,USE_NULL_COLLISION=1,NUM_WORKERS=32 GoPIC_jobs/Go/gopic_chunking_job_stat.sh
+sbatch --export=ALL,USE_NULL_COLLISION=1,NUM_WORKERS=64 GoPIC_jobs/Go/gopic_chunking_job_stat.sh
+
+# Wersja Standard MCC (domyślna liczba gorutyn):
+sbatch GoPIC_jobs/Go/gopic_chunking_job_stat.sh
+
+# Wersja Standard MCC ze zdefiniowaną liczbą gorutyn:
+sbatch --export=ALL,NUM_WORKERS=16 GoPIC_jobs/Go/gopic_chunking_job_stat.sh
+```
+
+#### Profilowanie drzewa wywołań (`perf record` — 20 cykli):
+```bash
+# Wersja Null-Collision:
+sbatch --export=ALL,USE_NULL_COLLISION=1 GoPIC_jobs/Go/gopic_chunking_job_record.sh
+
+# Wersja Null-Collision ze zdefiniowaną liczbą gorutyn:
+sbatch --export=ALL,USE_NULL_COLLISION=1,NUM_WORKERS=16 GoPIC_jobs/Go/gopic_chunking_job_record.sh
+
+# Wersja Standard MCC:
+sbatch GoPIC_jobs/Go/gopic_chunking_job_record.sh
+```
+
+---
+
+### 2.2. Go Channels
+
+#### Pomiary liczników sprzętowych (`perf stat`):
+```bash
+# Wersja Null-Collision (gorutyny = rdzenie ze skryptu):
+sbatch --export=ALL,USE_NULL_COLLISION=1 GoPIC_jobs/Go/gopic_channels_job_stat.sh
+
+# Wersja Null-Collision ze zdefiniowaną liczbą gorutyn:
+sbatch --export=ALL,USE_NULL_COLLISION=1,NUM_WORKERS=16 GoPIC_jobs/Go/gopic_channels_job_stat.sh
+
+# Wersja Standard MCC:
+sbatch GoPIC_jobs/Go/gopic_channels_job_stat.sh
+```
+
+#### Profilowanie (`perf record`):
+```bash
+# Wersja Null-Collision:
+sbatch --export=ALL,USE_NULL_COLLISION=1 GoPIC_jobs/Go/gopic_channels_job_record.sh
+
+# Wersja Standard MCC:
+sbatch GoPIC_jobs/Go/gopic_channels_job_record.sh
+```
+
+---
+
+### 2.3. Go Sequential
+
+```bash
+# Stat (Null-Collision):
+sbatch --export=ALL,USE_NULL_COLLISION=1 GoPIC_jobs/Go/gopic_job_stat.sh
+
+# Stat (Standard MCC):
+sbatch GoPIC_jobs/Go/gopic_job_stat.sh
+
+# Record (Null-Collision):
+sbatch --export=ALL,USE_NULL_COLLISION=1 GoPIC_jobs/Go/gopic_job_record.sh
+
+# Record (Standard MCC):
+sbatch GoPIC_jobs/Go/gopic_job_record.sh
+```
+
+---
+
+## 3. C++
+
+### 3.1. C++ OpenMP
+
+#### Pomiary liczników sprzętowych (`perf stat` — 100 cykli):
+```bash
+# Wersja Null-Collision:
+sbatch --export=ALL,USE_NULL_COLLISION=1 GoPIC_jobs/C/edupic_omp_job_stat.sh
+
+# Wersja Standard MCC:
+sbatch GoPIC_jobs/C/edupic_omp_job_stat.sh
+```
+
+#### Profilowanie (`perf record` — 20 cykli):
+```bash
+# Wersja Null-Collision:
+sbatch --export=ALL,USE_NULL_COLLISION=1 GoPIC_jobs/C/edupic_omp_job_record.sh
+
+# Wersja Standard MCC:
+sbatch GoPIC_jobs/C/edupic_omp_job_record.sh
+```
+
+---
+
+### 3.2. C++ Hybrid (MPI + OpenMP)
+
+```bash
+# Stat (Null-Collision):
+sbatch --export=ALL,USE_NULL_COLLISION=1 GoPIC_jobs/C/edupic_hybrid_job_stat.sh
+
+# Stat (Standard MCC):
+sbatch GoPIC_jobs/C/edupic_hybrid_job_stat.sh
+
+# Record (Null-Collision):
+sbatch --export=ALL,USE_NULL_COLLISION=1 GoPIC_jobs/C/edupic_hybrid_job_record.sh
+```
+
+---
+
+### 3.3. C++ Sequential
+
+```bash
+# Stat (Null-Collision):
+sbatch --export=ALL,USE_NULL_COLLISION=1 GoPIC_jobs/C/edupic_job_stat.sh
+
+# Stat (Standard MCC):
+sbatch GoPIC_jobs/C/edupic_job_stat.sh
+
+# Record (Null-Collision):
+sbatch --export=ALL,USE_NULL_COLLISION=1 GoPIC_jobs/C/edupic_job_record.sh
+```
+
+---
+
+## 4. Python
+
+```bash
+# Python Sequential (Stat, Null-Collision):
+sbatch --export=ALL,USE_NULL_COLLISION=1 GoPIC_jobs/python/pypic_stat.sh
+
+# Python Sequential (Stat, Standard MCC):
+sbatch GoPIC_jobs/python/pypic_stat.sh
+
+# Python Numba (Stat, Null-Collision):
+sbatch --export=ALL,USE_NULL_COLLISION=1 GoPIC_jobs/python/pypic_numba_job_stat.sh
+
+# Python Numba (Record, Null-Collision):
+sbatch --export=ALL,USE_NULL_COLLISION=1 GoPIC_jobs/python/pypic_numba_job_record.sh
+
+# Python Hybrid MPI (Stat, Null-Collision):
+sbatch --export=ALL,USE_NULL_COLLISION=1 GoPIC_jobs/python/pypic_hybrid_job_stat.sh
+```
+
+---
+
+## 5. Zarządzanie zadaniami Slurm
+
+```bash
+# Sprawdzenie kolejki zadań użytkownika:
+squeue -u $USER
+
+# Podgląd szczegółów konkretnego joba:
+scontrol show job <JOB_ID>
+
+# Anulowanie zadania:
+scancel <JOB_ID>
+
+# Anulowanie wszystkich swoich zadań:
+scancel -u $USER
+
+# Podgląd logu działającego zadania na żywo:
+tail -f saved_logs_Go/logs_job_<JOB_ID>_*/job_output.log
+tail -f saved_logs_C/logs_job_<JOB_ID>_*/job_output.log
+tail -f saved_logs_python/logs_job_<JOB_ID>_*/job_output.log
+```

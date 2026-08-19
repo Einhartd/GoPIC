@@ -133,6 +133,10 @@ type SimulationState struct {
 	NuStarI float64
 	PStarI  float64
 
+	// NumWorkers controls the number of persistent worker goroutines.
+	// Independent of GOMAXPROCS (OS threads).
+	NumWorkers int
+
 	// fields for comm channels
 	// slice kanalow po jednym na workera, koordynator wysyla nim polecenia
 	WorkerCmdChan []chan WorkerCommand
@@ -147,12 +151,19 @@ type SimulationState struct {
 }
 
 // NewSimulationState creates and initializes a SimulationState with mt19937 RNG.
-func NewSimulationState(seed int64) *SimulationState {
+// optNumWorkers controls how many persistent worker goroutines are spawned,
+// independently of GOMAXPROCS. If omitted or <= 0, defaults to runtime.GOMAXPROCS(0).
+func NewSimulationState(seed int64, optNumWorkers ...int) *SimulationState {
 	src := mt19937.New()
 	src.Seed(seed)
 
-	//	TODO - zmienic na ustawiana liczbe gorutyn
-	numWorkers := runtime.GOMAXPROCS(0)
+	numWorkers := 0
+	if len(optNumWorkers) > 0 {
+		numWorkers = optNumWorkers[0]
+	}
+	if numWorkers <= 0 {
+		numWorkers = runtime.GOMAXPROCS(0)
+	}
 
 	workers := make([]*rand.Rand, numWorkers)
 
@@ -163,6 +174,7 @@ func NewSimulationState(seed int64) *SimulationState {
 	}
 
 	sim := &SimulationState{
+		NumWorkers:         numWorkers,
 		WorkerEDensity:     make([]Xvector, numWorkers),
 		WorkerIDensity:     make([]Xvector, numWorkers),
 		WorkerEDiag:        make([]electronWorkerDiagnostics, numWorkers),

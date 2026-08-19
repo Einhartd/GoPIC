@@ -15,6 +15,10 @@ export TMPDIR=/tmp
 
 export GOMAXPROCS=$SLURM_CPUS_PER_TASK
 
+# Liczba gorutyn (workers). Domyślnie równa liczbie rdzeni CPU ($GOMAXPROCS),
+# ale można ustawić niezależnie (np. export NUM_WORKERS=32 lub sbatch --export=ALL,NUM_WORKERS=32).
+NUM_WORKERS="${NUM_WORKERS:-$GOMAXPROCS}"
+
 WORK_DIR=$(pwd)
 LOG_DIR="${WORK_DIR}/saved_logs_Go/logs_job_${SLURM_JOB_ID}_CHANNELS_STAT"
 mkdir -p "${LOG_DIR}"
@@ -22,7 +26,9 @@ mkdir -p "${LOG_DIR}"
 exec > "${LOG_DIR}/job_output.log" 2>&1
 
 echo "========================================================"
-echo " RUNNING GO CHANNELS PARALLEL STAT JOB WITH CORES: ${GOMAXPROCS}"
+echo " RUNNING GO CHANNELS PARALLEL STAT JOB"
+echo " CORES (GOMAXPROCS): ${GOMAXPROCS}"
+echo " WORKERS (GOROUTINES): ${NUM_WORKERS}"
 echo "========================================================"
 
 SOURCE_DIR="$HOME/GoPIC/Go/parallel_channels"
@@ -44,6 +50,7 @@ NODE_INFO_FILE="${LOG_DIR}/hardware_topology.txt"
     echo "========================================================"
     echo "Węzeł obliczeniowy: ${SLURM_JOB_NODELIST}"
     echo "Liczba przydzielonych rdzeni (GOMAXPROCS): ${GOMAXPROCS}"
+    echo "Liczba gorutyn (workers): ${NUM_WORKERS}"
     echo "--- CPU topology (lscpu) ---"
     lscpu
 } > "${NODE_INFO_FILE}" 2>&1
@@ -73,12 +80,12 @@ chmod +x "${BINARY}"
 echo ">> Kopiuję stan początkowy (picdata.bin) z golden_record..."
 cp "$HOME/GoPIC/golden_record/picdata.bin" ./picdata.bin
 
-echo ">> Uruchamianie pomiaru liczników sprzętowych (perf stat) dla ${GOMAXPROCS} rdzeni..."
+echo ">> Uruchamianie pomiaru liczników sprzętowych (perf stat) dla ${GOMAXPROCS} rdzeni i ${NUM_WORKERS} gorutyn..."
 perf stat \
     -e cycles:u,instructions:u \
     -e L1-dcache-loads:u,L1-dcache-load-misses:u \
     -e branch-loads:u,branch-misses:u \
     -o "${DATA_DIR}/perf_cpu_stats.txt" \
-    "${BINARY}" 100 m
+    "${BINARY}" --workers="${NUM_WORKERS}" 100 m
 
 echo ">> Zadanie Go Channels STAT zakończone. Wyniki w: ${DATA_DIR}"

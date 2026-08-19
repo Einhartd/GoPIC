@@ -15,6 +15,10 @@ export TMPDIR=/tmp
 
 export GOMAXPROCS=$SLURM_CPUS_PER_TASK
 
+# Liczba gorutyn (workers). Domyślnie równa liczbie rdzeni CPU ($GOMAXPROCS),
+# ale można ustawić niezależnie (np. export NUM_WORKERS=32 lub sbatch --export=ALL,NUM_WORKERS=32).
+NUM_WORKERS="${NUM_WORKERS:-$GOMAXPROCS}"
+
 # Liczba cykli symulacji dla perf record (20 cykli daje reprezentatywny profil przy pliku ~15-30 MB)
 N_CYCLES_RECORD="${N_CYCLES_RECORD:-20}"
 
@@ -25,7 +29,9 @@ mkdir -p "${LOG_DIR}"
 exec > "${LOG_DIR}/job_output.log" 2>&1
 
 echo "========================================================"
-echo " RUNNING GO CHANNELS PARALLEL RECORD JOB WITH CORES: ${GOMAXPROCS}"
+echo " RUNNING GO CHANNELS PARALLEL RECORD JOB"
+echo " CORES (GOMAXPROCS): ${GOMAXPROCS}"
+echo " WORKERS (GOROUTINES): ${NUM_WORKERS}"
 echo " CYCLES TO RECORD: ${N_CYCLES_RECORD}"
 echo "========================================================"
 
@@ -48,6 +54,7 @@ NODE_INFO_FILE="${LOG_DIR}/hardware_topology.txt"
     echo "========================================================"
     echo "Węzeł obliczeniowy: ${SLURM_JOB_NODELIST}"
     echo "Liczba przydzielonych rdzeni (GOMAXPROCS): ${GOMAXPROCS}"
+    echo "Liczba gorutyn (workers): ${NUM_WORKERS}"
     echo "Liczba cykli dla perf record: ${N_CYCLES_RECORD}"
     echo "--- CPU topology (lscpu) ---"
     lscpu
@@ -80,10 +87,10 @@ cp "$HOME/GoPIC/golden_record/picdata.bin" ./picdata.bin
 
 PERF_DATA_FILE="${SCRATCH:-${DATA_DIR}}/perf_${SLURM_JOB_ID}.data"
 
-echo ">> Uruchamianie pomiaru drzewa wywołań (perf record) dla ${N_CYCLES_RECORD} cykli z GOMAXPROCS=${GOMAXPROCS}..."
+echo ">> Uruchamianie pomiaru drzewa wywołań (perf record) dla ${N_CYCLES_RECORD} cykli z GOMAXPROCS=${GOMAXPROCS} i NUM_WORKERS=${NUM_WORKERS}..."
 echo ">> Plik surowego nagrania: ${PERF_DATA_FILE}"
 
-perf record --max-size=100M -F 49 -g -o "${PERF_DATA_FILE}" -- "${BINARY}" "${N_CYCLES_RECORD}" m
+perf record --max-size=100M -F 49 -g -o "${PERF_DATA_FILE}" -- "${BINARY}" --workers="${NUM_WORKERS}" "${N_CYCLES_RECORD}" m
 
 echo ">> Konwertuję logi perf record do formatu tekstowego (raport ogólny)..."
 perf report -i "${PERF_DATA_FILE}" --stdio > "${DATA_DIR}/perf_report.txt"

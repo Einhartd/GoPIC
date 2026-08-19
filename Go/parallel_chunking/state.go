@@ -144,12 +144,16 @@ type SimulationState struct {
 }
 
 // NewSimulationState creates and initializes a SimulationState with mt19937 RNG.
-// numWorkers controls how many goroutines are used in parallel steps, independently
-// of GOMAXPROCS. Pass 0 to default to runtime.GOMAXPROCS(0).
-func NewSimulationState(seed int64, numWorkers int) *SimulationState {
+// optNumWorkers controls how many goroutines are used in parallel steps, independently
+// of GOMAXPROCS. If omitted or <= 0, it defaults to runtime.GOMAXPROCS(0).
+func NewSimulationState(seed int64, optNumWorkers ...int) *SimulationState {
 	src := mt19937.New()
 	src.Seed(seed)
 
+	numWorkers := 0
+	if len(optNumWorkers) > 0 {
+		numWorkers = optNumWorkers[0]
+	}
 	if numWorkers <= 0 {
 		numWorkers = runtime.GOMAXPROCS(0)
 	}
