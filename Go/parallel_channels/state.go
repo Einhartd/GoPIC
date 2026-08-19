@@ -151,7 +151,9 @@ func NewSimulationState(seed int64) *SimulationState {
 	src := mt19937.New()
 	src.Seed(seed)
 
+	//	TODO - zmienic na ustawiana liczbe gorutyn
 	numWorkers := runtime.GOMAXPROCS(0)
+
 	workers := make([]*rand.Rand, numWorkers)
 
 	for i := range numWorkers {

@@ -120,6 +120,12 @@ type SimulationState struct {
 	Datafile                   *os.File // used for saving data
 	Measurement_mode           bool     // flag that controls measurements and data saving
 
+	// NumWorkers controls the number of goroutines used in parallel steps.
+	// It is independent of GOMAXPROCS (which controls OS thread count).
+	// This allows experiments like: 8 OS threads (GOMAXPROCS=8) with 16 goroutines (NumWorkers=16).
+	// Default: equal to GOMAXPROCS at creation time.
+	NumWorkers int
+
 	// List of rng instances for workers
 	RngWorkers []*rand.Rand
 	// RNG instance used before deploying workers
@@ -138,11 +144,16 @@ type SimulationState struct {
 }
 
 // NewSimulationState creates and initializes a SimulationState with mt19937 RNG.
-func NewSimulationState(seed int64) *SimulationState {
+// numWorkers controls how many goroutines are used in parallel steps, independently
+// of GOMAXPROCS. Pass 0 to default to runtime.GOMAXPROCS(0).
+func NewSimulationState(seed int64, numWorkers int) *SimulationState {
 	src := mt19937.New()
 	src.Seed(seed)
 
-	numWorkers := runtime.GOMAXPROCS(0)
+	if numWorkers <= 0 {
+		numWorkers = runtime.GOMAXPROCS(0)
+	}
+
 	workers := make([]*rand.Rand, numWorkers)
 	for i := 0; i < numWorkers; i++ {
 		wSrc := mt19937.New()
@@ -151,6 +162,7 @@ func NewSimulationState(seed int64) *SimulationState {
 	}
 
 	return &SimulationState{
+		NumWorkers:         numWorkers,
 		WorkerEDensity:     make([]Xvector, numWorkers),
 		WorkerIDensity:     make([]Xvector, numWorkers),
 		WorkerEDiag:        make([]electronWorkerDiagnostics, numWorkers),

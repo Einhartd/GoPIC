@@ -533,37 +533,49 @@ inline void step7_collisions_electrons_body(int tid, int num_threads) {
     new_ions[tid].vz.clear();
 
 #ifdef USE_NULL_COLLISION
-    // Each thread owns its own candidate list. This removes shared mutable state
-    // from the null-collision sampling path and avoids serializing the candidate
-    // generation step.
-    int local_N_coll_star_e = 0;
-    auto &candidates_e_tid = worker_buffers.candidates_e[tid];
+    // Jeden wątek (single) losuje całkowitą liczbę kandydatów i buduje
+    // jedną losową listę indeksów (random_sample). Pozostałe wątki dzielą tę
+    // listę przez proste chunking — zamiast każdy wątek budować swoją własną.
 
+    // Wspólna (static) pula kandydatów — zapisywana przez jeden wątek, czytana przez wszystkie.
+    static int              global_N_coll_star_e = 0;
+    static std::vector<int> global_candidates_e;
+
+    // Jeden wątek losuje rozmiar próby i buduje listę. Niejawny barrier po single
+    // gwarantuje że wszystkie wątki widzą zaktualizowane wartości przed odczytem.
+    #pragma omp single
     {
         std::binomial_distribution<int> binom_e(N_e, P_star_e);
-        local_N_coll_star_e = binom_e(MTgen);
-        if (local_N_coll_star_e > N_e) local_N_coll_star_e = N_e;
-        if (local_N_coll_star_e > 0) {
-            random_sample(N_e, local_N_coll_star_e, candidates_e_tid);
+        global_N_coll_star_e = binom_e(MTgen);
+        if (global_N_coll_star_e > N_e) global_N_coll_star_e = N_e;
+        if (global_N_coll_star_e > 0) {
+            if ((int)global_candidates_e.size() < N_e)
+                global_candidates_e.resize(N_e);
+            random_sample(N_e, global_N_coll_star_e, global_candidates_e);
         }
     }
 
-    if (local_N_coll_star_e > 0) {
-        for (int i = 0; i < local_N_coll_star_e; ++i) {
-            int ki = candidates_e_tid[i];
+    if (global_N_coll_star_e > 0) {
+        // Podziel listę kandydatów równo między wątki (ceiling division).
+        int chunk    = (global_N_coll_star_e + num_threads - 1) / num_threads;
+        int i_start  = std::min(tid * chunk, global_N_coll_star_e);
+        int i_end    = std::min(i_start + chunk, global_N_coll_star_e);
 
-            double v_sqr = vx_e[ki]*vx_e[ki] + vy_e[ki]*vy_e[ki] + vz_e[ki]*vz_e[ki];
-            double velocity = sqrt(v_sqr);
-            double energy   = 0.5 * E_MASS * v_sqr / EV_TO_J;
+        for (int i = i_start; i < i_end; ++i) {
+            int ki = global_candidates_e[i];
+
+            double v_sqr     = vx_e[ki]*vx_e[ki] + vy_e[ki]*vy_e[ki] + vz_e[ki]*vz_e[ki];
+            double velocity  = sqrt(v_sqr);
+            double energy    = 0.5 * E_MASS * v_sqr / EV_TO_J;
             int energy_index = min(int(energy / DE_CS + 0.5), CS_RANGES - 1);
 
-            double real_nu = sigma_tot_e[energy_index] * velocity;
+            double real_nu  = sigma_tot_e[energy_index] * velocity;
             double p_accept = real_nu / nu_star_e;
             if (p_accept > 1.0) p_accept = 1.0;
 
             if (R01(MTgen) < p_accept) {
                 collision_electron(x_e[ki], &vx_e[ki], &vy_e[ki], &vz_e[ki], energy_index,
-                                    new_electrons[tid], new_ions[tid]);
+                                   new_electrons[tid], new_ions[tid]);
                 #pragma omp atomic
                 N_e_coll++;
             }

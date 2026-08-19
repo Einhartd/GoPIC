@@ -219,6 +219,10 @@ func (sim *SimulationState) startWorker(workerID int) {
 			sim.WorkerNewElectrons[workerID] = sim.WorkerNewElectrons[workerID][:0]
 			sim.WorkerNewIons[workerID] = sim.WorkerNewIons[workerID][:0]
 
+			// Lokalny licznik kolizji — jeden atomic.AddUint64 na koniec chunka
+			// (identycznie jak Go-CK i C++ OMP, zamiast atomic per kolizję)
+			var localEColl uint64
+
 			if len(sim.CandidatesE) > 0 {
 				totalCandidates := len(sim.CandidatesE)
 				chunkSize := (totalCandidates + numWorkers - 1) / numWorkers
@@ -240,7 +244,7 @@ func (sim *SimulationState) startWorker(workerID int) {
 
 						if sim.WorkerR01(workerID) < pAccept {
 							sim.CollisionElectron(sim.X_e[k], &sim.Vx_e[k], &sim.Vy_e[k], &sim.Vz_e[k], eIdx, workerID)
-							atomic.AddUint64(&sim.N_e_coll, 1)
+							localEColl++
 						}
 					}
 				}
@@ -261,16 +265,22 @@ func (sim *SimulationState) startWorker(workerID int) {
 						// petla kolizji dla elektronow
 						if sim.WorkerR01(workerID) < p_coll {
 							sim.CollisionElectron(sim.X_e[k], &sim.Vx_e[k], &sim.Vy_e[k], &sim.Vz_e[k], energy_index, workerID)
-							atomic.AddUint64(&sim.N_e_coll, 1)
+							localEColl++
 						}
 					}
 				}
+			}
+			if localEColl > 0 {
+				atomic.AddUint64(&sim.N_e_coll, localEColl)
 			}
 			sim.WorkerDoneChan <- workerID
 
 		case CmdCollisionsI:
 			//	Reset buforow nowych czastek na workerow
 			sim.WorkerNewIons[workerID] = sim.WorkerNewIons[workerID][:0]
+
+			// Lokalny licznik kolizji — jeden atomic.AddUint64 na koniec chunka
+			var localIColl uint64
 
 			if len(sim.CandidatesI) > 0 {
 				totalCandidates := len(sim.CandidatesI)
@@ -299,7 +309,7 @@ func (sim *SimulationState) startWorker(workerID int) {
 
 						if sim.WorkerR01(workerID) < pAccept {
 							sim.CollisionIon(&sim.Vx_i[k], &sim.Vy_i[k], &sim.Vz_i[k], &vxA, &vyA, &vzA, eIdx, workerID)
-							atomic.AddUint64(&sim.N_i_coll, 1)
+							localIColl++
 						}
 					}
 				}
@@ -326,10 +336,13 @@ func (sim *SimulationState) startWorker(workerID int) {
 						// petla kolizji dla jonow
 						if sim.WorkerR01(workerID) < p_coll {
 							sim.CollisionIon(&sim.Vx_i[k], &sim.Vy_i[k], &sim.Vz_i[k], &vx_a, &vy_a, &vz_a, energy_index, workerID)
-							atomic.AddUint64(&sim.N_i_coll, 1)
+							localIColl++
 						}
 					}
 				}
+			}
+			if localIColl > 0 {
+				atomic.AddUint64(&sim.N_i_coll, localIColl)
 			}
 			sim.WorkerDoneChan <- workerID
 

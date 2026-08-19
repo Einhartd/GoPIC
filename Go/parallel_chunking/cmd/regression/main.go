@@ -46,7 +46,7 @@ func main() {
 	}
 
 	// Inicjalizacja stanu symulacji (ziarno 67 - zgodne z C++)
-	sim := gopic.NewSimulationState(int64(SEED))
+	sim := gopic.NewSimulationState(int64(SEED), 0)
 	sim.Measurement_mode = measurement_mode
 	sim.Arg1 = arg1
 

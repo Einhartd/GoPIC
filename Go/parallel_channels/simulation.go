@@ -100,7 +100,7 @@ func (sim *SimulationState) Step1ComputeIonDensity(t int) {
 
 func (sim *SimulationState) Step2SolvePoisson(currentTime float64) {
 	var rho Xvector
-	for p := 0; p < N_G; p++ {
+	for p := range N_G {
 		rho[p] = E_CHARGE * (sim.I_density[p] - sim.E_density[p]) // get charge density
 	}
 	sim.SolvePoisson(&rho, currentTime) // compute potential and electric field

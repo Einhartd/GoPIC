@@ -3,6 +3,7 @@ package gopic
 import (
 	"fmt"
 	"os"
+	"runtime"
 	"strconv"
 	"strings"
 	"time"
@@ -23,12 +24,41 @@ func Run() {
 		os.Exit(1)
 	}
 
-	st0 := os.Args[1]
+	// Parsowanie flag: --workers=N i --threads=N mogą pojawić się w dowolnym miejscu args.
+	// --workers=N : liczba goroutyn w krokach PIC (niezależna od wątków OS)
+	// --threads=N : liczba wątków OS (GOMAXPROCS); domyślnie = GOMAXPROCS systemu
+	numWorkers := 0 // 0 = użyj GOMAXPROCS jako domyślne w NewSimulationState
+	numThreads := 0 // 0 = nie zmieniaj GOMAXPROCS
+	var positional []string
+
+	for _, arg := range os.Args[1:] {
+		if strings.HasPrefix(arg, "--workers=") {
+			numWorkers, _ = strconv.Atoi(strings.TrimPrefix(arg, "--workers="))
+		} else if strings.HasPrefix(arg, "--threads=") {
+			numThreads, _ = strconv.Atoi(strings.TrimPrefix(arg, "--threads="))
+		} else {
+			positional = append(positional, arg)
+		}
+	}
+
+	if numThreads > 0 {
+		runtime.GOMAXPROCS(numThreads)
+	}
+	// Jeśli --workers nie podano, defaultujemy do aktualnego GOMAXPROCS
+	if numWorkers <= 0 {
+		numWorkers = runtime.GOMAXPROCS(0)
+	}
+
+	if len(positional) == 0 {
+		fmt.Println(">> GoPIC: error = need starting_cycle argument")
+		os.Exit(1)
+	}
+	st0 := positional[0]
 	arg1 := atoi(st0)
 
 	measurement_mode := false
-	if len(os.Args) > 2 {
-		if strings.TrimSpace(os.Args[2]) == "m" {
+	if len(positional) > 1 {
+		if strings.TrimSpace(positional[1]) == "m" {
 			measurement_mode = true // measurements will be done
 		}
 	}
@@ -38,8 +68,11 @@ func Run() {
 		fmt.Println(">> GoPIC: measurement mode: off")
 	}
 
+	fmt.Printf(">> GoPIC: GOMAXPROCS (OS threads) = %d\n", runtime.GOMAXPROCS(0))
+	fmt.Printf(">> GoPIC: NumWorkers (goroutines)  = %d\n", numWorkers)
+
 	// Inicjalizacja stanu symulacji dynamicznym ziarnem (czas systemowy)
-	sim := NewSimulationState(time.Now().UnixNano())
+	sim := NewSimulationState(time.Now().UnixNano(), numWorkers)
 	sim.Measurement_mode = measurement_mode
 	sim.Arg1 = arg1
 

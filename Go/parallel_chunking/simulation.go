@@ -3,7 +3,6 @@ package gopic
 import (
 	"fmt"
 	"math"
-	"runtime"
 	"sync"
 )
 
@@ -32,7 +31,7 @@ func (sim *SimulationState) InitParticles(nseed int) {
 //---------------------------------------------------------------------//
 
 func (sim *SimulationState) Step1ComputeElectronDensity() {
-	numWorkers := runtime.GOMAXPROCS(0)
+	numWorkers := sim.NumWorkers
 	var wg sync.WaitGroup
 	chunkSize := (sim.N_e + numWorkers - 1) / numWorkers
 
@@ -85,16 +84,15 @@ func (sim *SimulationState) Step1ComputeElectronDensity() {
 
 func (sim *SimulationState) Step1ComputeIonDensity(t int) {
 	if (t % N_SUB) == 0 { // ion density - computed in every N_SUB-th time steps (subcycling)
-		numWorkers := runtime.GOMAXPROCS(0)
+
+		//	TODO dodac sterowana ilosc gorutyn
+		numWorkers := sim.NumWorkers
 		var wg sync.WaitGroup
 		chunkSize := (sim.N_i + numWorkers - 1) / numWorkers
 
-		for w := 0; w < numWorkers; w++ {
+		for w := range numWorkers {
 			start := w * chunkSize
-			end := (w + 1) * chunkSize
-			if end > sim.N_i {
-				end = sim.N_i
-			}
+			end := min((w+1)*chunkSize, sim.N_i)
 			if start >= end {
 				continue
 			}
@@ -142,7 +140,7 @@ func (sim *SimulationState) Step2SolvePoisson(currentTime float64) {
 }
 
 func (sim *SimulationState) Step3MoveElectrons(t_index int) {
-	numWorkers := runtime.GOMAXPROCS(0)
+	numWorkers := sim.NumWorkers
 	var wg sync.WaitGroup
 	chunkSize := (sim.N_e + numWorkers - 1) / numWorkers
 
@@ -233,7 +231,7 @@ func (sim *SimulationState) Step4MoveIons(t_index, t int) {
 		return
 	}
 
-	numWorkers := runtime.GOMAXPROCS(0)
+	numWorkers := sim.NumWorkers
 	var wg sync.WaitGroup
 	chunkSize := (sim.N_i + numWorkers - 1) / numWorkers
 
@@ -294,7 +292,7 @@ func (sim *SimulationState) Step4MoveIons(t_index, t int) {
 }
 
 func (sim *SimulationState) Step5CheckBoundariesElectrons() {
-	numWorkers := runtime.GOMAXPROCS(0)
+	numWorkers := sim.NumWorkers
 	chunkSize := (sim.N_e + numWorkers - 1) / numWorkers
 	var wg sync.WaitGroup
 
@@ -356,7 +354,7 @@ func (sim *SimulationState) Step6CheckBoundariesIons(t int) {
 		return
 	}
 
-	numWorkers := runtime.GOMAXPROCS(0)
+	numWorkers := sim.NumWorkers
 	chunkSize := (sim.N_i + numWorkers - 1) / numWorkers
 	var wg sync.WaitGroup
 
