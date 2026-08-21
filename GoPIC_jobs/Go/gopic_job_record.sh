@@ -12,10 +12,16 @@ set -euo pipefail
 export GOMAXPROCS=1
 N_CYCLES="${N_CYCLES_RECORD:-20}"
 USE_NC="${USE_NULL_COLLISION:-0}"
+MEASURE_FLAG="${MEASUREMENT_MODE:-${MEASUREMENT:-0}}"
+MEASURE_ARG=""
+if [ "${MEASURE_FLAG}" = "1" ] || [ "${MEASURE_FLAG}" = "true" ] || [ "${MEASURE_FLAG}" = "m" ]; then
+    MEASURE_ARG="m"
+fi
 
-REPO_DIR="$HOME/GoPIC"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_DIR="${REPO_DIR:-$(cd "${SCRIPT_DIR}/../.." && pwd)}"
 SRC_DIR="${REPO_DIR}/Go/sequential"
-BUILD_DIR="$HOME/GoPIC_build/Go"
+BUILD_DIR="${REPO_DIR}/build/Go"
 LOG_DIR="$(pwd)/saved_logs_Go/logs_job_${SLURM_JOB_ID}_RECORD"
 DATA_DIR="${LOG_DIR}/edupic_data"
 PERF_DATA="${SCRATCH:-${DATA_DIR}}/perf_${SLURM_JOB_ID}.data"
@@ -23,12 +29,15 @@ PERF_DATA="${SCRATCH:-${DATA_DIR}}/perf_${SLURM_JOB_ID}.data"
 mkdir -p "${BUILD_DIR}" "${DATA_DIR}"
 exec > "${LOG_DIR}/job_output.log" 2>&1
 
-echo "=== [Go Sequential RECORD] Job: ${SLURM_JOB_ID} | Cycles: ${N_CYCLES} | Node: ${SLURM_JOB_NODELIST} ==="
+echo "=== [Go Sequential RECORD] Job: ${SLURM_JOB_ID} | Cycles: ${N_CYCLES} | Measurement: ${MEASURE_ARG:-off} | Node: ${SLURM_JOB_NODELIST} ==="
+echo ">> Ścieżka repo: ${REPO_DIR} | Commit: $(git -C "${REPO_DIR}" rev-parse --short HEAD 2>/dev/null || echo 'N/A')"
 lscpu > "${LOG_DIR}/hardware_topology.txt" 2>&1
 
 module load go || true
 
 BINARY="${BUILD_DIR}/edupic_seq_${SLURM_JOB_ID}"
+rm -f "${BINARY}"
+
 cd "${SRC_DIR}"
 if [ "${USE_NC}" = "1" ] || [ "${USE_NC}" = "true" ]; then
     echo ">> Kompilacja: Go Sequential (Null-Collision)..."
@@ -38,11 +47,16 @@ else
     go build -o "${BINARY}" ./cmd/pic
 fi
 
+if [ ! -f "${BINARY}" ]; then
+    echo ">> BŁĄD: Kompilacja nie powiodła się, brak pliku ${BINARY}!"
+    exit 1
+fi
+
 cd "${DATA_DIR}"
 cp "${REPO_DIR}/golden_record/picdata.bin" ./picdata.bin
 
 echo ">> Profilowanie wywołań (perf record)..."
-perf record --max-size=100M -F 49 -g -o "${PERF_DATA}" -- "${BINARY}" "${N_CYCLES}"
+perf record --max-size=100M -F 49 -g -o "${PERF_DATA}" -- "${BINARY}" "${N_CYCLES}" ${MEASURE_ARG}
 
 echo ">> Generowanie raportów tekstowych perf..."
 perf report -i "${PERF_DATA}" --stdio > "${DATA_DIR}/perf_report.txt"

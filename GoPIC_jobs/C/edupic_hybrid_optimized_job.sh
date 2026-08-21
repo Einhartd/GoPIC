@@ -22,6 +22,11 @@ export OMPI_MCA_hwloc_base_binding_policy=none
 
 # Liczba cykli symulacji (domyślnie 100 cykli RF)
 N_CYCLES="${N_CYCLES:-1000}"
+MEASURE_FLAG="${MEASUREMENT_MODE:-${MEASUREMENT:-m}}"
+MEASURE_ARG=""
+if [ "${MEASURE_FLAG}" = "1" ] || [ "${MEASURE_FLAG}" = "true" ] || [ "${MEASURE_FLAG}" = "m" ]; then
+    MEASURE_ARG="m"
+fi
 
 WORK_DIR=$(pwd)
 LOG_DIR="${WORK_DIR}/saved_logs_C/logs_job_${SLURM_JOB_ID}_HYBRID_OPT"
@@ -30,7 +35,7 @@ exec > "${LOG_DIR}/job_output.log" 2>&1
 
 echo "========================================================"
 echo " RUNNING OPTIMIZED HYBRID JOB WITH MPI TASKS: ${SLURM_NTASKS} AND OMP THREADS: ${OMP_NUM_THREADS}"
-echo " CYCLES TO SIMULATE: ${N_CYCLES}"
+echo " CYCLES TO SIMULATE: ${N_CYCLES} | MEASUREMENT: ${MEASURE_ARG:-off}"
 echo "========================================================"
 
 SOURCE_DIR="$HOME/GoPIC/C/parallel-hybrid"
@@ -73,10 +78,10 @@ chmod +x "${BINARY}"
 echo ">> Kopiuję stan początkowy (picdata.bin) z golden_record..."
 cp "$HOME/GoPIC/golden_record/picdata.bin" ./picdata.bin
 
-echo ">> Uruchamiam pełną symulację hybrydową (${N_CYCLES} cykli w trybie pomiarowym 'm')..."
+echo ">> Uruchamiam pełną symulację hybrydową (${N_CYCLES} cykli)..."
 echo ">> [MPI Bind-to: NONE, OMP Threads: ${OMP_NUM_THREADS}]"
 
-/usr/bin/time -v mpirun --bind-to none -np "${SLURM_NTASKS}" "${BINARY}" "${N_CYCLES}" m
+/usr/bin/time -v mpirun --bind-to none -np "${SLURM_NTASKS}" "${BINARY}" "${N_CYCLES}" ${MEASURE_ARG}
 
 echo "========================================================"
 echo " Zadanie HYBRID OPTIMIZED zakończone sukcesem!"

@@ -12,28 +12,42 @@ set -euo pipefail
 export OMP_NUM_THREADS=${SLURM_CPUS_PER_TASK}
 N_CYCLES="${N_CYCLES:-100}"
 USE_NC="${USE_NULL_COLLISION:-0}"
+MEASURE_FLAG="${MEASUREMENT_MODE:-${MEASUREMENT:-0}}"
+MEASURE_ARG=""
+if [ "${MEASURE_FLAG}" = "1" ] || [ "${MEASURE_FLAG}" = "true" ] || [ "${MEASURE_FLAG}" = "m" ]; then
+    MEASURE_ARG="m"
+fi
 
-REPO_DIR="$HOME/GoPIC"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_DIR="${REPO_DIR:-$(cd "${SCRIPT_DIR}/../.." && pwd)}"
 SRC_DIR="${REPO_DIR}/C/parallel-only-omp"
-BUILD_DIR="$HOME/GoPIC_build/C"
+BUILD_DIR="${REPO_DIR}/build/C"
 LOG_DIR="$(pwd)/saved_logs_C/logs_job_${SLURM_JOB_ID}_OMP_STAT"
 DATA_DIR="${LOG_DIR}/edupic_data"
 
 mkdir -p "${BUILD_DIR}" "${DATA_DIR}"
 exec > "${LOG_DIR}/job_output.log" 2>&1
 
-echo "=== [C++ OpenMP STAT] Job: ${SLURM_JOB_ID} | Cores: ${OMP_NUM_THREADS} | Cycles: ${N_CYCLES} | Node: ${SLURM_JOB_NODELIST} ==="
+echo "=== [C++ OpenMP STAT] Job: ${SLURM_JOB_ID} | Cores: ${OMP_NUM_THREADS} | Cycles: ${N_CYCLES} | Measurement: ${MEASURE_ARG:-off} | Node: ${SLURM_JOB_NODELIST} ==="
+echo ">> Ścieżka repo: ${REPO_DIR} | Commit: $(git -C "${REPO_DIR}" rev-parse --short HEAD 2>/dev/null || echo 'N/A')"
 lscpu > "${LOG_DIR}/hardware_topology.txt" 2>&1
 
 module purge && module load gcc
 
 BINARY="${BUILD_DIR}/edupic_omp_${SLURM_JOB_ID}"
+rm -f "${BINARY}"
+
 if [ "${USE_NC}" = "1" ] || [ "${USE_NC}" = "true" ]; then
     echo ">> Kompilacja: C++ OpenMP (Null-Collision)..."
     g++ -O3 -fno-omit-frame-pointer -march=native -fopenmp -DUSE_NULL_COLLISION "${SRC_DIR}/eduPIC.cc" -o "${BINARY}"
 else
     echo ">> Kompilacja: C++ OpenMP (Standard MCC)..."
     g++ -O3 -fno-omit-frame-pointer -march=native -fopenmp "${SRC_DIR}/eduPIC.cc" -o "${BINARY}"
+fi
+
+if [ ! -f "${BINARY}" ]; then
+    echo ">> BŁĄD: Kompilacja nie powiodła się, brak pliku ${BINARY}!"
+    exit 1
 fi
 
 cd "${DATA_DIR}"
@@ -45,7 +59,7 @@ perf stat \
     -e L1-dcache-loads:u,L1-dcache-load-misses:u \
     -e branch-loads:u,branch-misses:u \
     -o "${DATA_DIR}/perf_cpu_stats.txt" \
-    "${BINARY}" "${N_CYCLES}"
+    "${BINARY}" "${N_CYCLES}" ${MEASURE_ARG}
 
 rm -f "${BINARY}"
 echo ">> Zakończono pomyślnie. Wyniki w: ${DATA_DIR}"
