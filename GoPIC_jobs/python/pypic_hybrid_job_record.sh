@@ -1,99 +1,59 @@
 #!/bin/bash -l
-
-#SBATCH --job-name=pypic_hybrid_rec
+#SBATCH --job-name=pypic_hyb_rec
 #SBATCH --partition=plgrid-lem-cpu
 #SBATCH --nodes=1
+#SBATCH --ntasks=2
+#SBATCH --cpus-per-task=8
 #SBATCH --mem-per-cpu=4G
-#SBATCH --ntasks=2            # Liczba procesów MPI
-#SBATCH --cpus-per-task=2      # Liczba wątków Numba na proces MPI
-#SBATCH --time=00:30:00        # Skrócony czas (profilowanie 20 cykli trwa ok. 1-2 min)
+#SBATCH --time=00:15:00
 
-set -e
+set -euo pipefail
 
-# Ustawienie lokalnego katalogu tymczasowego dla OpenMPI / PRTE
-export TMPDIR=/tmp
-
-# Konfiguracja środowiska hybrydowego MPI + Numba
-export NUMBA_NUM_THREADS=$SLURM_CPUS_PER_TASK
-export OMP_NUM_THREADS=$SLURM_CPUS_PER_TASK
+export NUMBA_NUM_THREADS=${SLURM_CPUS_PER_TASK}
+export OMP_NUM_THREADS=${SLURM_CPUS_PER_TASK}
 export OPENBLAS_NUM_THREADS=1
+N_CYCLES="${N_CYCLES_RECORD:-20}"
+USE_NC="${USE_NULL_COLLISION:-0}"
 
-# Liczba cykli symulacji dla perf record (20 cykli daje reprezentatywny profil przy plikach ~15-30 MB per rank)
-N_CYCLES_RECORD="${N_CYCLES_RECORD:-20}"
-
-WORK_DIR=$(pwd)
-LOG_DIR="${WORK_DIR}/saved_logs_python/logs_job_${SLURM_JOB_ID}_HYBRID_RECORD"
-mkdir -p "${LOG_DIR}"
-
-exec > "${LOG_DIR}/job_output.log" 2>&1
-
-echo "========================================================"
-echo " RUNNING HYBRID MPI+NUMBA RECORD JOB WITH MPI TASKS: ${SLURM_NTASKS} AND NUMBA THREADS: ${NUMBA_NUM_THREADS}"
-echo " CYCLES TO RECORD: ${N_CYCLES_RECORD}"
-echo "========================================================"
-
-PYTHON_VERSION_DIR="$HOME/GoPIC/python/hybrid_parallel"
+REPO_DIR="$HOME/GoPIC"
+SRC_DIR="${REPO_DIR}/python/hybrid_parallel"
+LOG_DIR="$(pwd)/saved_logs_python/logs_job_${SLURM_JOB_ID}_HYBRID_RECORD"
 DATA_DIR="${LOG_DIR}/edupic_data"
+PERF_DATA="${SCRATCH:-${DATA_DIR}}/perf_${SLURM_JOB_ID}.data"
 
 mkdir -p "${DATA_DIR}"
+exec > "${LOG_DIR}/job_output.log" 2>&1
 
-if [ -f "$HOME/GoPIC/GoPIC_jobs/python/pypic.profile" ]; then
-    echo ">> Wczytuję profil środowiska GoPIC..."
-    source "$HOME/GoPIC/GoPIC_jobs/python/pypic.profile"
-    module load openmpi || true
-else
-    echo ">> Błąd: plik pypic.profile nie został znaleziony!"
-    exit 1
-fi
+echo "=== [Python Hybrid RECORD] Job: ${SLURM_JOB_ID} | MPI Tasks: ${SLURM_NTASKS} | Numba Threads: ${NUMBA_NUM_THREADS} | Cycles: ${N_CYCLES} ==="
+lscpu > "${LOG_DIR}/hardware_topology.txt" 2>&1
 
-if [ "${USE_NULL_COLLISION}" = "true" ] || [ "${USE_NULL_COLLISION}" = "1" ]; then
-    echo ">> [Null-Collision Hybrid] Wybrano wersję zoptymalizowaną (USE_NULL_COLLISION=true)"
+source "${REPO_DIR}/GoPIC_jobs/python/pypic.profile"
+module load openmpi || true
+
+if [ "${USE_NC}" = "1" ] || [ "${USE_NC}" = "true" ]; then
     export USE_NULL_COLLISION="true"
 else
-    echo ">> [Standard Hybrid] Wybrano wersję klasyczną (USE_NULL_COLLISION=false)"
     export USE_NULL_COLLISION="false"
 fi
 
-# Wsparcie profilera perf dla funkcji Pythona i JIT Numba
-export PYTHONPERFSUPPORT=1
-
-export PYTHONPATH="${PYTHON_VERSION_DIR}:${PYTHONPATH}"
-
-NODE_INFO_FILE="${LOG_DIR}/hardware_topology.txt"
-{
-    echo "========================================================"
-    echo " HARDWARE & TOPOLOGY INFO — $(date '+%Y-%m-%d %H:%M:%S')"
-    echo "========================================================"
-    echo "Węzeł obliczeniowy: ${SLURM_JOB_NODELIST}"
-    echo "Liczba procesów MPI (ntasks): ${SLURM_NTASKS}"
-    echo "Liczba wątków Numba na proces (cpus-per-task): ${NUMBA_NUM_THREADS}"
-    echo "Liczba cykli dla perf record: ${N_CYCLES_RECORD}"
-    echo "--- CPU topology (lscpu) ---"
-    lscpu
-} > "${NODE_INFO_FILE}" 2>&1
+export PYTHONPATH="${SRC_DIR}:${PYTHONPATH:-}"
 
 cd "${DATA_DIR}"
+cp "${REPO_DIR}/golden_record/picdata.bin" ./picdata.bin
 
-echo ">> Kopiuję stan początkowy (picdata.bin) z golden_record..."
-cp "$HOME/GoPIC/golden_record/picdata.bin" ./picdata.bin
+echo ">> Profilowanie wywołań (perf record)..."
+mpirun --bind-to none -np "${SLURM_NTASKS}" perf record --max-size=100M -F 49 -g -o "${PERF_DATA}" -- python3 "${SRC_DIR}/main.py" "${N_CYCLES}" m
 
-SCRATCH_BASE="${SCRATCH:-${DATA_DIR}}"
+echo ">> Generowanie raportów tekstowych perf..."
+perf report -i "${PERF_DATA}" --stdio > "${DATA_DIR}/perf_report.txt"
 
-echo ">> Uruchamianie pomiaru drzewa wywołań (perf record) dla ${N_CYCLES_RECORD} cykli osobiście dla każdej rangi MPI..."
-mpirun -np "${SLURM_NTASKS}" bash -c "perf record --max-size=100M -F 49 -g -o ${SCRATCH_BASE}/perf_${SLURM_JOB_ID}_rank_\${OMPI_COMM_WORLD_RANK}.data -- python3 ${PYTHON_VERSION_DIR}/main.py ${N_CYCLES_RECORD} m"
+FLAME_DIR="${REPO_DIR}/plots/FlameGraph"
+[ ! -d "${FLAME_DIR}" ] && FLAME_DIR="$HOME/FlameGraph"
 
-# Generowanie raportów per-rank
-for r in $(seq 0 $((SLURM_NTASKS - 1))); do
-    echo ">> Generuję raporty tekstowe dla rangi MPI ${r}..."
-    PERF_RANK_FILE="${SCRATCH_BASE}/perf_${SLURM_JOB_ID}_rank_${r}.data"
-    perf report -i "${PERF_RANK_FILE}" --stdio > "${DATA_DIR}/perf_report_rank_${r}.txt"
-    perf report -i "${PERF_RANK_FILE}" --stdio --sort=cpu,symbol > "${DATA_DIR}/perf_report_rank_${r}_per_cpu.txt"
-    perf report -i "${PERF_RANK_FILE}" --stdio --per-thread > "${DATA_DIR}/perf_report_rank_${r}_per_thread.txt"
-    
-    echo "========================================================"
-    echo " TOP 25 HOTSPOTS (Ranga MPI ${r}):"
-    echo "========================================================"
-    perf report -i "${PERF_RANK_FILE}" --stdio --no-children --sort=comm,dso,symbol | head -n 35 || true
-done
+if [ -f "${FLAME_DIR}/stackcollapse-perf.pl" ] && [ -f "${FLAME_DIR}/flamegraph.pl" ]; then
+    echo ">> Generowanie Flame Graph (SVG)..."
+    perf script -i "${PERF_DATA}" | perl "${FLAME_DIR}/stackcollapse-perf.pl" > "${DATA_DIR}/perf.folded" 2>/dev/null || true
+    perl "${FLAME_DIR}/flamegraph.pl" --title "Python Hybrid (Job ${SLURM_JOB_ID})" "${DATA_DIR}/perf.folded" > "${DATA_DIR}/flamegraph.svg" 2>/dev/null || true
+fi
 
-echo ">> Zadanie Python HYBRID RECORD zakończone. Wyniki w: ${DATA_DIR}"
+echo ">> Zakończono pomyślnie. Wyniki w: ${DATA_DIR}"

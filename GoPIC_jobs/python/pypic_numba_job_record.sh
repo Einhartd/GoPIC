@@ -1,99 +1,58 @@
 #!/bin/bash -l
-
 #SBATCH --job-name=pypic_numba_rec
 #SBATCH --partition=plgrid-lem-cpu
 #SBATCH --nodes=1
-#SBATCH --mem-per-cpu=4G
 #SBATCH --ntasks=1
-#SBATCH --cpus-per-task=12   # Zmień tę wartość, aby zmienić liczbę rdzeni przydzielonych do Numba
-#SBATCH --time=00:30:00     # Skrócony czas (profilowanie 20 cykli trwa ok. 1-2 min)
+#SBATCH --cpus-per-task=16
+#SBATCH --mem-per-cpu=4G
+#SBATCH --time=00:15:00
 
-set -e
+set -euo pipefail
 
-# Ustawienie lokalnego katalogu tymczasowego dla OpenMPI / PRTE
-export TMPDIR=/tmp
-
-# Pobranie liczby rdzeni z konfiguracji Slurma dla Numba
-export NUMBA_NUM_THREADS=$SLURM_CPUS_PER_TASK
-export OMP_NUM_THREADS=$SLURM_CPUS_PER_TASK
+export NUMBA_NUM_THREADS=${SLURM_CPUS_PER_TASK}
+export OMP_NUM_THREADS=${SLURM_CPUS_PER_TASK}
 export OPENBLAS_NUM_THREADS=1
+N_CYCLES="${N_CYCLES_RECORD:-20}"
+USE_NC="${USE_NULL_COLLISION:-0}"
 
-# Liczba cykli symulacji dla perf record (20 cykli daje reprezentatywny profil przy pliku ~15-30 MB)
-N_CYCLES_RECORD="${N_CYCLES_RECORD:-20}"
-
-WORK_DIR=$(pwd)
-LOG_DIR="${WORK_DIR}/saved_logs_python/logs_job_${SLURM_JOB_ID}_NUMBA_RECORD"
-mkdir -p "${LOG_DIR}"
-
-exec > "${LOG_DIR}/job_output.log" 2>&1
-
-echo "========================================================"
-echo " RUNNING NUMBA PARALLEL RECORD JOB WITH THREADS: ${NUMBA_NUM_THREADS}"
-echo " CYCLES TO RECORD: ${N_CYCLES_RECORD}"
-echo "========================================================"
-
-PYTHON_VERSION_DIR="$HOME/GoPIC/python/numba_parallel"
+REPO_DIR="$HOME/GoPIC"
+SRC_DIR="${REPO_DIR}/python/numba_parallel"
+LOG_DIR="$(pwd)/saved_logs_python/logs_job_${SLURM_JOB_ID}_NUMBA_RECORD"
 DATA_DIR="${LOG_DIR}/edupic_data"
+PERF_DATA="${SCRATCH:-${DATA_DIR}}/perf_${SLURM_JOB_ID}.data"
 
 mkdir -p "${DATA_DIR}"
+exec > "${LOG_DIR}/job_output.log" 2>&1
 
-if [ -f "$HOME/GoPIC/GoPIC_jobs/python/pypic.profile" ]; then
-    echo ">> Wczytuję profil środowiska GoPIC..."
-    source "$HOME/GoPIC/GoPIC_jobs/python/pypic.profile"
-else
-    echo ">> Błąd: plik pypic.profile nie został znaleziony!"
-    exit 1
-fi
+echo "=== [Python Numba RECORD] Job: ${SLURM_JOB_ID} | Threads: ${NUMBA_NUM_THREADS} | Cycles: ${N_CYCLES} | Node: ${SLURM_JOB_NODELIST} ==="
+lscpu > "${LOG_DIR}/hardware_topology.txt" 2>&1
 
-if [ "${USE_NULL_COLLISION}" = "true" ] || [ "${USE_NULL_COLLISION}" = "1" ]; then
-    echo ">> [Null-Collision Numba] Wybrano wersję zoptymalizowaną (USE_NULL_COLLISION=true)"
+source "${REPO_DIR}/GoPIC_jobs/python/pypic.profile"
+
+if [ "${USE_NC}" = "1" ] || [ "${USE_NC}" = "true" ]; then
     export USE_NULL_COLLISION="true"
 else
-    echo ">> [Standard Numba] Wybrano wersję klasyczną (USE_NULL_COLLISION=false)"
     export USE_NULL_COLLISION="false"
 fi
 
-# Wsparcie profilera perf dla funkcji Pythona i JIT Numba
-export PYTHONPERFSUPPORT=1
-
-export PYTHONPATH="${PYTHON_VERSION_DIR}:${PYTHONPATH}"
-
-NODE_INFO_FILE="${LOG_DIR}/hardware_topology.txt"
-{
-    echo "========================================================"
-    echo " HARDWARE & TOPOLOGY INFO — $(date '+%Y-%m-%d %H:%M:%S')"
-    echo "========================================================"
-    echo "Węzeł obliczeniowy: ${SLURM_JOB_NODELIST}"
-    echo "Liczba wątków Numba: ${NUMBA_NUM_THREADS}"
-    echo "Liczba cykli dla perf record: ${N_CYCLES_RECORD}"
-    echo "--- CPU topology (lscpu) ---"
-    lscpu
-} > "${NODE_INFO_FILE}" 2>&1
+export PYTHONPATH="${SRC_DIR}:${PYTHONPATH:-}"
 
 cd "${DATA_DIR}"
+cp "${REPO_DIR}/golden_record/picdata.bin" ./picdata.bin
 
-echo ">> Kopiuję stan początkowy (picdata.bin) z golden_record..."
-cp "$HOME/GoPIC/golden_record/picdata.bin" ./picdata.bin
+echo ">> Profilowanie wywołań (perf record)..."
+perf record --max-size=100M -F 49 -g -o "${PERF_DATA}" -- python3 "${SRC_DIR}/main.py" "${N_CYCLES}" m
 
-PERF_DATA_FILE="${SCRATCH:-${DATA_DIR}}/perf_${SLURM_JOB_ID}.data"
+echo ">> Generowanie raportów tekstowych perf..."
+perf report -i "${PERF_DATA}" --stdio > "${DATA_DIR}/perf_report.txt"
 
-echo ">> Uruchamianie pomiaru drzewa wywołań (perf record) dla ${N_CYCLES_RECORD} cykli z ${NUMBA_NUM_THREADS} wątkami..."
-echo ">> Plik surowego nagrania: ${PERF_DATA_FILE}"
+FLAME_DIR="${REPO_DIR}/plots/FlameGraph"
+[ ! -d "${FLAME_DIR}" ] && FLAME_DIR="$HOME/FlameGraph"
 
-perf record --max-size=100M -F 49 -g -o "${PERF_DATA_FILE}" -- python3 "${PYTHON_VERSION_DIR}/main.py" "${N_CYCLES_RECORD}" m
+if [ -f "${FLAME_DIR}/stackcollapse-perf.pl" ] && [ -f "${FLAME_DIR}/flamegraph.pl" ]; then
+    echo ">> Generowanie Flame Graph (SVG)..."
+    perf script -i "${PERF_DATA}" | perl "${FLAME_DIR}/stackcollapse-perf.pl" > "${DATA_DIR}/perf.folded" 2>/dev/null || true
+    perl "${FLAME_DIR}/flamegraph.pl" --title "Python Numba (Job ${SLURM_JOB_ID})" "${DATA_DIR}/perf.folded" > "${DATA_DIR}/flamegraph.svg" 2>/dev/null || true
+fi
 
-echo ">> Konwertuję logi perf record do formatu tekstowego (raport ogólny)..."
-perf report -i "${PERF_DATA_FILE}" --stdio > "${DATA_DIR}/perf_report.txt"
-
-echo ">> Generowanie raportu w podziale na rdzenie CPU..."
-perf report -i "${PERF_DATA_FILE}" --stdio --sort=cpu,symbol > "${DATA_DIR}/perf_report_per_cpu.txt"
-
-echo ">> Generowanie raportu w podziale na wątki (threads)..."
-perf report -i "${PERF_DATA_FILE}" --stdio --per-thread > "${DATA_DIR}/perf_report_per_thread.txt"
-
-echo "========================================================"
-echo " TOP 25 HOTSPOTS (Podsumowanie profilera):"
-echo "========================================================"
-perf report -i "${PERF_DATA_FILE}" --stdio --no-children --sort=comm,dso,symbol | head -n 35 || true
-
-echo ">> Zadanie Numba RECORD zakończone sukcesem. Raporty w: ${DATA_DIR}"
+echo ">> Zakończono pomyślnie. Wyniki w: ${DATA_DIR}"

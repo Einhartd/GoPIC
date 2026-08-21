@@ -74,7 +74,7 @@ TEST_F(CollisionsTest, ParallelIonCollisions) {
     seed_rng(71);
     for (int k = 0; k < N_i; k++) {
         x_i[k] = L * R01(MTgen);
-        vx_i[k] = 1e4;
+        vx_i[k] = 1e5;
         vy_i[k] = 0.0;
         vz_i[k] = 0.0;
     }

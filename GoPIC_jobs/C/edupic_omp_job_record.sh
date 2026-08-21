@@ -1,100 +1,59 @@
 #!/bin/bash -l
-
 #SBATCH --job-name=edupic_omp_rec
 #SBATCH --partition=plgrid-lem-cpu
 #SBATCH --nodes=1
-#SBATCH --mem-per-cpu=4G
 #SBATCH --ntasks=1
-#SBATCH --cpus-per-task=32   # Zmień tę wartość, aby zmienić liczbę rdzeni przydzielonych do joba
-#SBATCH --time=00:05:00     # Skrócony czas (profilowanie 20 cykli trwa ok. 1-2 min)
+#SBATCH --cpus-per-task=16
+#SBATCH --mem-per-cpu=4G
+#SBATCH --time=00:10:00
 
-set -e
+set -euo pipefail
 
-# Ustawienie lokalnego katalogu tymczasowego dla OpenMPI / PRTE
-export TMPDIR=/tmp
+export OMP_NUM_THREADS=${SLURM_CPUS_PER_TASK}
+N_CYCLES="${N_CYCLES_RECORD:-20}"
+USE_NC="${USE_NULL_COLLISION:-0}"
 
-# Pobranie liczby rdzeni z konfiguracji Slurma
-export OMP_NUM_THREADS=$SLURM_CPUS_PER_TASK
+REPO_DIR="$HOME/GoPIC"
+SRC_DIR="${REPO_DIR}/C/parallel-only-omp"
+BUILD_DIR="$HOME/GoPIC_build/C"
+LOG_DIR="$(pwd)/saved_logs_C/logs_job_${SLURM_JOB_ID}_OMP_RECORD"
+DATA_DIR="${LOG_DIR}/edupic_data"
+PERF_DATA="${SCRATCH:-${DATA_DIR}}/perf_${SLURM_JOB_ID}.data"
 
-# Liczba cykli symulacji dla perf record (20 cykli daje pełen, reprezentatywny profil przy pliku ~15-30 MB)
-N_CYCLES_RECORD="${N_CYCLES_RECORD:-20}"
-
-WORK_DIR=$(pwd)
-LOG_DIR="${WORK_DIR}/saved_logs_C/logs_job_${SLURM_JOB_ID}_OMP_RECORD"
-mkdir -p "${LOG_DIR}"
+mkdir -p "${BUILD_DIR}" "${DATA_DIR}"
 exec > "${LOG_DIR}/job_output.log" 2>&1
 
-echo "========================================================"
-echo " RUNNING OPENMP RECORD JOB WITH CORES: ${OMP_NUM_THREADS}"
-echo " CYCLES TO RECORD: ${N_CYCLES_RECORD}"
-echo "========================================================"
+echo "=== [C++ OpenMP RECORD] Job: ${SLURM_JOB_ID} | Cores: ${OMP_NUM_THREADS} | Cycles: ${N_CYCLES} | Node: ${SLURM_JOB_NODELIST} ==="
+lscpu > "${LOG_DIR}/hardware_topology.txt" 2>&1
 
-SOURCE_DIR="$HOME/GoPIC/C/parallel-only-omp"
-BUILD_DIR="$HOME/GoPIC_build/C"
-DATA_DIR="${LOG_DIR}/edupic_data"
+module purge && module load gcc
 
-mkdir -p "${DATA_DIR}"
-mkdir -p "${BUILD_DIR}"
-
-if [ ! -f "${SOURCE_DIR}/eduPIC.cc" ]; then
-    echo "ERROR: Plik ${SOURCE_DIR}/eduPIC.cc nie istnieje w ${SOURCE_DIR}!"
-    exit 1
-fi
-
-NODE_INFO_FILE="${LOG_DIR}/hardware_topology.txt"
-
-{
-    echo "========================================================"
-    echo " HARDWARE & TOPOLOGY INFO — $(date '+%Y-%m-%d %H:%M:%S')"
-    echo "========================================================"
-    echo "Węzeł obliczeniowy: ${SLURM_JOB_NODELIST}"
-    echo "Liczba przydzielonych rdzeni: ${OMP_NUM_THREADS}"
-    echo "Liczba cykli dla perf record: ${N_CYCLES_RECORD}"
-    echo "--- CPU topology (lscpu) ---"
-    lscpu
-} > "${NODE_INFO_FILE}" 2>&1
-
-module purge
-module load gcc
-
-
-echo ">> Kompiluję kod OpenMP C++ (wersja Standard)..."
-g++ -O3 -fno-omit-frame-pointer -march=native -fopenmp "${SOURCE_DIR}/eduPIC.cc" -o "${BUILD_DIR}/edupic_tmp_omp_std_${SLURM_JOB_ID}"
-mv "${BUILD_DIR}/edupic_tmp_omp_std_${SLURM_JOB_ID}" "${BUILD_DIR}/edupic_omp_c_std"
-
-
-echo ">> Kompiluję kod OpenMP C++ (wersja Null-Collision)..."
-g++ -O3 -fno-omit-frame-pointer -march=native -fopenmp -DUSE_NULL_COLLISION "${SOURCE_DIR}/eduPIC.cc" -o "${BUILD_DIR}/edupic_tmp_omp_nc_${SLURM_JOB_ID}"
-mv "${BUILD_DIR}/edupic_tmp_omp_nc_${SLURM_JOB_ID}" "${BUILD_DIR}/edupic_omp_c_nc"
-
-
-if [ "${USE_NULL_COLLISION}" = "true" ] || [ "${USE_NULL_COLLISION}" = "1" ]; then
-    echo ">> [Null-Collision OpenMP] Wybrano wersję zoptymalizowaną"
-    BINARY="${BUILD_DIR}/edupic_omp_c_nc"
+BINARY="${BUILD_DIR}/edupic_omp_${SLURM_JOB_ID}"
+if [ "${USE_NC}" = "1" ] || [ "${USE_NC}" = "true" ]; then
+    echo ">> Kompilacja: C++ OpenMP (Null-Collision)..."
+    g++ -O3 -fno-omit-frame-pointer -march=native -fopenmp -DUSE_NULL_COLLISION "${SRC_DIR}/eduPIC.cc" -o "${BINARY}"
 else
-    echo ">> [Standard OpenMP] Wybrano wersję klasyczną"
-    BINARY="${BUILD_DIR}/edupic_omp_c_std"
+    echo ">> Kompilacja: C++ OpenMP (Standard MCC)..."
+    g++ -O3 -fno-omit-frame-pointer -march=native -fopenmp "${SRC_DIR}/eduPIC.cc" -o "${BINARY}"
 fi
 
 cd "${DATA_DIR}"
+cp "${REPO_DIR}/golden_record/picdata.bin" ./picdata.bin
 
-# Zapewnienie uprawnień wykonywalnych dla binarium
-chmod +x "${BINARY}"
+echo ">> Profilowanie wywołań (perf record)..."
+perf record --max-size=100M -F 49 -g -o "${PERF_DATA}" -- "${BINARY}" "${N_CYCLES}"
 
-echo ">> Kopiuję stan początkowy (picdata.bin) z golden_record..."
-cp "$HOME/GoPIC/golden_record/picdata.bin" ./picdata.bin
+echo ">> Generowanie raportów tekstowych perf..."
+perf report -i "${PERF_DATA}" --stdio > "${DATA_DIR}/perf_report.txt"
+perf report -i "${PERF_DATA}" --stdio --sort=cpu,symbol > "${DATA_DIR}/perf_report_per_cpu.txt"
 
-# Lokalizacja pliku perf.data (preferowany $SCRATCH jeśli istnieje, w przeciwnym razie $DATA_DIR)
-PERF_DATA_FILE="${SCRATCH:-${DATA_DIR}}/perf_${SLURM_JOB_ID}.data"
+FLAME_DIR="${REPO_DIR}/plots/FlameGraph"
+[ ! -d "${FLAME_DIR}" ] && FLAME_DIR="$HOME/FlameGraph"
 
-perf record --max-size=100M -F 49 -g -o "${PERF_DATA_FILE}" -- "${BINARY}" "${N_CYCLES_RECORD}"
+if [ -f "${FLAME_DIR}/stackcollapse-perf.pl" ] && [ -f "${FLAME_DIR}/flamegraph.pl" ]; then
+    echo ">> Generowanie Flame Graph (SVG)..."
+    perf script -i "${PERF_DATA}" | perl "${FLAME_DIR}/stackcollapse-perf.pl" > "${DATA_DIR}/perf.folded" 2>/dev/null || true
+    perl "${FLAME_DIR}/flamegraph.pl" --title "C++ OpenMP (Job ${SLURM_JOB_ID})" "${DATA_DIR}/perf.folded" > "${DATA_DIR}/flamegraph.svg" 2>/dev/null || true
+fi
 
-echo ">> Konwertuję logi perf record do formatu tekstowego (raport ogólny)..."
-perf report -i "${PERF_DATA_FILE}" --stdio > "${DATA_DIR}/perf_report.txt"
-
-echo ">> Generowanie raportu w podziale na rdzenie CPU..."
-perf report -i "${PERF_DATA_FILE}" --stdio --sort=cpu,symbol > "${DATA_DIR}/perf_report_per_cpu.txt"
-
-perf report -i "${PERF_DATA_FILE}" --stdio --no-children --sort=comm,dso,symbol | head -n 35 || true
-
-echo ">> Zadanie OMP RECORD zakończone sukcesem. Raporty w: ${DATA_DIR}"
+echo ">> Zakończono pomyślnie. Wyniki w: ${DATA_DIR}"

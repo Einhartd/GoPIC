@@ -1,78 +1,52 @@
 #!/bin/bash -l
-
-#SBATCH --job-name=edupic_seq_go_stat
+#SBATCH --job-name=gopic_seq_stat
 #SBATCH --partition=plgrid-lem-cpu
 #SBATCH --nodes=1
-#SBATCH --mem-per-cpu=4G
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=1
-#SBATCH --time=03:30:00
+#SBATCH --mem-per-cpu=4G
+#SBATCH --time=00:30:00
 
-set -e
+set -euo pipefail
 
-# Ustawienie lokalnego katalogu tymczasowego dla OpenMPI / PRTE
-export TMPDIR=/tmp
+export GOMAXPROCS=1
+N_CYCLES="${N_CYCLES:-100}"
+USE_NC="${USE_NULL_COLLISION:-0}"
 
-WORK_DIR=$(pwd)
-LOG_DIR="${WORK_DIR}/saved_logs_Go/logs_job_${SLURM_JOB_ID}_SEQ_STAT"
-mkdir -p "${LOG_DIR}"
-
-exec > "${LOG_DIR}/job_output.log" 2>&1
-
-SOURCE_DIR="$HOME/GoPIC/Go/native_version"
+REPO_DIR="$HOME/GoPIC"
+SRC_DIR="${REPO_DIR}/Go/sequential"
 BUILD_DIR="$HOME/GoPIC_build/Go"
+LOG_DIR="$(pwd)/saved_logs_Go/logs_job_${SLURM_JOB_ID}_STAT"
 DATA_DIR="${LOG_DIR}/edupic_data"
 
-mkdir -p "${DATA_DIR}"
-mkdir -p "${BUILD_DIR}"
+mkdir -p "${BUILD_DIR}" "${DATA_DIR}"
+exec > "${LOG_DIR}/job_output.log" 2>&1
 
-if [ ! -d "${SOURCE_DIR}" ]; then
-    echo "ERROR: Katalog ${SOURCE_DIR} nie istnieje!"
-    exit 1
-fi
+echo "=== [Go Sequential STAT] Job: ${SLURM_JOB_ID} | Cycles: ${N_CYCLES} | Node: ${SLURM_JOB_NODELIST} ==="
+lscpu > "${LOG_DIR}/hardware_topology.txt" 2>&1
 
-NODE_INFO_FILE="${LOG_DIR}/hardware_topology.txt"
-{
-    echo "========================================================"
-    echo " HARDWARE & TOPOLOGY INFO — $(date '+%Y-%m-%d %H:%M:%S')"
-    echo "========================================================"
-    echo "Węzeł obliczeniowy: ${SLURM_JOB_NODELIST}"
-    echo "--- CPU topology (lscpu) ---"
-    lscpu
-} > "${NODE_INFO_FILE}" 2>&1
-
-# Kompilacja zawsze świeżego pliku wykonywalnego Go
-cd "${SOURCE_DIR}"
 module load go || true
 
-echo ">> Kompiluję świeży kod Go Sequential (wersja Standard)..."
-go build -o "${BUILD_DIR}/edupic_tmp_seq_std_${SLURM_JOB_ID}" ./cmd/pic
-mv "${BUILD_DIR}/edupic_tmp_seq_std_${SLURM_JOB_ID}" "${BUILD_DIR}/edupic_go_seq_std"
-
-echo ">> Kompiluję świeży kod Go Sequential (wersja Null-Collision)..."
-go build -tags nullcollision -o "${BUILD_DIR}/edupic_tmp_seq_nc_${SLURM_JOB_ID}" ./cmd/pic
-mv "${BUILD_DIR}/edupic_tmp_seq_nc_${SLURM_JOB_ID}" "${BUILD_DIR}/edupic_go_seq_nc"
-
-if [ "${USE_NULL_COLLISION}" = "true" ] || [ "${USE_NULL_COLLISION}" = "1" ]; then
-    echo ">> [Null-Collision] Wybrano wersję zoptymalizowaną"
-    BINARY="${BUILD_DIR}/edupic_go_seq_nc"
+BINARY="${BUILD_DIR}/edupic_seq_${SLURM_JOB_ID}"
+cd "${SRC_DIR}"
+if [ "${USE_NC}" = "1" ] || [ "${USE_NC}" = "true" ]; then
+    echo ">> Kompilacja: Go Sequential (Null-Collision)..."
+    go build -tags nullcollision -o "${BINARY}" ./cmd/pic
 else
-    echo ">> [Standard] Wybrano wersję klasyczną"
-    BINARY="${BUILD_DIR}/edupic_go_seq_std"
+    echo ">> Kompilacja: Go Sequential (Standard MCC)..."
+    go build -o "${BINARY}" ./cmd/pic
 fi
 
 cd "${DATA_DIR}"
-chmod +x "${BINARY}"
+cp "${REPO_DIR}/golden_record/picdata.bin" ./picdata.bin
 
-echo ">> Kopiuję stan początkowy (picdata.bin) z golden_record..."
-cp "$HOME/GoPIC/golden_record/picdata.bin" ./picdata.bin
-
-echo ">> Uruchamianie pomiaru liczników sprzętowych (perf stat)..."
+echo ">> Uruchamianie pomiaru perf stat..."
 perf stat \
     -e cycles:u,instructions:u \
     -e L1-dcache-loads:u,L1-dcache-load-misses:u \
     -e branch-loads:u,branch-misses:u \
     -o "${DATA_DIR}/perf_cpu_stats.txt" \
-    "${BINARY}" 100 m
+    "${BINARY}" "${N_CYCLES}"
 
-echo ">> Zadanie Go Sequential STAT zakończone. Wyniki w: ${DATA_DIR}"
+rm -f "${BINARY}"
+echo ">> Zakończono pomyślnie. Wyniki w: ${DATA_DIR}"

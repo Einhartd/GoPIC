@@ -11,7 +11,6 @@
 #include "null_collision.h"
 #endif
 
-// Simulation Initialization
 inline void init(int nseed) {
     for (int i = 0; i < nseed; i++) {
         x_e[i]  = L * R01(MTgen);               // Initial electron position
@@ -602,6 +601,13 @@ inline void step7_collisions_electrons_body(int tid, int num_threads) {
     }
 #endif
 
+    // All threads must finish adding to their per-thread new_electrons / new_ions
+    // buffers BEFORE the single thread merges them into the global arrays.
+    // Without this barrier, the merging thread could start reading new_electrons[t]
+    // while another thread is still appending to it — causing a data race that
+    // leads to double-counting newly created particles and unbounded N_e / N_i growth.
+    #pragma omp barrier
+
     // Finally, merge all per-thread created particles back into the global arrays.
     // This is a serial finalization step: it adjusts the shared particle count N_e / N_i.
     #pragma omp single
@@ -641,24 +647,35 @@ inline void step8_collision_ions_body(int tid, int num_threads, int t) {
     if ((t % N_SUB) != 0) return;
 
 #ifdef USE_NULL_COLLISION
-    int local_N_coll_star_i = 0;
-    auto &candidates_i_tid = worker_buffers.candidates_i[tid];
+    // Use the same single-sample + chunking pattern as electrons (step7).
+    // Previously each thread independently drew binom(N_i, P_star_i) candidates,
+    // which multiplied the total ion collision count by num_threads and caused
+    // unbounded particle growth.
+    static int              global_N_coll_star_i = 0;
+    static std::vector<int> global_candidates_i;
 
+    #pragma omp single
     {
         std::binomial_distribution<int> binom_i(N_i, P_star_i);
-        local_N_coll_star_i = binom_i(MTgen);
-        if (local_N_coll_star_i > N_i) local_N_coll_star_i = N_i;
-        if (local_N_coll_star_i > 0) {
-            random_sample(N_i, local_N_coll_star_i, candidates_i_tid);
+        global_N_coll_star_i = binom_i(MTgen);
+        if (global_N_coll_star_i > N_i) global_N_coll_star_i = N_i;
+        if (global_N_coll_star_i > 0) {
+            if ((int)global_candidates_i.size() < N_i)
+                global_candidates_i.resize(N_i);
+            random_sample(N_i, global_N_coll_star_i, global_candidates_i);
         }
     }
-    
-    if (local_N_coll_star_i > 0) {
+
+    if (global_N_coll_star_i > 0) {
+        int chunk    = (global_N_coll_star_i + num_threads - 1) / num_threads;
+        int i_start  = std::min(tid * chunk, global_N_coll_star_i);
+        int i_end    = std::min(i_start + chunk, global_N_coll_star_i);
+
         double vx_a, vy_a, vz_a, gx, gy, gz, g_sqr, g, energy;
         int energy_index;
 
-        for (int i = 0; i < local_N_coll_star_i; ++i) {
-            int ki = candidates_i_tid[i];
+        for (int i = i_start; i < i_end; ++i) {
+            int ki = global_candidates_i[i];
 
             vx_a = RMB(MTgen); vy_a = RMB(MTgen); vz_a = RMB(MTgen);
             gx = vx_i[ki] - vx_a;
@@ -668,11 +685,11 @@ inline void step8_collision_ions_body(int tid, int num_threads, int t) {
             g = sqrt(g_sqr);
             energy = 0.5 * MU_ARAR * g_sqr / EV_TO_J;
             energy_index = min(int(energy / DE_CS + 0.5), CS_RANGES - 1);
-             
+
             double real_nu = sigma_tot_i[energy_index] * g;
             double p_accept = real_nu / nu_star_i;
             if (p_accept > 1.0) p_accept = 1.0;
-             
+
             if (R01(MTgen) < p_accept) {
                 collision_ion(&vx_i[ki], &vy_i[ki], &vz_i[ki], &vx_a, &vy_a, &vz_a, energy_index);
                 #pragma omp atomic

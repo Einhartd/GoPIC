@@ -1,80 +1,50 @@
 #!/bin/bash -l
-
-#SBATCH --job-name=edupic_stat
+#SBATCH --job-name=edupic_c_seq_stat
 #SBATCH --partition=plgrid-lem-cpu
 #SBATCH --nodes=1
-#SBATCH --mem-per-cpu=4G
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=1
-#SBATCH --time=3:30:00
+#SBATCH --mem-per-cpu=4G
+#SBATCH --time=00:30:00
 
-set -e
+set -euo pipefail
 
-# Ustawienie lokalnego katalogu tymczasowego dla OpenMPI / PRTE
-export TMPDIR=/tmp
+N_CYCLES="${N_CYCLES:-100}"
+USE_NC="${USE_NULL_COLLISION:-0}"
 
-WORK_DIR=$(pwd)
-LOG_DIR="${WORK_DIR}/saved_logs_C/logs_job_${SLURM_JOB_ID}_STAT"
-mkdir -p "${LOG_DIR}"
-exec > "${LOG_DIR}/job_output.log" 2>&1
-
-SOURCE_DIR="$HOME/GoPIC/C"
+REPO_DIR="$HOME/GoPIC"
+SRC_DIR="${REPO_DIR}/C/sequential"
 BUILD_DIR="$HOME/GoPIC_build/C"
+LOG_DIR="$(pwd)/saved_logs_C/logs_job_${SLURM_JOB_ID}_STAT"
 DATA_DIR="${LOG_DIR}/edupic_data"
 
-mkdir -p "${DATA_DIR}"
-mkdir -p "${BUILD_DIR}"
+mkdir -p "${BUILD_DIR}" "${DATA_DIR}"
+exec > "${LOG_DIR}/job_output.log" 2>&1
 
-if [ ! -f "${SOURCE_DIR}/eduPIC.cc" ]; then
-    echo "ERROR: Plik ${SOURCE_DIR}/eduPIC.cc nie istnieje!"
-    exit 1
-fi
+echo "=== [C++ Sequential STAT] Job: ${SLURM_JOB_ID} | Cycles: ${N_CYCLES} | Node: ${SLURM_JOB_NODELIST} ==="
+lscpu > "${LOG_DIR}/hardware_topology.txt" 2>&1
 
-NODE_INFO_FILE="${LOG_DIR}/hardware_topology.txt"
+module purge && module load gcc
 
-{
-    echo "========================================================"
-    echo " HARDWARE & TOPOLOGY INFO — $(date '+%Y-%m-%d %H:%M:%S')"
-    echo "========================================================"
-    echo "Węzeł obliczeniowy: ${SLURM_JOB_NODELIST}"
-    echo "--- CPU topology (lscpu) ---"
-    lscpu
-} > "${NODE_INFO_FILE}" 2>&1
-
-
-module purge
-module load gcc
-
-echo ">> Kompiluję świeży kod C++ (wersja Standard)..."
-g++ -O3 -fno-omit-frame-pointer -march=native "${SOURCE_DIR}/eduPIC.cc" -o "${BUILD_DIR}/edupic_tmp_std_${SLURM_JOB_ID}"
-mv "${BUILD_DIR}/edupic_tmp_std_${SLURM_JOB_ID}" "${BUILD_DIR}/edupic_c_std"
-
-echo ">> Kompiluję świeży kod C++ (wersja Null-Collision)..."
-g++ -O3 -fno-omit-frame-pointer -march=native -DUSE_NULL_COLLISION "${SOURCE_DIR}/eduPIC.cc" -o "${BUILD_DIR}/edupic_tmp_nc_${SLURM_JOB_ID}"
-mv "${BUILD_DIR}/edupic_tmp_nc_${SLURM_JOB_ID}" "${BUILD_DIR}/edupic_c_nc"
-
-if [ "${USE_NULL_COLLISION}" = "true" ] || [ "${USE_NULL_COLLISION}" = "1" ]; then
-    echo ">> [Null-Collision] Wybrano wersję zoptymalizowaną"
-    BINARY="${BUILD_DIR}/edupic_c_nc"
+BINARY="${BUILD_DIR}/edupic_seq_${SLURM_JOB_ID}"
+if [ "${USE_NC}" = "1" ] || [ "${USE_NC}" = "true" ]; then
+    echo ">> Kompilacja: C++ Sequential (Null-Collision)..."
+    g++ -O3 -fno-omit-frame-pointer -march=native -DUSE_NULL_COLLISION "${SRC_DIR}/eduPIC.cc" -o "${BINARY}"
 else
-    echo ">> [Standard] Wybrano wersję klasyczną"
-    BINARY="${BUILD_DIR}/edupic_c_std"
+    echo ">> Kompilacja: C++ Sequential (Standard MCC)..."
+    g++ -O3 -fno-omit-frame-pointer -march=native "${SRC_DIR}/eduPIC.cc" -o "${BINARY}"
 fi
 
 cd "${DATA_DIR}"
+cp "${REPO_DIR}/golden_record/picdata.bin" ./picdata.bin
 
-# Zapewnienie uprawnień wykonywalnych dla binarium
-chmod +x "${BINARY}"
-
-echo ">> Kopiuję stan początkowy (picdata.bin) z golden_record..."
-cp "$HOME/GoPIC/golden_record/picdata.bin" ./picdata.bin
-
-echo ">> Uruchamianie pomiaru liczników sprzętowych (perf stat)..."
+echo ">> Uruchamianie pomiaru perf stat..."
 perf stat \
     -e cycles:u,instructions:u \
     -e L1-dcache-loads:u,L1-dcache-load-misses:u \
     -e branch-loads:u,branch-misses:u \
     -o "${DATA_DIR}/perf_cpu_stats.txt" \
-    "${BINARY}" 100 m
+    "${BINARY}" "${N_CYCLES}"
 
-echo ">> Zadanie STAT zakończone. Wyniki w: ${DATA_DIR}"
+rm -f "${BINARY}"
+echo ">> Zakończono pomyślnie. Wyniki w: ${DATA_DIR}"

@@ -218,3 +218,16 @@ tail -f saved_logs_Go/logs_job_<JOB_ID>_*/job_output.log
 tail -f saved_logs_C/logs_job_<JOB_ID>_*/job_output.log
 tail -f saved_logs_python/logs_job_<JOB_ID>_*/job_output.log
 ```
+
+---
+
+## 6. Automatyczne generowanie Flame Graphs na klastrze
+
+Wszystkie skrypty `*_record.sh` automatycznie generują pliki **`perf.folded`** oraz wektorowy wykres **`flamegraph.svg`** bezpośrednio na węźle obliczeniowym (zaraz po zakończeniu `perf record`).
+
+Aby to działało, wystarczy jednorazowo sklonować narzędzie [FlameGraph](https://github.com/brendangregg/FlameGraph) w katalogu domowym na węźle logowania klastra:
+```bash
+git clone --depth 1 https://github.com/brendangregg/FlameGraph.git $HOME/FlameGraph
+```
+*Skrypty sprawdzają katalogi `$HOME/FlameGraph` oraz `$HOME/GoPIC/plots/FlameGraph`.*
+Po zakończeniu zadania plik `flamegraph.svg` znajduje się w katalogu `edupic_data/` danego joba i jest gotowy do otwarcia w dowolnej przeglądarce lub w notatniku `plots/flamegraphs.ipynb`.
