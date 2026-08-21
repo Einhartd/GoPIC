@@ -19,10 +19,9 @@ if [ "${MEASURE_FLAG}" = "1" ] || [ "${MEASURE_FLAG}" = "true" ] || [ "${MEASURE
     MEASURE_ARG="m"
 fi
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REPO_DIR="${REPO_DIR:-$(cd "${SCRIPT_DIR}/../.." && pwd)}"
+REPO_DIR="$HOME/GoPIC"
 SRC_DIR="${REPO_DIR}/Go/parallel_channels"
-BUILD_DIR="${REPO_DIR}/build/Go"
+BUILD_DIR="$HOME/GoPIC_build/Go"
 LOG_DIR="$(pwd)/saved_logs_Go/logs_job_${SLURM_JOB_ID}_CHANNELS_RECORD"
 DATA_DIR="${LOG_DIR}/edupic_data"
 PERF_DATA="${SCRATCH:-${DATA_DIR}}/perf_${SLURM_JOB_ID}.data"

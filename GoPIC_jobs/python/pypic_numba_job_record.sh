@@ -20,8 +20,7 @@ if [ "${MEASURE_FLAG}" = "1" ] || [ "${MEASURE_FLAG}" = "true" ] || [ "${MEASURE
     MEASURE_ARG="m"
 fi
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REPO_DIR="${REPO_DIR:-$(cd "${SCRIPT_DIR}/../.." && pwd)}"
+REPO_DIR="$HOME/GoPIC"
 SRC_DIR="${REPO_DIR}/python/numba_parallel"
 LOG_DIR="$(pwd)/saved_logs_python/logs_job_${SLURM_JOB_ID}_NUMBA_RECORD"
 DATA_DIR="${LOG_DIR}/edupic_data"

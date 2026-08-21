@@ -18,10 +18,9 @@ if [ "${MEASURE_FLAG}" = "1" ] || [ "${MEASURE_FLAG}" = "true" ] || [ "${MEASURE
     MEASURE_ARG="m"
 fi
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REPO_DIR="${REPO_DIR:-$(cd "${SCRIPT_DIR}/../.." && pwd)}"
+REPO_DIR="$HOME/GoPIC"
 SRC_DIR="${REPO_DIR}/C/parallel-only-omp"
-BUILD_DIR="${REPO_DIR}/build/C"
+BUILD_DIR="$HOME/GoPIC_build/C"
 LOG_DIR="$(pwd)/saved_logs_C/logs_job_${SLURM_JOB_ID}_OMP_RECORD"
 DATA_DIR="${LOG_DIR}/edupic_data"
 PERF_DATA="${SCRATCH:-${DATA_DIR}}/perf_${SLURM_JOB_ID}.data"

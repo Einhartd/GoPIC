@@ -57,7 +57,7 @@ inline void step1_compute_electron_density_body(int tid, int num_threads) {
     // - split the particle loop over threads,
     // - each thread processes only its chunk of particles,
     // - no immediate wait: threads can continue to the reduction phase once done.
-    #pragma omp for simd nowait
+    #pragma omp for nowait
     for (int k = 0; k < N_e; k++) {
         c0 = x_e[k] * INV_DX;
         p  = int(c0);
@@ -112,7 +112,7 @@ inline void step1_compute_ion_density_body(int tid, int num_threads, int t) {
 
         int p;
         double c0;
-        #pragma omp for simd nowait
+        #pragma omp for nowait
         for (int k = 0; k < N_i; k++) {
             c0 = x_i[k] * INV_DX;
             p  = int(c0);
