@@ -8,6 +8,12 @@
 #include <array>
 #include <omp.h>
 
+#ifdef PROFILE_RECORD                                                                                                                                                               
+    #define PIC_STEP inline __attribute__((noinline))                                                                                                                               
+#else                                                                                                                                                                               
+    #define PIC_STEP inline                                                                                                                                                         
+#endif  
+
 using namespace std;
 
 // Cross Sections & Macroscopic Parameters

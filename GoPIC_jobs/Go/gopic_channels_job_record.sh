@@ -3,7 +3,7 @@
 #SBATCH --partition=plgrid-lem-cpu
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
-#SBATCH --cpus-per-task=16
+#SBATCH --cpus-per-task=1
 #SBATCH --mem-per-cpu=4G
 #SBATCH --time=00:10:00
 
@@ -11,7 +11,7 @@ set -euo pipefail
 
 export GOMAXPROCS=${SLURM_CPUS_PER_TASK}
 NUM_WORKERS="${NUM_WORKERS:-$GOMAXPROCS}"
-N_CYCLES="${N_CYCLES_RECORD:-20}"
+N_CYCLES="${N_CYCLES_RECORD:-100}"
 USE_NC="${USE_NULL_COLLISION:-0}"
 MEASURE_FLAG="${MEASUREMENT_MODE:-${MEASUREMENT:-0}}"
 MEASURE_ARG=""
@@ -25,6 +25,7 @@ BUILD_DIR="$HOME/GoPIC_build/Go"
 LOG_DIR="$(pwd)/saved_logs_Go/logs_job_${SLURM_JOB_ID}_CHANNELS_RECORD"
 DATA_DIR="${LOG_DIR}/edupic_data"
 PERF_DATA="${SCRATCH:-${DATA_DIR}}/perf_${SLURM_JOB_ID}.data"
+FLAME_DIR="$HOME/FlameGraph"
 
 mkdir -p "${BUILD_DIR}" "${DATA_DIR}"
 exec > "${LOG_DIR}/job_output.log" 2>&1
@@ -61,10 +62,7 @@ perf record --max-size=100M -F 49 -g -o "${PERF_DATA}" -- "${BINARY}" --workers=
 echo ">> Generowanie raportów tekstowych perf..."
 perf report -i "${PERF_DATA}" --stdio > "${DATA_DIR}/perf_report.txt"
 perf report -i "${PERF_DATA}" --stdio --sort=cpu,symbol > "${DATA_DIR}/perf_report_per_cpu.txt"
-perf report -i "${PERF_DATA}" --stdio --per-thread > "${DATA_DIR}/perf_report_per_thread.txt"
 
-FLAME_DIR="${REPO_DIR}/plots/FlameGraph"
-[ ! -d "${FLAME_DIR}" ] && FLAME_DIR="$HOME/FlameGraph"
 
 if [ -f "${FLAME_DIR}/stackcollapse-perf.pl" ] && [ -f "${FLAME_DIR}/flamegraph.pl" ]; then
     echo ">> Generowanie Flame Graph (SVG)..."

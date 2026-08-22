@@ -3,9 +3,9 @@
 #SBATCH --partition=plgrid-lem-cpu
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
-#SBATCH --cpus-per-task=16
+#SBATCH --cpus-per-task=64
 #SBATCH --mem-per-cpu=4G
-#SBATCH --time=00:30:00
+#SBATCH --time=00:10:00
 
 set -euo pipefail
 
@@ -60,5 +60,4 @@ perf stat \
     -o "${DATA_DIR}/perf_cpu_stats.txt" \
     "${BINARY}" "${N_CYCLES}" ${MEASURE_ARG}
 
-rm -f "${BINARY}"
 echo ">> Zakończono pomyślnie. Wyniki w: ${DATA_DIR}"

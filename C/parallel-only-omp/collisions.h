@@ -19,7 +19,7 @@ struct NewParticles {
     }
 };
 
-inline void collision_electron (double xe, double *vxe, double *vye, double *vze, int eindex,
+PIC_STEP void collision_electron (double xe, double *vxe, double *vye, double *vze, int eindex,
                                 NewParticles& new_e, NewParticles& new_i) {
 
     double t0,t1,t2,rnd;
@@ -112,7 +112,7 @@ inline void collision_electron (double xe, double *vxe, double *vye, double *vze
     (*vze) = wz + F2 * gz;
 }
 
-inline void collision_ion (double *vx_1, double *vy_1, double *vz_1,
+PIC_STEP void collision_ion (double *vx_1, double *vy_1, double *vz_1,
                     double *vx_2, double *vy_2, double *vz_2, int e_index){
     double   g,gx,gy,gz,wx,wy,wz,rnd;
     double   theta,phi,chi,eta,st,ct,sp,cp,sc,cc,se,ce,t1,t2;

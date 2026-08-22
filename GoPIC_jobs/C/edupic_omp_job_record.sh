@@ -3,14 +3,14 @@
 #SBATCH --partition=plgrid-lem-cpu
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
-#SBATCH --cpus-per-task=16
+#SBATCH --cpus-per-task=1
 #SBATCH --mem-per-cpu=4G
 #SBATCH --time=00:10:00
 
 set -euo pipefail
 
 export OMP_NUM_THREADS=${SLURM_CPUS_PER_TASK}
-N_CYCLES="${N_CYCLES_RECORD:-20}"
+N_CYCLES="${N_CYCLES_RECORD:-100}"
 USE_NC="${USE_NULL_COLLISION:-0}"
 MEASURE_FLAG="${MEASUREMENT_MODE:-${MEASUREMENT:-0}}"
 MEASURE_ARG=""
@@ -24,6 +24,7 @@ BUILD_DIR="$HOME/GoPIC_build/C"
 LOG_DIR="$(pwd)/saved_logs_C/logs_job_${SLURM_JOB_ID}_OMP_RECORD"
 DATA_DIR="${LOG_DIR}/edupic_data"
 PERF_DATA="${SCRATCH:-${DATA_DIR}}/perf_${SLURM_JOB_ID}.data"
+FLAME_DIR="$HOME/FlameGraph"
 
 mkdir -p "${BUILD_DIR}" "${DATA_DIR}"
 exec > "${LOG_DIR}/job_output.log" 2>&1
@@ -39,10 +40,10 @@ rm -f "${BINARY}"
 
 if [ "${USE_NC}" = "1" ] || [ "${USE_NC}" = "true" ]; then
     echo ">> Kompilacja: C++ OpenMP (Null-Collision)..."
-    g++ -O3 -fno-omit-frame-pointer -march=native -fopenmp -DUSE_NULL_COLLISION "${SRC_DIR}/eduPIC.cc" -o "${BINARY}"
+    g++ -O3 -fno-omit-frame-pointer -march=native -fopenmp -DUSE_NULL_COLLISION -DPROFILE_RECORD "${SRC_DIR}/eduPIC.cc" -o "${BINARY}"
 else
     echo ">> Kompilacja: C++ OpenMP (Standard MCC)..."
-    g++ -O3 -fno-omit-frame-pointer -march=native -fopenmp "${SRC_DIR}/eduPIC.cc" -o "${BINARY}"
+    g++ -O3 -fno-omit-frame-pointer -march=native -fopenmp -DPROFILE_RECORD "${SRC_DIR}/eduPIC.cc" -o "${BINARY}"
 fi
 
 if [ ! -f "${BINARY}" ]; then
@@ -60,8 +61,6 @@ echo ">> Generowanie raportów tekstowych perf..."
 perf report -i "${PERF_DATA}" --stdio > "${DATA_DIR}/perf_report.txt"
 perf report -i "${PERF_DATA}" --stdio --sort=cpu,symbol > "${DATA_DIR}/perf_report_per_cpu.txt"
 
-FLAME_DIR="${REPO_DIR}/plots/FlameGraph"
-[ ! -d "${FLAME_DIR}" ] && FLAME_DIR="$HOME/FlameGraph"
 
 if [ -f "${FLAME_DIR}/stackcollapse-perf.pl" ] && [ -f "${FLAME_DIR}/flamegraph.pl" ]; then
     echo ">> Generowanie Flame Graph (SVG)..."

@@ -10,6 +10,7 @@
 #ifdef USE_NULL_COLLISION
 #include "null_collision.h"
 #endif
+   
 
 inline void init(int nseed) {
     for (int i = 0; i < nseed; i++) {
@@ -46,7 +47,7 @@ inline void init(int nseed) {
 // -----------------------------------------------------------------------------
 
 // STEP 1a: Compute Electron Charge Density (Scatter-Add / Deposition)
-inline void step1_compute_electron_density_body(int tid, int num_threads) {
+PIC_STEP void step1_compute_electron_density_body(int tid, int num_threads) {
     // Every thread owns its own local density buffer.
     // This is the key OMP optimization: no two threads write to the same array cell.
     worker_buffers.e_density[tid].fill(0.0);
@@ -91,7 +92,7 @@ inline void step1_compute_electron_density_body(int tid, int num_threads) {
     for (int p = 0; p < N_G; p++) cumul_e_density[p] += e_density[p];
 }
 
-inline void step1_compute_electron_density(void) {
+PIC_STEP void step1_compute_electron_density(void) {
     int num_threads = omp_get_max_threads();
     worker_buffers.init_buffers(num_threads);
     #pragma omp parallel
@@ -103,7 +104,7 @@ inline void step1_compute_electron_density(void) {
 }
 
 // STEP 1b: Compute Ion Charge Density (Subcycled)
-inline void step1_compute_ion_density_body(int tid, int num_threads, int t) {
+PIC_STEP void step1_compute_ion_density_body(int tid, int num_threads, int t) {
     if ((t % N_SUB) == 0) {
         // Ion density is updated less frequently than electron density.
         // The local-deposition + reduction pattern is identical to electrons,
@@ -143,7 +144,7 @@ inline void step1_compute_ion_density_body(int tid, int num_threads, int t) {
     for (int p = 0; p < N_G; p++) cumul_i_density[p] += i_density[p];
 }
 
-inline void step1_compute_ion_density(int t) {
+PIC_STEP void step1_compute_ion_density(int t) {
     int num_threads = omp_get_max_threads();
     worker_buffers.init_buffers(num_threads);
     #pragma omp parallel
@@ -155,7 +156,7 @@ inline void step1_compute_ion_density(int t) {
 }
 
 // STEP 2: Solve Poisson Equation (1D Field Solver)
-inline void step2_solve_poisson(double current_time) {
+PIC_STEP void step2_solve_poisson(double current_time) {
     xvector rho;
     for (int p = 0; p < N_G; p++) {
         rho[p] = E_CHARGE * (i_density[p] - e_density[p]);
@@ -164,7 +165,7 @@ inline void step2_solve_poisson(double current_time) {
 }
 
 // STEP 3: Push Electrons & Accumulate Diagnostics
-inline void step3_move_electrons_body(int tid, int num_threads, int t_index) {
+PIC_STEP void step3_move_electrons_body(int tid, int num_threads, int t_index) {
     if (measurement_mode) {
         // Reset the local diagnostic buffers for this thread before it starts processing particles.
         // This keeps all thread-local statistics independent and avoids writing into shared arrays.
@@ -269,7 +270,7 @@ inline void step3_move_electrons_body(int tid, int num_threads, int t_index) {
     }
 }
 
-inline void step3_move_electrons(int t_index) {
+PIC_STEP void step3_move_electrons(int t_index) {
     int num_threads = omp_get_max_threads();
     worker_buffers.init_buffers(num_threads);
     #pragma omp parallel
@@ -281,7 +282,7 @@ inline void step3_move_electrons(int t_index) {
 }
 
 // STEP 4: Push Ions & Accumulate Diagnostics (Subcycled)
-inline void step4_move_ions_body(int tid, int num_threads, int t_index, int t) {
+PIC_STEP void step4_move_ions_body(int tid, int num_threads, int t_index, int t) {
     if ((t % N_SUB) != 0) return;
 
     if (measurement_mode) {
@@ -339,7 +340,7 @@ inline void step4_move_ions_body(int tid, int num_threads, int t_index, int t) {
     }
 }
 
-inline void step4_move_ions(int t_index, int t) {
+PIC_STEP void step4_move_ions(int t_index, int t) {
     if ((t % N_SUB) != 0) return;
     int num_threads = omp_get_max_threads();
     worker_buffers.init_buffers(num_threads);
@@ -352,7 +353,7 @@ inline void step4_move_ions(int t_index, int t) {
 }
 
 // STEP 5: Electron Boundary Checks (Parallel Flag + Serial Swap)
-inline void step5_check_boundaries_electrons_body(int tid, int num_threads) {
+PIC_STEP void step5_check_boundaries_electrons_body(int tid, int num_threads) {
     // The absorbed[] flag array is shared because it holds the state of each particle,
     // but it is initialized only once in the single block.
     static std::vector<uint8_t> absorbed;
@@ -411,7 +412,7 @@ inline void step5_check_boundaries_electrons_body(int tid, int num_threads) {
     }
 }
 
-inline void step5_check_boundaries_electrons() {
+PIC_STEP void step5_check_boundaries_electrons() {
     int num_threads = omp_get_max_threads();
     worker_buffers.init_buffers(num_threads);
     #pragma omp parallel
@@ -423,7 +424,7 @@ inline void step5_check_boundaries_electrons() {
 }
 
 // STEP 6: Ion Boundary Checks (Parallel Flag + Serial Swap, Subcycled)
-inline void step6_check_boundaries_ions_body(int tid, int num_threads, int t) {
+PIC_STEP void step6_check_boundaries_ions_body(int tid, int num_threads, int t) {
     if ((t % N_SUB) != 0) return;
 
     static std::vector<uint8_t> absorbed;
@@ -494,7 +495,7 @@ inline void step6_check_boundaries_ions_body(int tid, int num_threads, int t) {
     }
 }
 
-inline void step6_check_boundaries_ions(int t) {
+PIC_STEP void step6_check_boundaries_ions(int t) {
     if ((t % N_SUB) != 0) return;
     int num_threads = omp_get_max_threads();
     worker_buffers.init_buffers(num_threads);
@@ -507,7 +508,7 @@ inline void step6_check_boundaries_ions(int t) {
 }
 
 // STEP 7: Electron Collisions & Ionization
-inline void step7_collisions_electrons_body(int tid, int num_threads) {
+PIC_STEP void step7_collisions_electrons_body(int tid, int num_threads) {
     // Each thread owns its own temporary lists of newly created particles.
     // This avoids concurrent writes to a single global list of "new particles".
     static std::vector<NewParticles> new_electrons;
@@ -631,7 +632,7 @@ inline void step7_collisions_electrons_body(int tid, int num_threads) {
     }
 }
 
-inline void step7_collisions_electrons() {
+PIC_STEP void step7_collisions_electrons() {
     int num_threads = omp_get_max_threads();
     worker_buffers.init_buffers(num_threads);
     #pragma omp parallel
@@ -643,7 +644,7 @@ inline void step7_collisions_electrons() {
 }
 
 // STEP 8: Ion Collisions (Subcycled)
-inline void step8_collision_ions_body(int tid, int num_threads, int t) {
+PIC_STEP void step8_collision_ions_body(int tid, int num_threads, int t) {
     if ((t % N_SUB) != 0) return;
 
 #ifdef USE_NULL_COLLISION
@@ -723,7 +724,7 @@ inline void step8_collision_ions_body(int tid, int num_threads, int t) {
 #endif
 }
 
-inline void step8_collision_ions(int t) {
+PIC_STEP void step8_collision_ions(int t) {
     if ((t % N_SUB) != 0) return;
     int num_threads = omp_get_max_threads();
     worker_buffers.init_buffers(num_threads);
@@ -736,7 +737,7 @@ inline void step8_collision_ions(int t) {
 }
 
 // STEP 9: Collect XT Diagnostic Arrays
-inline void step9_collect_xt_data(int t_index) {
+PIC_STEP void step9_collect_xt_data(int t_index) {
     if (!measurement_mode) return;
 
     for (int p = 0; p < N_G; p++) {
@@ -748,7 +749,7 @@ inline void step9_collect_xt_data(int t_index) {
 }
 
 // Main Time Loop (RF Cycle Executor with Persistent Parallel Region)
-inline void do_one_cycle(void) {
+PIC_STEP void do_one_cycle(void) {
     int num_threads = omp_get_max_threads();
     worker_buffers.init_buffers(num_threads);
 

@@ -24,7 +24,7 @@ inline void compute_null_collision_params() {
 
 // losuje 'count' unikalnych indeksow z zakresu [0, n) i zapisuje je
 // bezposrednio do lokalnego bufora danego watku.
-inline void random_sample(int n, int count, std::vector<int> &buffer) {
+PIC_STEP void random_sample(int n, int count, std::vector<int> &buffer) {
     if (buffer.size() < (size_t)n) {
         buffer.resize(n);
     }

@@ -3,9 +3,9 @@
 #SBATCH --partition=plgrid-lem-cpu
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
-#SBATCH --cpus-per-task=16
+#SBATCH --cpus-per-task=64
 #SBATCH --mem-per-cpu=4G
-#SBATCH --time=00:30:00
+#SBATCH --time=00:20:00
 
 set -euo pipefail
 
