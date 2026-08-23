@@ -7,7 +7,10 @@ import (
 	"math"
 )
 
-// InitNullCollision precomputes parameters for null-collision MCC.
+/*
+Wstępne wyznaczenie maksymalnych częstości zderzeń i prawdopodobieństw dla metody Null-Collision (MCC).
+Oblicza nu*_e, P*_e dla elektronów oraz nu*_i, P*_i dla jonów w oparciu o stabelaryzowane przekroje czynne.
+*/
 func (sim *SimulationState) InitNullCollision() {
 	sim.NuStarE = sim.MaxElectronCollFreq()
 	sim.PStarE = 1.0 - math.Exp(-sim.NuStarE*DT_E)
@@ -19,7 +22,13 @@ func (sim *SimulationState) InitNullCollision() {
 	fmt.Printf(">> GoPIC: null-collision: nu*_i = %e, P*_i = %e\n", sim.NuStarI, sim.PStarI)
 }
 
-// randomSample returns count unique indices drawn from [0, n) without replacement.
+/*
+Losuje zadaną liczbę unikalnych indeksów cząstek ze zbioru [0, n) bez powtórzeń (częściowy algorytm Fishera-Yatesa).
+Używa wstępnie zaalokowanej puli CandidatePool w celu eliminacji alokacji pamięci na stercie i presji na GC.
+@param n     Rozmiar populacji cząstek (N_e lub N_i).
+@param count Liczba kandydatów do wylosowania (N*_coll).
+@return Wycinek unikalnych indeksów kandydatów.
+*/
 func (sim *SimulationState) randomSample(n, count int) []int {
 	pool := sim.CandidatePool[:n]
 	for i := 0; i < n; i++ {
@@ -32,11 +41,16 @@ func (sim *SimulationState) randomSample(n, count int) []int {
 	return pool[:count]
 }
 
-// sampleBinomial losuje liczbę zdarzeń z rozkładu dwumianowego Binomial(n, p).
-// Zastosowano aproksymację normalną N(mu, sigma^2) zgodnie z twierdzeniem de Moivre'a-Laplace'a.
-// Założenie matematyczne: Dla dużej liczby cząstek (n >= 1000) oraz n*p >= 5.0, rozkład Binomial(n, p)
-// jest w pełni zbieżny z rozkładem Gaussa N(n*p, n*p*(1-p)).
-// Optymalizacja redukuje złożoność czasową z O(n) losowań Bernoulliego do O(1) przy zachowaniu błędu statystycznego < 0.01%.
+/*
+Losuje liczbę zdarzeń z rozkładu dwumianowego Binomial(n, p).
+Zastosowano aproksymację normalną N(mu, sigma^2) zgodnie z twierdzeniem de Moivre'a-Laplace'a.
+Założenie matematyczne: Dla dużej liczby cząstek (n >= 1000) oraz n*p >= 5.0, rozkład Binomial(n, p)
+jest w pełni zbieżny z rozkładem Gaussa N(n*p, n*p*(1-p)).
+Optymalizacja redukuje złożoność czasową z O(n) losowań Bernoulliego do O(1) przy zachowaniu błędu statystycznego < 0.01%.
+@param n Liczba prób (całkowita liczba cząstek w układzie).
+@param p Prawdopodobieństwo sukcesu w pojedynczej próbie (P*_e lub P*_i).
+@return Wylosowana liczba kandydatów do zderzenia N*_coll.
+*/
 func (sim *SimulationState) sampleBinomial(n int, p float64) int {
 	if n <= 0 || p <= 0.0 {
 		return 0
@@ -44,7 +58,7 @@ func (sim *SimulationState) sampleBinomial(n int, p float64) int {
 	if p >= 1.0 {
 		return n
 	}
-	// Dla bardzo małych wartości n*p < 5.0 stosujemy dokładne losowanie Bernoulliego
+	// Dla małych wartości n*p < 5.0 stosujemy dokładne losowanie Bernoulliego
 	if float64(n)*p < 5.0 {
 		count := 0
 		for i := 0; i < n; i++ {
@@ -68,6 +82,15 @@ func (sim *SimulationState) sampleBinomial(n int, p float64) int {
 	return count
 }
 
+/*
+KROK 7: Zderzenia elektronów metodą Null-Collision z równoległą obsługą przez kanały (Channels).
+Etapy:
+ 1. Losowanie łącznej liczby kandydatów N*_coll ~ Binomial(N_e, P*_e) i unikalnych indeksów bez powtórzeń.
+ 2. Rozesłanie rozkazu CmdCollisionsE do trwałych workerów za pomocą kanałów (broadcastAndWait).
+ 3. Workery równolegle wykonują testy akceptacji p_accept = nu(E) / nu*_e i buforują nowe pary w AoS.
+ 4. Oczekiwanie na potwierdzenia od wszystkich workerów w kanale WorkerDoneChan.
+ 5. Scalenie (flush) buforów workerów do głównych tablic SoA.
+*/
 func (sim *SimulationState) Step7CollisionsElectrons() {
 	nCollStar := sim.sampleBinomial(sim.N_e, sim.PStarE)
 	if nCollStar > sim.N_e {
@@ -78,10 +101,11 @@ func (sim *SimulationState) Step7CollisionsElectrons() {
 		return
 	}
 
+	// ZRÓWNOLEGLENIE: Losowanie podzbioru kandydatów i wysłanie zadania kanałami
 	sim.CandidatesE = sim.randomSample(sim.N_e, nCollStar)
 	sim.broadcastAndWait(CmdCollisionsE)
 
-	// Flush buforów workerów do stanu głównego
+	// SCALENIE (FLUSH): Przepisanie nowych cząstek z buforów AoS do tablic SoA
 	numWorkers := len(sim.WorkerCmdChan)
 	for w := 0; w < numWorkers; w++ {
 		for _, p := range sim.WorkerNewElectrons[w] {
@@ -101,6 +125,16 @@ func (sim *SimulationState) Step7CollisionsElectrons() {
 	}
 }
 
+/*
+KROK 8: Zderzenia jonów metodą Null-Collision (Subcycling co N_SUB kroków).
+Etapy:
+ 1. Sprawdzenie warunku subcyclingu (t % N_SUB == 0).
+ 2. Losowanie liczby kandydatów N*_coll ~ Binomial(N_i, P*_i) i unikalnych indeksów bez powtórzeń.
+ 3. Rozesłanie rozkazu CmdCollisionsI do kanałów workerów (broadcastAndWait).
+ 4. Workery równolegle próbkują prędkość atomu tła z rozkładu RMB i testują akceptację zderzenia.
+
+@param t Indeks bieżącego podkroku czasowego w cyklu RF (0 .. N_T-1).
+*/
 func (sim *SimulationState) Step8CollisionIons(t int) {
 	if (t % N_SUB) != 0 {
 		return
@@ -115,6 +149,7 @@ func (sim *SimulationState) Step8CollisionIons(t int) {
 		return
 	}
 
+	// ZRÓWNOLEGLENIE: Wysłanie rozkazu zderzeń jonów do trwałych workerów
 	sim.CandidatesI = sim.randomSample(sim.N_i, nCollStar)
 	sim.broadcastAndWait(CmdCollisionsI)
 }

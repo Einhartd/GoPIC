@@ -16,6 +16,13 @@ type mt19937Shadow struct {
 	Index int
 }
 
+/*
+Punkt wejściowy programu testów regresyjnych GoPIC (bit-perfect regression runner).
+Obsługuje serializację i deserializację pełnego stanu generatora Mersenne Twister (rng_state.bin)
+w celu zapewnienia 100% determinizmu i powtarzalności z implementacją referencyjną C++.
+@param os.Args[1] Liczba cykli (0 dla cyklu inicjalizacyjnego).
+@param os.Args[2] Opcjonalna flaga "m" dla trybu pomiarowego.
+*/
 func main() {
 	SEED := 67
 
@@ -98,6 +105,10 @@ func main() {
 	fmt.Printf(">> GoPIC_reg: simulation of %d cycle(s) is completed.\n", sim.No_of_cycles)
 }
 
+/*
+Zapis pełnego stanu wewnętrznego generatora MT19937 do binarnego pliku rng_state.bin.
+@param sim Wskaźnik do stanu symulacji zawierającego instancję MT19937.
+*/
 func saveRNGState(sim *gopic.SimulationState) {
 	f, err := os.Create("rng_state.bin")
 	if err != nil {
@@ -107,13 +118,13 @@ func saveRNGState(sim *gopic.SimulationState) {
 
 	shadow := (*mt19937Shadow)(unsafe.Pointer(sim.MtSrc))
 
-	// Zapis indexu
+	// Zapis indeksu tablicy stanu
 	err = binary.Write(f, binary.LittleEndian, int64(shadow.Index))
 	if err != nil {
 		panic(err)
 	}
 
-	// Zapis tablicy stanu
+	// Zapis 624-elementowej tablicy stanu uint64
 	for _, val := range shadow.State {
 		err = binary.Write(f, binary.LittleEndian, val)
 		if err != nil {
@@ -122,6 +133,10 @@ func saveRNGState(sim *gopic.SimulationState) {
 	}
 }
 
+/*
+Wczytanie pełnego stanu wewnętrznego generatora MT19937 z pliku rng_state.bin.
+@param sim Wskaźnik do stanu symulacji.
+*/
 func loadRNGState(sim *gopic.SimulationState) {
 	f, err := os.Open("rng_state.bin")
 	if err != nil {
@@ -149,7 +164,11 @@ func loadRNGState(sim *gopic.SimulationState) {
 	}
 }
 
-// Opens file for appending (creates if doesn't exist)
+/*
+Funkcja pomocnicza: Otwarcie pliku w trybie dopisywania (Append).
+@param name Ścieżka do pliku.
+@return Wskaźnik do otwartego pliku os.File.
+*/
 func openAppend(name string) *os.File {
 	f, err := os.OpenFile(name, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
 	if err != nil {
@@ -158,7 +177,11 @@ func openAppend(name string) *os.File {
 	return f
 }
 
-// Checks if file exist
+/*
+Funkcja pomocnicza: Sprawdzenie, czy plik o podanej nazwie istnieje na dysku.
+@param name Ścieżka do pliku.
+@return True, jeśli plik istnieje, w przeciwnym razie false.
+*/
 func fileExists(name string) bool {
 	_, err := os.Stat(name)
 	return err == nil

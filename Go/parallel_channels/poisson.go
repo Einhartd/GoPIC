@@ -4,21 +4,26 @@ import (
 	"math"
 )
 
-//-----------------------------------------------------------------//
-// solve Poisson equation (Thomas algorithm)                       //
-//-----------------------------------------------------------------//
-
+/*
+Rozwiązanie jednowymiarowego równania Poissona (d^2 phi / dx^2 = -rho / epsilon0)
+z wykorzystaniem algorytmu macierzy trójdiagonalnej Thomasa (TDMA) oraz wyznaczenie pola elektrycznego E.
+Etapy:
+ 1. Narzucenie warunków brzegowych Dirichleta na elektrodach (napięcie RF na elektrodzie zasilanej, 0V na uziemionej).
+ 2. Konstrukcja prawej strony układu równań f[i] z uwzględnieniem warunków brzegowych w węzłach brzegowych 1 i N_G-2.
+ 3. Przebieg w przód algorytmu Thomasa: wyznaczenie współczynników w[i] oraz zmodyfikowanych wyrazów wolnych g[i].
+ 4. Przebieg wsteczny (podstawienie wsteczne): wyznaczenie potencjału elektrostatycznego Pot[i].
+ 5. Różniczkowanie numeryczne potencjału: E = -grad(phi) (schemat centralny wewnątrz siatki, jednostronny z korektą ładunku powierzchniowego na brzegach).
+@param rho1 Wskaźnik do tablicy gęstości ładunku wypadkowego w węzłach siatki [C/m^3].
+@param tt   Aktualny fizyczny czas symulacji [s].
+*/
 func (sim *SimulationState) SolvePoisson(rho1 *Xvector, tt float64) {
-
 	var g, w, f Xvector
 
-	// apply potential to the electrodes - boundary conditions
+	// Warunki brzegowe Dirichleta na elektrodach
+	sim.Pot[0] = VOLTAGE * math.Cos(OMEGA*tt) // Potencjał elektrody zasilanej RF
+	sim.Pot[N_G-1] = 0.0                      // Potencjał elektrody uziemionej
 
-	sim.Pot[0] = VOLTAGE * math.Cos(OMEGA*tt) // potential at the powered electrode
-	sim.Pot[N_G-1] = 0.0                      // potential at the grounded electrode
-
-	// solve Poisson equation
-
+	// Rozwiązanie równania Poissona algorytmem Thomasa
 	for i := 1; i <= N_G-2; i++ {
 		f[i] = ALPHA * (*rho1)[i]
 	}
@@ -32,14 +37,13 @@ func (sim *SimulationState) SolvePoisson(rho1 *Xvector, tt float64) {
 	}
 	sim.Pot[N_G-2] = g[N_G-2]
 	for i := N_G - 3; i > 0; i-- {
-		sim.Pot[i] = g[i] - w[i]*sim.Pot[i+1] // potential at the grid points between the electrodes
+		sim.Pot[i] = g[i] - w[i]*sim.Pot[i+1] // Potencjał w węzłach wewnętrznych
 	}
 
-	// compute electric field
-
+	// Obliczenie pola elektrycznego E = -grad(Pot)
 	for i := 1; i <= N_G-2; i++ {
-		sim.Efield[i] = (sim.Pot[i-1] - sim.Pot[i+1]) * S // electric field at the grid points between the electrodes
+		sim.Efield[i] = (sim.Pot[i-1] - sim.Pot[i+1]) * S // Różnica centralna
 	}
-	sim.Efield[0] = (sim.Pot[0]-sim.Pot[1])*INV_DX - (*rho1)[0]*DX/(2.0*EPSILON0)                 // powered electrode
-	sim.Efield[N_G-1] = (sim.Pot[N_G-2]-sim.Pot[N_G-1])*INV_DX + (*rho1)[N_G-1]*DX/(2.0*EPSILON0) // grounded electrode
+	sim.Efield[0] = (sim.Pot[0]-sim.Pot[1])*INV_DX - (*rho1)[0]*DX/(2.0*EPSILON0)                 // Elektroda zasilana
+	sim.Efield[N_G-1] = (sim.Pot[N_G-2]-sim.Pot[N_G-1])*INV_DX + (*rho1)[N_G-1]*DX/(2.0*EPSILON0) // Elektroda uziemiona
 }
