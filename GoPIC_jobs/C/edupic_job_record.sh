@@ -38,10 +38,10 @@ rm -f "${BINARY}"
 
 if [ "${USE_NC}" = "1" ] || [ "${USE_NC}" = "true" ]; then
     echo ">> Kompilacja: C++ Sequential (Null-Collision)..."
-    g++ -O3 -fno-omit-frame-pointer -march=native -DUSE_NULL_COLLISION "${SRC_DIR}/eduPIC.cc" -o "${BINARY}"
+    g++ -std=c++17 -O3 -fno-omit-frame-pointer -march=native -fno-math-errno -DUSE_NULL_COLLISION "${SRC_DIR}/eduPIC.cc" -o "${BINARY}" -lm
 else
     echo ">> Kompilacja: C++ Sequential (Standard MCC)..."
-    g++ -O3 -fno-omit-frame-pointer -march=native "${SRC_DIR}/eduPIC.cc" -o "${BINARY}"
+    g++ -std=c++17 -O3 -fno-omit-frame-pointer -march=native -fno-math-errno "${SRC_DIR}/eduPIC.cc" -o "${BINARY}" -lm
 fi
 
 if [ ! -f "${BINARY}" ]; then

@@ -2,15 +2,11 @@
 
 #include "state.h"
 #include "poisson.h"
-#include "collisions.h"
 #include <array>
 #include <cmath>
 #include <omp.h>
 
-// Makro aktywujące bibliotekę null-collision
-#ifdef USE_NULL_COLLISION
 #include "null_collision.h"
-#endif
    
 
 /*
@@ -54,16 +50,10 @@ Etapy:
 @param num_threads Całkowita liczba wątków w zespole.
 */
 PIC_STEP void step1_compute_electron_density_body(int tid, int num_threads) {
-    // Każdy wątek zeruje swój prywatny bufor gęstości siatki.
-    // Dzięki temu żaden wątek nie rywalizuje o zapis do tej samej komórki.
     worker_buffers.e_density[tid].fill(0.0);
 
     int p;
     double c0;
-    // #pragma omp for:
-    //  - podział tablicy cząstek pomiędzy wątki,
-    //  - każdy wątek przetwarza swój ciągły wycinek cząstek,
-    //  - wątki następnie czekają aż najwolniejszy skończy pracę by się zsynchronizować.
     #pragma omp for
     for (int k = 0; k < N_e; k++) {
         c0 = x_e[k] * INV_DX;
@@ -72,27 +62,19 @@ PIC_STEP void step1_compute_electron_density_body(int tid, int num_threads) {
         worker_buffers.e_density[tid][p+1] += (c0 - p) * FACTOR_W;
     }
 
-    // Redukcja: Zsumowanie prywatnych buforów gęstości wszystkich wątków do globalnej siatki.
+    // Zintegrowana redukcja prywatnych buforów, korekta brzegowa x2 oraz akumulacja cumul_e_density
     #pragma omp for
     for (int p = 0; p < N_G; p++) {
         double sum = 0.0;
         for (int t = 0; t < num_threads; t++) {
             sum += worker_buffers.e_density[t][p];
         }
+        if (p == 0 || p == N_G - 1) {
+            sum *= 2.0;
+        }
         e_density[p] = sum;
+        cumul_e_density[p] += sum;
     }
-
-    // Korekta brzegowa: punkty skrajne (x=0 i x=L) reprezentują półkomórki,
-    // dlatego ich gęstość mnożymy przez 2.0 (wykonuje tylko 1 wątek).
-    #pragma omp single
-    {
-        e_density[0]     *= 2.0;
-        e_density[N_G-1] *= 2.0;
-    }
-
-    // Akumulacja skumulowanej gęstości elektronów do uśrednień diagnostycznych.
-    #pragma omp for
-    for (int p = 0; p < N_G; p++) cumul_e_density[p] += e_density[p];
 }
 
 /*
@@ -114,16 +96,14 @@ KROK 1b: Obliczanie gęstości ładunku jonów (Subcycling co N_SUB kroków).
 Ciało funkcji wykonywane równolegle wewnątrz zespołu wątków OpenMP.
 Etapy:
  1. Jeśli (t % N_SUB == 0): wyzerowanie lokalnego bufora jonów i depozycja CIC do i_density.
- 2. Bariera synchronizacyjna i redukcja do tablicy globalnej i_density z korektą brzegową x2.
- 3. Akumulacja do cumul_i_density w KAŻDYM kroku czasowym (niezmiennik subcyclingu).
+ 2. Zintegrowana redukcja, korekta brzegowa x2 i akumulacja cumul_i_density.
+ 3. W pozostałych krokach: akumulacja do cumul_i_density (niezmiennik subcyclingu).
 @param tid         Unikalny identyfikator wątku OpenMP (0 .. num_threads-1).
 @param num_threads Całkowita liczba wątków w zespole.
 @param t           Indeks bieżącego podkroku czasowego w cyklu RF (0 .. N_T-1).
 */
 PIC_STEP void step1_compute_ion_density_body(int tid, int num_threads, int t) {
     if ((t % N_SUB) == 0) {
-        // Gęstość jonów jest przeliczana rzadziej niż elektronów (subcycling).
-        // Wzorzec depozycji i redukcji jest identyczny jak dla elektronów.
         worker_buffers.i_density[tid].fill(0.0);
 
         int p;
@@ -142,20 +122,17 @@ PIC_STEP void step1_compute_ion_density_body(int tid, int num_threads, int t) {
             for (int t2 = 0; t2 < num_threads; t2++) {
                 sum += worker_buffers.i_density[t2][p];
             }
+            if (p == 0 || p == N_G - 1) {
+                sum *= 2.0;
+            }
             i_density[p] = sum;
+            cumul_i_density[p] += sum;
         }
-
-        #pragma omp single
-        {
-            i_density[0]     *= 2.0;
-            i_density[N_G-1] *= 2.0;
-        }
+    } else {
+        // Ważny niezmiennik fizyczny: cumul_i_density akumuluje się w KAŻDYM kroku czasowym
+        #pragma omp for
+        for (int p = 0; p < N_G; p++) cumul_i_density[p] += i_density[p];
     }
-
-    // Ważny niezmiennik fizyczny: cumul_i_density akumuluje się w KAŻDYM kroku czasowym,
-    // korzystając z ostatniej aktualnej gęstości jonów.
-    #pragma omp for
-    for (int p = 0; p < N_G; p++) cumul_i_density[p] += i_density[p];
 }
 
 /*
@@ -217,10 +194,8 @@ PIC_STEP void step3_move_electrons_body(int tid, int num_threads, int t_index) {
     double c0, c1, c2, e_x, mean_v, v_sqr, energy, velocity, rate;
 
     // Równoległe popychanie elektronów. Każdy wątek przetwarza swój podzbiór cząstek.
-    // Diagnostyki są akumulowane w prywatnych strukturach worker_buffers.<...>[tid].
     #pragma omp for
     for (int k = 0; k < N_e; k++) {
-        // Interpolacja liniowa (CIC) pola elektrycznego do ciągłej pozycji elektronu
         c0  = x_e[k] * INV_DX;
         p   = int(c0);
         c1  = p + 1.0 - c0;
@@ -228,10 +203,8 @@ PIC_STEP void step3_move_electrons_body(int tid, int num_threads, int t_index) {
         e_x = c1 * efield[p] + c2 * efield[p+1];
 
         if (measurement_mode) {
-            // Średnia prędkość w kroku czasowym (dla poprawnego wyznaczenia energii i prądu)
             mean_v = vx_e[k] - 0.5 * e_x * FACTOR_E;
 
-            // Lokalna akumulacja gęstości, prędkości i energii dla danego wątku
             worker_buffers.counter_e[tid][p]   += c1;
             worker_buffers.counter_e[tid][p+1] += c2;
 
@@ -266,7 +239,6 @@ PIC_STEP void step3_move_electrons_body(int tid, int num_threads, int t_index) {
         vx_e[k] -= e_x * FACTOR_E;
         x_e[k]  += vx_e[k] * DT_E;
     }
-
 
     if (measurement_mode) {
         // Redukcja lokalnych tablic diagnostycznych do globalnych macierzy czasoprzestrzennych XT
@@ -410,77 +382,71 @@ PIC_STEP void step4_move_ions(int t_index, int t) {
 }
 
 /*
-KROK 5: Sprawdzanie granic dla elektronów (Dwufazowe: Równoległe oznaczanie + Seryjna kompaktacja).
-Ciało funkcji wykonywane równolegle wewnątrz zespołu wątków OpenMP.
-Etapy:
- 1. Faza 1 (Równoległa): Oznaczanie cząstek poza domeną (x < 0 lub x > L) w tablicy flag absorbed[].
-    Inkrementacja liczników w thread_counters[tid] bezpośrednio w pętli z niejawną barierą.
- 2. Faza 2 (Seryjna w bloku single): Kompaktacja tablic SoA in-place metodą swap-with-last.
- 3. Zsumowanie liczników absorpcji na elektrodzie zasilanej i uziemionej.
+KROK 5: Sprawdzanie granic dla elektronów (Równoległe oznaczanie + Dwuwskanikowa kompaktacja in-place).
+Ciało funkcji wykonywane wewnątrz zespołu wątków OpenMP.
 @param tid         Unikalny identyfikator wątku OpenMP (0 .. num_threads-1).
 @param num_threads Całkowita liczba wątków w zespole.
 */
 PIC_STEP void step5_check_boundaries_electrons_body(int tid, int num_threads) {
-    // Współdzielona tablica flag absorbed[] przechowuje stan absorpcji każdej cząstki.
-    // Alokowana jednorazowo w bloku pojedynczym.
     static std::vector<uint8_t> absorbed;
-
     #pragma omp single
     {
         if (absorbed.size() < (size_t)MAX_N_P) absorbed.resize(MAX_N_P, 0);
     }
 
-    // Zerowanie lokalnych liczników absorpcji danego wątku
     worker_buffers.thread_counters[tid].local_abs_pow = 0;
     worker_buffers.thread_counters[tid].local_abs_gnd = 0;
 
-    // -------------------------------------------------------------------------
-    // Faza 1 (Równoległa): Każdy wątek skanuje swój podzbiór elektronów i oznacza
-    // cząstki, które przekroczyły granice (1 = elektroda zasilana, 2 = uziemiona).
-    // Niejawna bariera na końcu "omp for" gwarantuje spójność przed blokiem single.
-    // -------------------------------------------------------------------------
+    // Faza 1: Równoległe oznaczanie cząstek poza domeną
     #pragma omp for
     for (int k = 0; k < N_e; k++) {
-        if (x_e[k] < 0) {
+        if (x_e[k] < 0.0) {
             absorbed[k] = 1;
             worker_buffers.thread_counters[tid].local_abs_pow++;
         } else if (x_e[k] > L) {
-            absorbed[k] = 2;
+            absorbed[k] = 1;
             worker_buffers.thread_counters[tid].local_abs_gnd++;
         } else {
             absorbed[k] = 0;
         }
     }
 
-    // -------------------------------------------------------------------------
-    // Faza 2 (Sekwencyjna): Kompaktacja tablicy cząstek in-place (Swap-with-last).
-    // Wykonywana przez pojedynczy wątek, ponieważ in-place modyfikuje globalne tablice
-    // x_e, vx_e, vy_e, vz_e i zmniejsza N_e bez konieczności reallokacji pamięci.
-    // Jest to naturalne sekwencyjne wąskie gardło pętli PIC.
-    // -------------------------------------------------------------------------
+    // Faza 2: Błyskawiczna dwu-wskaźnikowa kompaktacja in-place
     #pragma omp single
     {
+        int total_abs = 0;
         for (int t = 0; t < num_threads; t++) {
+            total_abs += worker_buffers.thread_counters[t].local_abs_pow + worker_buffers.thread_counters[t].local_abs_gnd;
             N_e_abs_pow += worker_buffers.thread_counters[t].local_abs_pow;
             N_e_abs_gnd += worker_buffers.thread_counters[t].local_abs_gnd;
         }
 
-        int k = 0;
-        while (k < N_e) {
-            if (absorbed[k]) {
-                N_e--;
-                x_e[k]  = x_e[N_e];   vx_e[k] = vx_e[N_e];
-                vy_e[k] = vy_e[N_e];  vz_e[k] = vz_e[N_e];
-                absorbed[k] = absorbed[N_e];
-            } else {
-                k++;
+        if (total_abs > 0) {
+            int left = 0;
+            int right = N_e - 1;
+            while (left <= right) {
+                while (left <= right && !absorbed[left]) {
+                    left++;
+                }
+                while (left <= right && absorbed[right]) {
+                    right--;
+                }
+                if (left < right) {
+                    x_e[left]  = x_e[right];
+                    vx_e[left] = vx_e[right];
+                    vy_e[left] = vy_e[right];
+                    vz_e[left] = vz_e[right];
+                    left++;
+                    right--;
+                }
             }
+            N_e = left;
         }
     }
 }
 
 /*
-Wrapper uruchamiający Krok 5 w niezależnej sekcji równoległej.
+Wrapper uruchamiający Krok 5 w niezależnej sekcji równoległej (dla testów jednostkowych).
 */
 PIC_STEP void step5_check_boundaries_electrons() {
     int num_threads = omp_get_max_threads();
@@ -495,12 +461,7 @@ PIC_STEP void step5_check_boundaries_electrons() {
 
 /*
 KROK 6: Sprawdzanie granic dla jonów (Subcycling co N_SUB kroków).
-Ciało funkcji wykonywane równolegle wewnątrz zespołu wątków OpenMP.
-Etapy:
- 1. Sprawdzenie warunku subcyclingu (t % N_SUB == 0).
- 2. Faza 1 (Równoległa): Oznaczanie jonów poza domeną, próbkowanie IFED i zliczanie w thread_counters[tid].
-    Niejawna bariera pętli "omp for" synchronizuje zapisy przed przejściem dalej.
- 3. Faza 2 (Seryjna w bloku single): Redukcja histogramów IFED i kompaktacja tablicy jonów swap-with-last.
+Ciało funkcji wykonywane wewnątrz zespołu wątków OpenMP.
 @param tid         Unikalny identyfikator wątku OpenMP (0 .. num_threads-1).
 @param num_threads Całkowita liczba wątków w zespole.
 @param t           Indeks bieżącego podkroku czasowego w cyklu RF (0 .. N_T-1).
@@ -519,10 +480,9 @@ PIC_STEP void step6_check_boundaries_ions_body(int tid, int num_threads, int t) 
     worker_buffers.local_ifed_pow[tid].fill(0);
     worker_buffers.local_ifed_gnd[tid].fill(0);
 
-    // Faza 1: Równoległe oznaczanie i próbkowanie energii uderzenia w elektrody
     #pragma omp for
     for (int k = 0; k < N_i; k++) {
-        if (x_i[k] < 0) {
+        if (x_i[k] < 0.0) {
             absorbed[k] = 1;
             worker_buffers.thread_counters[tid].local_abs_pow++;
             double v_sqr  = vx_i[k] * vx_i[k] + vy_i[k] * vy_i[k] + vz_i[k] * vz_i[k];
@@ -532,7 +492,7 @@ PIC_STEP void step6_check_boundaries_ions_body(int tid, int num_threads, int t) 
                 worker_buffers.local_ifed_pow[tid][energy_index]++;
             }
         } else if (x_i[k] > L) {
-            absorbed[k] = 2;
+            absorbed[k] = 1;
             worker_buffers.thread_counters[tid].local_abs_gnd++;
             double v_sqr  = vx_i[k] * vx_i[k] + vy_i[k] * vy_i[k] + vz_i[k] * vz_i[k];
             double energy = 0.5 * AR_MASS * v_sqr / EV_TO_J;
@@ -545,10 +505,11 @@ PIC_STEP void step6_check_boundaries_ions_body(int tid, int num_threads, int t) 
         }
     }
 
-    // Faza 2: Seryjna redukcja liczników i IFED oraz kompaktacja tablicy jonów
     #pragma omp single
     {
+        int total_abs = 0;
         for (int t2 = 0; t2 < num_threads; ++t2) {
+            total_abs += worker_buffers.thread_counters[t2].local_abs_pow + worker_buffers.thread_counters[t2].local_abs_gnd;
             N_i_abs_pow += worker_buffers.thread_counters[t2].local_abs_pow;
             N_i_abs_gnd += worker_buffers.thread_counters[t2].local_abs_gnd;
             for (int e = 0; e < N_IFED; ++e) {
@@ -557,22 +518,32 @@ PIC_STEP void step6_check_boundaries_ions_body(int tid, int num_threads, int t) 
             }
         }
 
-        int k = 0;
-        while (k < N_i) {
-            if (absorbed[k]) {
-                N_i--;
-                x_i[k]  = x_i[N_i];   vx_i[k] = vx_i[N_i];
-                vy_i[k] = vy_i[N_i];  vz_i[k] = vz_i[N_i];
-                absorbed[k] = absorbed[N_i];
-            } else {
-                k++;
+        if (total_abs > 0) {
+            int left = 0;
+            int right = N_i - 1;
+            while (left <= right) {
+                while (left <= right && !absorbed[left]) {
+                    left++;
+                }
+                while (left <= right && absorbed[right]) {
+                    right--;
+                }
+                if (left < right) {
+                    x_i[left]  = x_i[right];
+                    vx_i[left] = vx_i[right];
+                    vy_i[left] = vy_i[right];
+                    vz_i[left] = vz_i[right];
+                    left++;
+                    right--;
+                }
             }
+            N_i = left;
         }
     }
 }
 
 /*
-Wrapper uruchamiający Krok 6 w niezależnej sekcji równoległej.
+Wrapper uruchamiający Krok 6 w niezależnej sekcji równoległej (dla testów jednostkowych).
 @param t Indeks bieżącego podkroku czasowego w cyklu RF.
 */
 PIC_STEP void step6_check_boundaries_ions(int t) {
@@ -588,10 +559,10 @@ PIC_STEP void step6_check_boundaries_ions(int t) {
 }
 
 /*
-KROK 7: Zderzenia elektronów i procesy jonizacji (Monte Carlo Collisions - MCC).
+KROK 7: Zderzenia elektronów i procesy jonizacji (Monte Carlo Collisions - Null-Collision).
 Ciało funkcji wykonywane równolegle wewnątrz zespołu wątków OpenMP.
-Wariant USE_NULL_COLLISION:
- 1. Jeden wątek losuje liczbę zderzeń N*_coll ~ Binomial(N_e, P*_e) i tworzy listę próbki.
+Etapy:
+ 1. Jeden wątek (single) losuje liczbę zderzeń N*_coll ~ Binomial(N_e, P*_e) i tworzy listę próbki.
  2. Wątki dzielą listę równomiernie i sprawdzają warunek akceptacji P_accept = nu / nu*_e.
  3. Akceptowane zderzenia zapisują nowe elektrony/jony do prywatnych buforów new_electrons/new_ions.
  4. Bariera synchronizacyjna i sekwencyjne scalenie nowych cząstek na koniec tablic SoA.
@@ -622,13 +593,8 @@ PIC_STEP void step7_collisions_electrons_body(int tid, int num_threads) {
     new_ions[tid].vy.clear();
     new_ions[tid].vz.clear();
 
-#ifdef USE_NULL_COLLISION
-    // -------------------------------------------------------------------------
-    // Ścieżka Null-Collision (Zderzenia zerowe):
     // 1. Jeden wątek (single) losuje liczbę kandydatów z rozkładu dwumianowego
     //    i buduje jedną wspólną losową listę indeksów (random_sample).
-    // 2. Wątki dzielą tę listę równomiernie (chunking) i sprawdzają warunek akceptacji.
-    // -------------------------------------------------------------------------
     static int              global_N_coll_star_e = 0;
     static std::vector<int> global_candidates_e;
 
@@ -671,28 +637,6 @@ PIC_STEP void step7_collisions_electrons_body(int tid, int num_threads) {
             }
         }
     }
-#else
-    // -------------------------------------------------------------------------
-    // Ścieżka standardowa (bezpośrednie sprawdzanie prawdopodobieństwa dla każdego e-)
-    // -------------------------------------------------------------------------
-    int k, energy_index;
-    double v_sqr, velocity, energy, nu, p_coll;
-    #pragma omp for
-    for (k = 0; k < N_e; k++) {
-        v_sqr = vx_e[k] * vx_e[k] + vy_e[k] * vy_e[k] + vz_e[k] * vz_e[k];
-        velocity = sqrt(v_sqr);
-        energy   = 0.5 * E_MASS * v_sqr / EV_TO_J;
-        energy_index = min(int(energy / DE_CS + 0.5), CS_RANGES-1);
-        nu = sigma_tot_e[energy_index] * velocity;
-        p_coll = 1 - exp(- nu * DT_E);
-        if (R01(MTgen) < p_coll) {
-            collision_electron(x_e[k], &vx_e[k], &vy_e[k], &vz_e[k], energy_index,
-                                new_electrons[tid], new_ions[tid]);
-            #pragma omp atomic
-            N_e_coll++;
-        }
-    }
-#endif
 
     // Wszyscy muszą zakończyć zapisywanie do new_electrons/new_ions ZANIM
     // pojedynczy wątek zacznie je scalać do głównych tablic cząstek.
@@ -735,11 +679,11 @@ PIC_STEP void step7_collisions_electrons() {
 }
 
 /*
-KROK 8: Zderzenia jonów z neutralnymi atomami gazu (Subcycling co N_SUB kroków).
+KROK 8: Zderzenia jonów z neutralnymi atomami gazu (Null-Collision, Subcycling co N_SUB kroków).
 Ciało funkcji wykonywane równolegle wewnątrz zespołu wątków OpenMP.
 Etapy:
  1. Sprawdzenie warunku subcyclingu (t % N_SUB == 0).
- 2. Wariant USE_NULL_COLLISION: losowanie liczby kandydatów N*_coll,i i podział równomierny.
+ 2. Losowanie liczby kandydatów N*_coll,i i równomierny podział pomiędzy wątki.
  3. Losowanie prędkości termicznej neutralnego atomu argonu z rozkładu Maxwella-Boltzmanna RMB.
  4. Sprawdzenie warunku akceptacji zderzenia i wywołanie collision_ion.
 @param tid         Unikalny identyfikator wątku OpenMP (0 .. num_threads-1).
@@ -749,7 +693,6 @@ Etapy:
 PIC_STEP void step8_collision_ions_body(int tid, int num_threads, int t) {
     if ((t % N_SUB) != 0) return;
 
-#ifdef USE_NULL_COLLISION
     // Wspólna próbka kandydatów generowana jednokrotnie przez 1 wątek
     static int              global_N_coll_star_i = 0;
     static std::vector<int> global_candidates_i;
@@ -798,30 +741,6 @@ PIC_STEP void step8_collision_ions_body(int tid, int num_threads, int t) {
             }
         }
     }
-#else
-    int k, energy_index;
-    double vx_a, vy_a, vz_a, gx, gy, gz, g_sqr, g, energy, nu, p_coll;
-    #pragma omp for
-    for (k = 0; k < N_i; k++) {
-        vx_a = RMB(MTgen);
-        vy_a = RMB(MTgen);
-        vz_a = RMB(MTgen);
-        gx   = vx_i[k] - vx_a;
-        gy   = vy_i[k] - vy_a;
-        gz   = vz_i[k] - vz_a;
-        g_sqr = gx * gx + gy * gy + gz * gz;
-        g = sqrt(g_sqr);
-        energy = 0.5 * MU_ARAR * g_sqr / EV_TO_J;
-        energy_index = min(int(energy / DE_CS + 0.5), CS_RANGES-1);
-        nu = sigma_tot_i[energy_index] * g;
-        p_coll = 1 - exp(- nu * DT_I);
-        if (R01(MTgen) < p_coll) {
-            collision_ion(&vx_i[k], &vy_i[k], &vz_i[k], &vx_a, &vy_a, &vz_a, energy_index);
-            #pragma omp atomic
-            N_i_coll++;
-        }
-    }
-#endif
 }
 
 /*
@@ -880,21 +799,16 @@ PIC_STEP void do_one_cycle(void) {
         int nthreads = omp_get_num_threads();
 
         for (int t = 0; t < N_T; t++) {
-            // Inkrementacja czasu fizycznego (wykonuje dokładnie 1 wątek)
-            #pragma omp single
-            {
-                Time += DT_E;
-            }
-
             int t_index = t / N_BIN;
 
             // Krok 1: Depozycja gęstości ładunku elektronów i jonów (równoległa + redukcja)
             step1_compute_electron_density_body(tid, nthreads);
             step1_compute_ion_density_body(tid, nthreads, t);
 
-            // Krok 2: Rozwiązanie równania Poissona (sekwencyjne w bloku single)
+            // Krok 2: Inkrementacja czasu i rozwiązanie równania Poissona (sekwencyjnie w 1 bloku single)
             #pragma omp single
             {
+                Time += DT_E;
                 step2_solve_poisson(Time);
             }
 

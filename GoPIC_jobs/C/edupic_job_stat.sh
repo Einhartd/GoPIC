@@ -37,10 +37,10 @@ rm -f "${BINARY}"
 
 if [ "${USE_NC}" = "1" ] || [ "${USE_NC}" = "true" ]; then
     echo ">> Kompilacja: C++ Sequential (Null-Collision)..."
-    g++ -O3 -fno-omit-frame-pointer -march=native -DUSE_NULL_COLLISION "${SRC_DIR}/eduPIC.cc" -o "${BINARY}"
+    g++ -std=c++17 -O3 -fno-omit-frame-pointer -march=native -fno-math-errno -DUSE_NULL_COLLISION "${SRC_DIR}/eduPIC.cc" -o "${BINARY}" -lm
 else
     echo ">> Kompilacja: C++ Sequential (Standard MCC)..."
-    g++ -O3 -fno-omit-frame-pointer -march=native "${SRC_DIR}/eduPIC.cc" -o "${BINARY}"
+    g++ -std=c++17 -O3 -fno-omit-frame-pointer -march=native -fno-math-errno "${SRC_DIR}/eduPIC.cc" -o "${BINARY}" -lm
 fi
 
 if [ ! -f "${BINARY}" ]; then
@@ -53,8 +53,10 @@ cp "${REPO_DIR}/golden_record/picdata.bin" ./picdata.bin
 
 echo ">> Uruchamianie pomiaru perf stat..."
 perf stat \
+    -e task-clock,context-switches,cpu-migrations \
     -e cycles:u,instructions:u \
     -e L1-dcache-loads:u,L1-dcache-load-misses:u \
+    -e LLC-loads:u,LLC-load-misses:u \
     -e branch-loads:u,branch-misses:u \
     -o "${DATA_DIR}/perf_cpu_stats.txt" \
     "${BINARY}" "${N_CYCLES}" ${MEASURE_ARG}

@@ -10,9 +10,7 @@ protected:
         set_electron_cross_sections_ar();
         set_ion_cross_sections_ar();
         calc_total_cross_sections();
-#ifdef USE_NULL_COLLISION
         compute_null_collision_params();
-#endif
     }
 };
 

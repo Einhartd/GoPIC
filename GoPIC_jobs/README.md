@@ -32,13 +32,10 @@ sbatch --export=ALL,USE_NULL_COLLISION=1 GoPIC/GoPIC_jobs/Go/gopic_chunking_job_
 # Go Chunking (Null-Collision, z pełnymi pomiarami fizycznymi / measurement mode):
 sbatch --export=ALL,USE_NULL_COLLISION=1,MEASUREMENT=m GoPIC/GoPIC_jobs/Go/gopic_chunking_job_stat.sh
 
-# C++ OpenMP (Null-Collision, tryb pomiarowy):
-sbatch --export=ALL,USE_NULL_COLLISION=1,MEASUREMENT=m GoPIC/GoPIC_jobs/C/edupic_omp_job_stat.sh
+# C++ OpenMP (tryb pomiarowy / measurement mode):
+sbatch --export=ALL,MEASUREMENT=m GoPIC/GoPIC_jobs/C/edupic_omp_job_stat.sh
 
-# C++ OpenMP (Null-Collision):
-sbatch --export=ALL,USE_NULL_COLLISION=1 GoPIC/GoPIC_jobs/C/edupic_omp_job_stat.sh
-
-# C++ OpenMP (Standard MCC):
+# C++ OpenMP (domyślny zoptymalizowany pomiar stat):
 sbatch GoPIC/GoPIC_jobs/C/edupic_omp_job_stat.sh
 ```
 
@@ -130,22 +127,20 @@ sbatch GoPIC/GoPIC_jobs/Go/gopic_job_record.sh
 ## 3. C++
 
 ### 3.1. C++ OpenMP
+*(Implementacja OpenMP wykorzystuje zoptymalizowany, natywny silnik Null-Collision)*
 
 #### Pomiary liczników sprzętowych (`perf stat` — 100 cykli):
 ```bash
-# Wersja Null-Collision:
-sbatch --export=ALL,USE_NULL_COLLISION=1 GoPIC/GoPIC_jobs/C/edupic_omp_job_stat.sh
-
-# Wersja Standard MCC:
+# Standardowy pomiar stat:
 sbatch GoPIC/GoPIC_jobs/C/edupic_omp_job_stat.sh
+
+# Z pełnymi diagnostykami czasoprzestrzennymi (measurement mode):
+sbatch --export=ALL,MEASUREMENT=m GoPIC/GoPIC_jobs/C/edupic_omp_job_stat.sh
 ```
 
 #### Profilowanie (`perf record` — 20 cykli):
 ```bash
-# Wersja Null-Collision:
-sbatch --export=ALL,USE_NULL_COLLISION=1 GoPIC/GoPIC_jobs/C/edupic_omp_job_record.sh
-
-# Wersja Standard MCC:
+# Profilowanie wywołań i generowanie Flame Graph:
 sbatch GoPIC/GoPIC_jobs/C/edupic_omp_job_record.sh
 ```
 

@@ -36,13 +36,8 @@ module purge && module load gcc
 BINARY="${BUILD_DIR}/edupic_omp_${SLURM_JOB_ID}"
 rm -f "${BINARY}"
 
-if [ "${USE_NC}" = "1" ] || [ "${USE_NC}" = "true" ]; then
-    echo ">> Kompilacja: C++ OpenMP (Null-Collision)..."
-    g++ -O3 -fno-omit-frame-pointer -march=native -fopenmp -DUSE_NULL_COLLISION "${SRC_DIR}/eduPIC.cc" -o "${BINARY}"
-else
-    echo ">> Kompilacja: C++ OpenMP (Standard MCC)..."
-    g++ -O3 -fno-omit-frame-pointer -march=native -fopenmp "${SRC_DIR}/eduPIC.cc" -o "${BINARY}"
-fi
+echo ">> Kompilacja: C++ OpenMP (zoptymalizowany silnik Null-Collision)..."
+g++ -std=c++17 -O3 -fno-omit-frame-pointer -march=native -fopenmp -fno-math-errno "${SRC_DIR}/eduPIC.cc" -o "${BINARY}" -lm
 
 if [ ! -f "${BINARY}" ]; then
     echo ">> BŁĄD: Kompilacja nie powiodła się, brak pliku ${BINARY}!"
@@ -54,10 +49,13 @@ cp "${REPO_DIR}/golden_record/picdata.bin" ./picdata.bin
 
 echo ">> Uruchamianie pomiaru perf stat..."
 perf stat \
+    -e task-clock,context-switches,cpu-migrations \
     -e cycles:u,instructions:u \
     -e L1-dcache-loads:u,L1-dcache-load-misses:u \
+    -e LLC-loads:u,LLC-load-misses:u \
     -e branch-loads:u,branch-misses:u \
     -o "${DATA_DIR}/perf_cpu_stats.txt" \
     "${BINARY}" "${N_CYCLES}" ${MEASURE_ARG}
 
+rm -f "${BINARY}"
 echo ">> Zakończono pomyślnie. Wyniki w: ${DATA_DIR}"

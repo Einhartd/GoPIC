@@ -165,6 +165,7 @@ struct WorkerBuffers {
     std::vector<int> thread_counts;
     std::vector<int> thread_offsets;
     std::vector<std::vector<int>> thread_local_indices;
+    std::vector<std::vector<int>> absorbed_indices;
     std::vector<std::array<int, N_IFED>> local_ifed_pow;
     std::vector<std::array<int, N_IFED>> local_ifed_gnd;
 
@@ -204,6 +205,7 @@ struct WorkerBuffers {
         thread_counts.resize(num_threads, 0);
         thread_offsets.resize(num_threads, 0);
         thread_local_indices.resize(num_threads);
+        absorbed_indices.resize(num_threads);
         local_ifed_pow.resize(num_threads);
         local_ifed_gnd.resize(num_threads);
 
@@ -212,6 +214,7 @@ struct WorkerBuffers {
 
         for (int t = 0; t < num_threads; ++t) {
             thread_local_indices[t].reserve(MAX_N_P / num_threads);
+            absorbed_indices[t].reserve(2000);
             candidates_e[t].resize(MAX_N_P);
             candidates_i[t].resize(MAX_N_P);
         }

@@ -24,7 +24,8 @@ BUILD_DIR="$HOME/GoPIC_build/C"
 LOG_DIR="$(pwd)/saved_logs_C/logs_job_${SLURM_JOB_ID}_OMP_RECORD"
 DATA_DIR="${LOG_DIR}/edupic_data"
 PERF_DATA="${SCRATCH:-${DATA_DIR}}/perf_${SLURM_JOB_ID}.data"
-FLAME_DIR="$HOME/FlameGraph"
+FLAME_DIR="${REPO_DIR}/plots/FlameGraph"
+[ ! -d "${FLAME_DIR}" ] && FLAME_DIR="$HOME/FlameGraph"
 
 mkdir -p "${BUILD_DIR}" "${DATA_DIR}"
 exec > "${LOG_DIR}/job_output.log" 2>&1
@@ -38,13 +39,8 @@ module purge && module load gcc
 BINARY="${BUILD_DIR}/edupic_omp_${SLURM_JOB_ID}"
 rm -f "${BINARY}"
 
-if [ "${USE_NC}" = "1" ] || [ "${USE_NC}" = "true" ]; then
-    echo ">> Kompilacja: C++ OpenMP (Null-Collision)..."
-    g++ -O3 -fno-omit-frame-pointer -march=native -fopenmp -DUSE_NULL_COLLISION -DPROFILE_RECORD "${SRC_DIR}/eduPIC.cc" -o "${BINARY}"
-else
-    echo ">> Kompilacja: C++ OpenMP (Standard MCC)..."
-    g++ -O3 -fno-omit-frame-pointer -march=native -fopenmp -DPROFILE_RECORD "${SRC_DIR}/eduPIC.cc" -o "${BINARY}"
-fi
+echo ">> Kompilacja: C++ OpenMP (zoptymalizowany silnik Null-Collision)..."
+g++ -std=c++17 -O3 -fno-omit-frame-pointer -march=native -fopenmp -fno-math-errno -DPROFILE_RECORD "${SRC_DIR}/eduPIC.cc" -o "${BINARY}" -lm
 
 if [ ! -f "${BINARY}" ]; then
     echo ">> BŁĄD: Kompilacja nie powiodła się, brak pliku ${BINARY}!"
@@ -60,7 +56,6 @@ perf record --max-size=100M -F 49 -g -o "${PERF_DATA}" -- "${BINARY}" "${N_CYCLE
 echo ">> Generowanie raportów tekstowych perf..."
 perf report -i "${PERF_DATA}" --stdio > "${DATA_DIR}/perf_report.txt"
 perf report -i "${PERF_DATA}" --stdio --sort=cpu,symbol > "${DATA_DIR}/perf_report_per_cpu.txt"
-
 
 if [ -f "${FLAME_DIR}/stackcollapse-perf.pl" ] && [ -f "${FLAME_DIR}/flamegraph.pl" ]; then
     echo ">> Generowanie Flame Graph (SVG)..."
