@@ -5,16 +5,38 @@ import (
 	"sync/atomic"
 )
 
+/*
+Główna pętla wykonawcza trwałego workera (Goroutine) w architekturze Channels.
+Worker nasłuchuje na dedykowanym kanale sim.WorkerCmdChan[workerID] na polecenia koordynatora (WorkerCommand),
+wykonuje przypisany fragment obliczeń (chunk) na prywatnych buforach bez alokacji pamięci,
+a po zakończeniu wysyła swój identyfikator do kanału sim.WorkerDoneChan.
+Obsługiwane rozkazy:
+  - CmdComputeEDensity: Równoległa depozycja CIC ładunku elektronów w buforze WorkerEDensity.
+  - CmdComputeIDensity: Równoległa depozycja CIC ładunku jonów w buforze WorkerIDensity.
+  - CmdMoveElectrons: Popychanie elektronów (Leap-Frog) i zbieranie diagnostyk do WorkerEDiag.
+  - CmdMoveIons: Popychanie jonów (Leap-Frog) i zbieranie diagnostyk do WorkerIDiag.
+  - CmdCheckBoundariesE: Oznaczanie elektronów poza domeną w tablicy flag AbsorbedE.
+  - CmdCheckBoundariesI: Oznaczanie jonów poza domeną i próbkowanie histogramu IFED.
+  - CmdCollisionsE: Zderzenia elektronów MCC (Null-Collision lub bezpośrednie) z buforowaniem cząstek AoS.
+  - CmdCollisionsI: Zderzenia jonów MCC z atomami tła wylosowanymi z rozkładu RMB.
+  - CmdStop: Zakończenie pracy i wyjście z pętli goroutine.
+
+@param workerID Identyfikator trwałego workera (0 .. NumWorkers-1).
+*/
 func (sim *SimulationState) startWorker(workerID int) {
 	numWorkers := len(sim.WorkerCmdChan)
 
+	// Pętla oczekiwania na rozkazy z kanału koordynatora
 	for cmd := range sim.WorkerCmdChan[workerID] {
 		switch cmd {
 		case CmdComputeEDensity:
+
+			// KROK 1a: Depozycja gęstości elektronów w chunku
 			chunkSize := (sim.N_e + numWorkers - 1) / numWorkers
 			start := workerID * chunkSize
 			end := min((workerID+1)*chunkSize, sim.N_e)
 
+			// Zerowanie prywatnego bufora węzłów siatki dla danego workera
 			for i := range N_G {
 				sim.WorkerEDensity[workerID][i] = 0.0
 			}
@@ -32,6 +54,8 @@ func (sim *SimulationState) startWorker(workerID int) {
 			sim.WorkerDoneChan <- workerID
 
 		case CmdComputeIDensity:
+
+			// KROK 1b: Depozycja gęstości jonów w chunku
 			chunkSize := (sim.N_i + numWorkers - 1) / numWorkers
 			start := workerID * chunkSize
 			end := min((workerID+1)*chunkSize, sim.N_i)
@@ -53,6 +77,8 @@ func (sim *SimulationState) startWorker(workerID int) {
 			sim.WorkerDoneChan <- workerID
 
 		case CmdMoveElectrons:
+
+			// KROK 3: Popychanie elektronów Leap-Frog i zbieranie diagnostyk
 			chunkSize := (sim.N_e + numWorkers - 1) / numWorkers
 			start := workerID * chunkSize
 			end := min((workerID+1)*chunkSize, sim.N_e)
@@ -65,6 +91,7 @@ func (sim *SimulationState) startWorker(workerID int) {
 				var p, energy_index int
 
 				for k := start; k < end; k++ {
+					// Interpolacja liniowa pola E (CIC)
 					c0 = sim.X_e[k] * INV_DX
 					p = int(c0)
 					c1 = float64(p) + 1.0 - c0
@@ -92,6 +119,7 @@ func (sim *SimulationState) startWorker(workerID int) {
 						diag.ioniz[p] += c1 * rate
 						diag.ioniz[p+1] += c2 * rate
 
+						// Zliczanie EEPF w centrum wyładowania
 						if (MIN_X < sim.X_e[k]) && (sim.X_e[k] < MAX_X) {
 							energy_index = int(energy / DE_EEPF)
 							if energy_index < N_EEPF {
@@ -102,7 +130,7 @@ func (sim *SimulationState) startWorker(workerID int) {
 						}
 					}
 
-					// update velocity and position
+					// Integracja ruchu Leap-Frog
 					sim.Vx_e[k] -= e_x * FACTOR_E
 					sim.X_e[k] += sim.Vx_e[k] * DT_E
 				}
@@ -110,6 +138,8 @@ func (sim *SimulationState) startWorker(workerID int) {
 			sim.WorkerDoneChan <- workerID
 
 		case CmdMoveIons:
+
+			// KROK 4: Popychanie jonów Leap-Frog i zbieranie diagnostyk
 			chunkSize := (sim.N_i + numWorkers - 1) / numWorkers
 			start := workerID * chunkSize
 			end := min((workerID+1)*chunkSize, sim.N_i)
@@ -147,6 +177,8 @@ func (sim *SimulationState) startWorker(workerID int) {
 			sim.WorkerDoneChan <- workerID
 
 		case CmdCheckBoundariesE:
+
+			// KROK 5: Oznaczanie granic dla elektronów w chunku
 			chunkSize := (sim.N_e + numWorkers - 1) / numWorkers
 			start := workerID * chunkSize
 			end := min((workerID+1)*chunkSize, sim.N_e)
@@ -171,6 +203,8 @@ func (sim *SimulationState) startWorker(workerID int) {
 			sim.WorkerDoneChan <- workerID
 
 		case CmdCheckBoundariesI:
+
+			// KROK 6: Oznaczanie granic dla jonów i próbkowanie IFED
 			chunkSize := (sim.N_i + numWorkers - 1) / numWorkers
 			start := workerID * chunkSize
 			end := min((workerID+1)*chunkSize, sim.N_i)
@@ -215,15 +249,14 @@ func (sim *SimulationState) startWorker(workerID int) {
 
 		case CmdCollisionsE:
 
-			//	Reset buforow nowych czastek na workerow
+			// KROK 7: Zderzenia elektronów MCC w chunku
 			sim.WorkerNewElectrons[workerID] = sim.WorkerNewElectrons[workerID][:0]
 			sim.WorkerNewIons[workerID] = sim.WorkerNewIons[workerID][:0]
 
-			// Lokalny licznik kolizji — jeden atomic.AddUint64 na koniec chunka
-			// (identycznie jak Go-CK i C++ OMP, zamiast atomic per kolizję)
 			var localEColl uint64
 
 			if len(sim.CandidatesE) > 0 {
+				// Wariant Null-Collision
 				totalCandidates := len(sim.CandidatesE)
 				chunkSize := (totalCandidates + numWorkers - 1) / numWorkers
 				start := workerID * chunkSize
@@ -249,6 +282,7 @@ func (sim *SimulationState) startWorker(workerID int) {
 					}
 				}
 			} else {
+				// Wariant bezpośredniego próbkowania (Standard)
 				chunkSize := (sim.N_e + numWorkers - 1) / numWorkers
 				start := workerID * chunkSize
 				end := min((workerID+1)*chunkSize, sim.N_e)
@@ -262,7 +296,6 @@ func (sim *SimulationState) startWorker(workerID int) {
 						nu := sim.SigmaTotE[energy_index] * velocity
 						p_coll := 1 - math.Exp(-nu*DT_E)
 
-						// petla kolizji dla elektronow
 						if sim.WorkerR01(workerID) < p_coll {
 							sim.CollisionElectron(sim.X_e[k], &sim.Vx_e[k], &sim.Vy_e[k], &sim.Vz_e[k], energy_index, workerID)
 							localEColl++
@@ -276,13 +309,14 @@ func (sim *SimulationState) startWorker(workerID int) {
 			sim.WorkerDoneChan <- workerID
 
 		case CmdCollisionsI:
-			//	Reset buforow nowych czastek na workerow
+
+			// KROK 8: Zderzenia jonów MCC w chunku
 			sim.WorkerNewIons[workerID] = sim.WorkerNewIons[workerID][:0]
 
-			// Lokalny licznik kolizji — jeden atomic.AddUint64 na koniec chunka
 			var localIColl uint64
 
 			if len(sim.CandidatesI) > 0 {
+				// Wariant Null-Collision
 				totalCandidates := len(sim.CandidatesI)
 				chunkSize := (totalCandidates + numWorkers - 1) / numWorkers
 				start := workerID * chunkSize
@@ -314,6 +348,7 @@ func (sim *SimulationState) startWorker(workerID int) {
 					}
 				}
 			} else {
+				// Wariant bezpośredniego próbkowania (Standard)
 				chunkSize := (sim.N_i + numWorkers - 1) / numWorkers
 				start := workerID * chunkSize
 				end := min((workerID+1)*chunkSize, sim.N_i)
@@ -333,7 +368,6 @@ func (sim *SimulationState) startWorker(workerID int) {
 						nu := sim.SigmaTotI[energy_index] * g
 						p_coll := 1 - math.Exp(-nu*DT_I)
 
-						// petla kolizji dla jonow
 						if sim.WorkerR01(workerID) < p_coll {
 							sim.CollisionIon(&sim.Vx_i[k], &sim.Vy_i[k], &sim.Vz_i[k], &vx_a, &vy_a, &vz_a, energy_index, workerID)
 							localIColl++
@@ -347,6 +381,7 @@ func (sim *SimulationState) startWorker(workerID int) {
 			sim.WorkerDoneChan <- workerID
 
 		case CmdStop:
+			// Zakończenie pracy goroutine
 			return
 		}
 	}

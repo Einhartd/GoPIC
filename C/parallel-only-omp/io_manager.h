@@ -5,6 +5,11 @@
 #include <cstring>
 #include <cstdlib>
 
+/*
+Zapis stanu cząstek do pliku binarnego (picdata.bin).
+Zapisuje czas, liczbę cykli oraz tablice pozycji i prędkości elektronów i jonów.
+Umożliwia wznawianie obliczeń w kolejnych uruchomieniach (check-pointing).
+*/
 inline void save_particle_data(){
     double   d;
     FILE   * f;
@@ -31,6 +36,10 @@ inline void save_particle_data(){
     printf(">> eduPIC: data saved : %d electrons %d ions, %d cycles completed, time is %e [s]\n",N_e,N_i,cycles_done,Time);
 }
 
+/*
+Wczytanie stanu cząstek z pliku binarnego (picdata.bin).
+Odtwarza czas fizyczny, licznik cykli oraz współrzędne położenia i prędkości elektronów i jonów.
+*/
 inline void load_particle_data(){
     double   d;
     FILE   * f;
@@ -58,6 +67,10 @@ inline void load_particle_data(){
     printf(">> eduPIC: data loaded : %d electrons %d ions, %d cycles completed before, time is %e [s]\n",N_e,N_i,cycles_done,Time);
 }
 
+/*
+Zapis uśrednionych profili gęstości ładunku elektronów i jonów do pliku density.dat.
+Format wyjściowy: x [m] | <n_e> [m^-3] | <n_i> [m^-3].
+*/
 inline void save_density(void){
     FILE *f;
     double c;
@@ -71,6 +84,11 @@ inline void save_density(void){
     fclose(f);
 }
 
+/*
+Zapis unormowanej funkcji rozkładu prawdopodobieństwa energii elektronów (EEPF) do eepf.dat.
+Normalizacja: f_EEPF(E) / (calka * sqrt(E)).
+Format wyjściowy: E [eV] | f_EEPF(E) [eV^(-3/2)].
+*/
 inline void save_eepf(void) {
     FILE   *f;
     int    i;
@@ -87,6 +105,11 @@ inline void save_eepf(void) {
     fclose(f);
 }
 
+/*
+Zapis rozkładów strumieniowo-energetycznych jonów (IFED) na obu elektrodach do ifed.dat.
+Wyznacza również średnie energie jonów uderzających w elektrodę zasilaną i uziemioną.
+Format wyjściowy: E [eV] | IFED_powered | IFED_grounded.
+*/
 inline void save_ifed(void) {
     FILE   *f;
     int    i;
@@ -109,6 +132,11 @@ inline void save_ifed(void) {
     fclose(f);
 }
 
+/*
+Funkcja pomocnicza: Zapis pojedynczej macierzy czasoprzestrzennej (N_G x N_XT) do pliku.
+@param distr Dwuwymiarowa macierz czasoprzestrzenna xt_distr.
+@param fname Nazwa pliku wyjściowego.
+*/
 inline void save_xt_1(xt_distr distr, char *fname) {
     FILE   *f;
     int    i, j;
@@ -123,12 +151,15 @@ inline void save_xt_1(xt_distr distr, char *fname) {
     fclose(f);
 }
 
+/*
+Normalizacja wszystkich czasoprzestrzennych rozkładów diagnostycznych (XT).
+Oblicza gęstości prądów cząstek j_e, j_i oraz moc pochłanianą przez plazmę (j * E).
+*/
 inline void norm_all_xt(void){
     double f1, f2;
     int    i, j;
     
-    // normalize all XT data
-    
+    // Współczynniki normalizacyjne
     f1 = (double)(N_XT) / (double)(no_of_cycles * N_T);
     f2 = WEIGHT / (ELECTRODE_AREA * DX) / (no_of_cycles * (PERIOD / (double)(N_XT)));
     
@@ -164,6 +195,10 @@ inline void norm_all_xt(void){
     }
 }
 
+/*
+Zapis wszystkich 11 macierzy rozkładów czasoprzestrzennych do plików .dat.
+Zapisuje m.in.: pot_xt, efield_xt, ne_xt, ni_xt, je_xt, ji_xt, powere_xt, poweri_xt, meanee_xt, meanei_xt, ioniz_xt.
+*/
 inline void save_all_xt(void){
     char fname[80];
     
@@ -180,20 +215,30 @@ inline void save_all_xt(void){
     strcpy(fname,"ioniz_xt.dat");   save_xt_1(ioniz_rate_xt, fname);
 }
 
+/*
+Weryfikacja kryteriów stabilności numerycznej i dokładności fizycznej PIC/MCC oraz zapis raportu info.txt.
+Sprawdzane kryteria:
+ 1. omega_pe * DT_E < 0.20 (rozwiązanie oscylacji plazmowych).
+ 2. DX / lambda_D < 1.00   (brak sztucznego samonagrzewania siatki).
+ 3. nu_max_e * DT_E < 0.05 (maksymalne prawdopodobieństwo zderzenia elektronu).
+ 4. nu_max_i * DT_I < 0.05 (maksymalne prawdopodobieństwo zderzenia jonu).
+ 5. Warunek CFL dla cząstek szybkich (v_max * DT_E < DX).
+W przypadku spełnienia warunków, wywołuje procedury zapisu wszystkich diagnostyk.
+*/
 inline void check_and_save_info(void){
     FILE     *f;
     double   plas_freq, meane, kT, debye_length, density, ecoll_freq, icoll_freq, sim_time, e_max, v_max, power_e, power_i, c;
     int      i,j;
     bool     conditions_OK;
     
-    density    = cumul_e_density[N_G / 2] / (double)(no_of_cycles) / (double)(N_T);  // e density @ center
-    plas_freq  = E_CHARGE * sqrt(density / EPSILON0 / E_MASS);                       // e plasma frequency @ center
-    meane      = mean_energy_accu_center / (double)(mean_energy_counter_center);     // e mean energy @ center
-    kT         = 2.0 * meane * EV_TO_J / 3.0;                                        // k T_e @ center (approximate)
-    sim_time   = (double)(no_of_cycles) / FREQUENCY;                                 // simulated time
-    ecoll_freq = (double)(N_e_coll) / sim_time / (double)(N_e);                      // e collision frequency
-    icoll_freq = (double)(N_i_coll) / sim_time / (double)(N_i);                      // ion collision frequency
-    debye_length = sqrt(EPSILON0 * kT / density) / E_CHARGE;                         // e Debye length @ center
+    density    = cumul_e_density[N_G / 2] / (double)(no_of_cycles) / (double)(N_T);  // Gęstość elektronów w środku szczeliny
+    plas_freq  = E_CHARGE * sqrt(density / EPSILON0 / E_MASS);                       // Częstość plazmowa elektronów w środku szczeliny
+    meane      = mean_energy_accu_center / (double)(mean_energy_counter_center);     // Średnia energia elektronów w centrum
+    kT         = 2.0 * meane * EV_TO_J / 3.0;                                        // Przybliżona temperatura k*T_e w centrum
+    sim_time   = (double)(no_of_cycles) / FREQUENCY;                                 // Całkowity czas symulowany
+    ecoll_freq = (double)(N_e_coll) / sim_time / (double)(N_e);                      // Średnia częstość zderzeń elektronów
+    icoll_freq = (double)(N_i_coll) / sim_time / (double)(N_i);                      // Średnia częstość zderzeń jonów
+    debye_length = sqrt(EPSILON0 * kT / density) / E_CHARGE;                         // Promień Debye'a elektronów w centrum
     
     f = fopen("info.txt","w");
     fprintf(f,"########################## eduPIC simulation report ############################\n");
@@ -240,17 +285,15 @@ inline void check_and_save_info(void){
     }
     else
     {
-        // calculate maximum energy for which the Courant-Friedrichs-Levy condition holds:
-        
+        // Wyznaczenie maksymalnej energii elektronów spełniającej warunek Couranta-Friedrichsa-Lewy'ego (CFL):
+        // Cząstka nie może pokonać więcej niż jednej komórki siatki DX w jednym kroku czasowym DT_E.
         v_max = DX / DT_E;
         e_max = 0.5 * E_MASS * v_max * v_max / EV_TO_J;
         fprintf(f,"Max e- energy for CFL condition       = %12.3f [eV]\n", e_max);
         fprintf(f,"Check EEPF to ensure that CFL is fulfilled for the majority of the electrons!\n");
         fprintf(f,"--------------------------------------------------------------------------------\n");
         
-        // saving of the following data is done here as some of the further lines need data
-        // that are computed / normalized in these functions
-        
+        // Zapis i normalizacja diagnostyk
         printf(">> eduPIC: saving diagnostics data\n");
         save_density();
         save_eepf();
@@ -266,8 +309,7 @@ inline void check_and_save_info(void){
         fprintf(f,"Electron flux at grounded electrode   = %12.3e [m^{-2} s^{-1}]\n", N_e_abs_gnd * WEIGHT / ELECTRODE_AREA / (no_of_cycles * PERIOD));
         fprintf(f,"--------------------------------------------------------------------------------\n");
         
-        // calculate spatially and temporally averaged power absorption by the electrons and ions
-        
+        // Obliczenie uśrednionej czasoprzestrzennie mocy absorbowanej przez elektrony i jony <j * E>
         power_e = 0.0;
         power_i = 0.0;
         for (i=0; i<N_G; i++){

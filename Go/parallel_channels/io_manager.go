@@ -8,10 +8,16 @@ import (
 	"os"
 )
 
-//---------------------------------------------------------------------//
-// save particle coordinates                                           //
-//---------------------------------------------------------------------//
-
+/*
+Zapis stanu cząstek do binarnego pliku checkpointu picdata.bin.
+Zapisuje czas całkowity, liczbę ukończonych cykli oraz pełne wektory współrzędnych i prędkości SoA.
+Etapy:
+ 1. Utworzenie binarnego strumienia buforowanego (bufio.Writer).
+ 2. Zapis nagłówka symulacji (Time, Cycles_done, N_e, N_i).
+ 3. Zapis tablic elektronów: X_e, Vx_e, Vy_e, Vz_e.
+ 4. Zapis tablic jonów: X_i, Vx_i, Vy_i, Vz_i.
+ 5. Opróżnienie bufora (Flush) i zamknięcie pliku.
+*/
 func (sim *SimulationState) SaveParticleData() {
 	f, err := os.Create("picdata.bin")
 	if err != nil {
@@ -38,10 +44,15 @@ func (sim *SimulationState) SaveParticleData() {
 	fmt.Printf(">> gopic: data saved : %d electrons %d ions, %d cycles completed, time is %e [s]\n", sim.N_e, sim.N_i, sim.Cycles_done, sim.Time)
 }
 
-//---------------------------------------------------------------------//
-// load particle coordinates                                           //
-//---------------------------------------------------------------------//
-
+/*
+Wczytanie stanu cząstek z binarnego pliku checkpointu picdata.bin.
+Umożliwia wznowienie symulacji od zapisanego punktu w czasie.
+Etapy:
+ 1. Otwarcie pliku picdata.bin (lub zakończenie w przypadku braku pliku).
+ 2. Odczyt nagłówka symulacji (Time, Cycles_done, N_e, N_i).
+ 3. Odczyt tablic elektronów do tablic SoA.
+ 4. Odczyt tablic jonów do tablic SoA.
+*/
 func (sim *SimulationState) LoadParticleData() {
 	f, err := os.Open("picdata.bin")
 	if err != nil {
@@ -67,10 +78,10 @@ func (sim *SimulationState) LoadParticleData() {
 	fmt.Printf(">> gopic: data loaded : %d electrons %d ions, %d cycles completed before, time is %e [s]\n", sim.N_e, sim.N_i, sim.Cycles_done, sim.Time)
 }
 
-//---------------------------------------------------------------------//
-// save density data                                                   //
-//---------------------------------------------------------------------//
-
+/*
+Zapis uśrednionych profili przestrzennych gęstości ładunku do pliku density.dat.
+Kolumny: Pozycja [m], Średnia gęstość elektronów [m^-3], Średnia gęstość jonów [m^-3].
+*/
 func (sim *SimulationState) SaveDensity() {
 	f, err := os.Create("density.dat")
 	if err != nil {
@@ -84,13 +95,13 @@ func (sim *SimulationState) SaveDensity() {
 	}
 }
 
-//---------------------------------------------------------------------//
-// save EEPF data                                                      //
-//---------------------------------------------------------------------//
-
+/*
+Zapis znormalizowanej funkcji rozkładu energii elektronów (EEPF) w centrum wyładowania do eepf.dat.
+Kolumny: Środek przedziału energii [eV], Wartość EEPF f(epsilon) / sqrt(epsilon) [eV^-3/2].
+*/
 func (sim *SimulationState) SaveEEPF() {
 	h := 0.0
-	for i := 0; i < N_EEPF; i++ {
+	for i := range N_EEPF {
 		h += sim.Eepf[i]
 	}
 	h *= DE_EEPF
@@ -99,20 +110,21 @@ func (sim *SimulationState) SaveEEPF() {
 		panic(err)
 	}
 	defer f.Close()
-	for i := 0; i < N_EEPF; i++ {
+	for i := range N_EEPF {
 		energy := (float64(i) + 0.5) * DE_EEPF
 		fmt.Fprintf(f, "%e  %e\n", energy, sim.Eepf[i]/h/math.Sqrt(energy))
 	}
 }
 
-//---------------------------------------------------------------------//
-// save IFED data                                                      //
-//---------------------------------------------------------------------//
-
+/*
+Zapis rozkładów energii strumienia jonów docierających do elektrod (IFED) do ifed.dat.
+Oblicza również średnią energię uderzenia jonów w elektrodę zasilaną i uziemioną.
+Kolumny: Środek przedziału energii [eV], IFED elektroda zasilana, IFED elektroda uziemiona.
+*/
 func (sim *SimulationState) SaveIFED() {
 	h_pow := 0.0
 	h_gnd := 0.0
-	for i := 0; i < N_IFED; i++ {
+	for i := range N_IFED {
 		h_pow += float64(sim.Ifed_pow[i])
 		h_gnd += float64(sim.Ifed_gnd[i])
 	}
@@ -125,7 +137,7 @@ func (sim *SimulationState) SaveIFED() {
 		panic(err)
 	}
 	defer f.Close()
-	for i := 0; i < N_IFED; i++ {
+	for i := range N_IFED {
 		energy := (float64(i) + 0.5) * DE_IFED
 		fmt.Fprintf(f, "%6.2f %10.6f %10.6f\n", energy, float64(sim.Ifed_pow[i])/h_pow, float64(sim.Ifed_gnd[i])/h_gnd)
 		sim.Mean_i_energy_pow += energy * float64(sim.Ifed_pow[i]) / h_pow
@@ -133,17 +145,18 @@ func (sim *SimulationState) SaveIFED() {
 	}
 }
 
-//--------------------------------------------------------------------//
-// save XT data                                                       //
-//--------------------------------------------------------------------//
-
+/*
+Zapis pojedynczej macierzy czasoprzestrzennej XT (N_G x N_XT) do pliku tekstowego.
+@param distr Tablica dwuwymiarowa o wymiarach [N_G][N_XT].
+@param fname Nazwa pliku wyjściowego.
+*/
 func (sim *SimulationState) SaveXT1(distr XtDistr, fname string) {
 	f, err := os.Create(fname)
 	if err != nil {
 		panic(err)
 	}
 	defer f.Close()
-	for i := 0; i < N_G; i++ {
+	for i := range N_G {
 		for j := 0; j < N_XT; j++ {
 			fmt.Fprintf(f, "%e  ", distr[i][j])
 		}
@@ -151,16 +164,18 @@ func (sim *SimulationState) SaveXT1(distr XtDistr, fname string) {
 	}
 }
 
+/*
+Normalizacja wszystkich czasoprzestrzennych macierzy diagnostycznych XT.
+Przelicza akumulatory na fizyczne jednostki średnie (prędkości, prądy, gęstości mocy j*E).
+*/
 func (sim *SimulationState) NormAllXT() {
 	var f1, f2 float64
-
-	// normalize all XT data
 
 	f1 = float64(N_XT) / float64(sim.No_of_cycles*N_T)
 	f2 = WEIGHT / (ELECTRODE_AREA * DX) / (float64(sim.No_of_cycles) * (PERIOD / float64(N_XT)))
 
-	for i := 0; i < N_G; i++ {
-		for j := 0; j < N_XT; j++ {
+	for i := range N_G {
+		for j := range N_XT {
 			sim.Pot_xt[i][j] *= f1
 			sim.Efield_xt[i][j] *= f1
 			sim.Ne_xt[i][j] *= f1
@@ -191,6 +206,10 @@ func (sim *SimulationState) NormAllXT() {
 	}
 }
 
+/*
+Zapis pełnego zestawu 11 macierzy czasoprzestrzennych XT do plików .dat.
+Zapisuje: pot_xt, efield_xt, ne_xt, ni_xt, je_xt, ji_xt, powere_xt, poweri_xt, meanee_xt, meanei_xt, ioniz_xt.
+*/
 func (sim *SimulationState) SaveAllXT() {
 	sim.SaveXT1(sim.Pot_xt, "pot_xt.dat")
 	sim.SaveXT1(sim.Efield_xt, "efield_xt.dat")
@@ -205,22 +224,29 @@ func (sim *SimulationState) SaveAllXT() {
 	sim.SaveXT1(sim.Ioniz_rate_xt, "ioniz_xt.dat")
 }
 
-//---------------------------------------------------------------------//
-// simulation report including stability and accuracy conditions       //
-//---------------------------------------------------------------------//
+/*
+Weryfikacja kryteriów stabilności i dokładności numerycznej oraz generowanie raportu info.txt.
+Sprawdza 5 kluczowych kryteriów numerycznych plazmy:
+ 1. omega_pe * dt_e < 0.20 (rozdzielczość oscylacji plazmowych).
+ 2. dx / lambda_D < 1.00 (rozdzielczość długości Debye'a, zapobieganie grid heating).
+ 3. nu*_e * dt_e < 0.05 (dokładność metody zderzeniowej dla elektronów).
+ 4. nu*_i * dt_i < 0.05 (dokładność metody zderzeniowej dla jonów).
+ 5. Warunek CFL dla elektronów (v_max = dx / dt_e).
 
+Zapisuje również średnie strumienie cząstek, energie uderzenia oraz moc pochłanianą w plazmie.
+*/
 func (sim *SimulationState) CheckAndSaveInfo() {
 	var plas_freq, meane, kT, debye_length, density, ecoll_freq, icoll_freq, sim_time, e_max, v_max, power_e, power_i, c float64
 	var conditions_OK bool
 
-	density = sim.Cumul_e_density[N_G/2] / float64(sim.No_of_cycles) / float64(N_T) // e density @ center
-	plas_freq = E_CHARGE * math.Sqrt(density/EPSILON0/E_MASS)                       // e plasma frequency @ center
-	meane = sim.Mean_energy_accu_center / float64(sim.Mean_energy_counter_center)   // e mean energy @ center
-	kT = 2.0 * meane * EV_TO_J / 3.0                                                // k T_e @ center (approximate)
-	sim_time = float64(sim.No_of_cycles) / FREQUENCY                                // simulated time
-	ecoll_freq = float64(sim.N_e_coll) / sim_time / float64(sim.N_e)                // e collision frequency
-	icoll_freq = float64(sim.N_i_coll) / sim_time / float64(sim.N_i)                // ion collision frequency
-	debye_length = math.Sqrt(EPSILON0*kT/density) / E_CHARGE                        // e Debye length @ center
+	density = sim.Cumul_e_density[N_G/2] / float64(sim.No_of_cycles) / float64(N_T) // Gęstość elektronów w centrum
+	plas_freq = E_CHARGE * math.Sqrt(density/EPSILON0/E_MASS)                       // Częstość plazmowa elektronowa
+	meane = sim.Mean_energy_accu_center / float64(sim.Mean_energy_counter_center)   // Średnia energia elektronów w centrum
+	kT = 2.0 * meane * EV_TO_J / 3.0                                                // Temperatura elektronowa k*Te [J]
+	sim_time = float64(sim.No_of_cycles) / FREQUENCY                                // Całkowity czas symulacji
+	ecoll_freq = float64(sim.N_e_coll) / sim_time / float64(sim.N_e)                // Częstość zderzeń elektronów
+	icoll_freq = float64(sim.N_i_coll) / sim_time / float64(sim.N_i)                // Częstość zderzeń jonów
+	debye_length = math.Sqrt(EPSILON0*kT/density) / E_CHARGE                        // Długość Debye'a w centrum
 
 	f, err := os.Create("info.txt")
 	if err != nil {
@@ -279,16 +305,12 @@ func (sim *SimulationState) CheckAndSaveInfo() {
 		return
 	}
 
-	// calculate maximum energy for which the Courant-Friedrichs-Levy condition holds:
-
+	// Maksymalna energia dla warunku CFL (Courant-Friedrichs-Lewy)
 	v_max = DX / DT_E
 	e_max = 0.5 * E_MASS * v_max * v_max / EV_TO_J
 	fmt.Fprintf(f, "Max e- energy for CFL condition       = %12.3f [eV]\n", e_max)
 	fmt.Fprintln(f, "Check EEPF to ensure that CFL is fulfilled for the majority of the electrons!")
 	fmt.Fprintln(f, "--------------------------------------------------------------------------------")
-
-	// saving of the following data is done here as some of the further lines need data
-	// that are computed / normalized in these functions
 
 	fmt.Println(">> gopic: saving diagnostics data")
 	sim.SaveDensity()
@@ -305,11 +327,10 @@ func (sim *SimulationState) CheckAndSaveInfo() {
 	fmt.Fprintf(f, "Electron flux at grounded electrode   = %12.3e [m^{-2} s^{-1}]\n", float64(sim.N_e_abs_gnd)*WEIGHT/ELECTRODE_AREA/(float64(sim.No_of_cycles)*PERIOD))
 	fmt.Fprintln(f, "--------------------------------------------------------------------------------")
 
-	// calculate spatially and temporally averaged power absorption by the electrons and ions
-
+	// Uśredniona przestrzennie i czasowo moc absorbowana przez elektrony i jony <j*E>
 	power_e = 0.0
 	power_i = 0.0
-	for i := 0; i < N_G; i++ {
+	for i := range N_G {
 		for j := 0; j < N_XT; j++ {
 			power_e += sim.Powere_xt[i][j]
 			power_i += sim.Poweri_xt[i][j]
@@ -324,14 +345,22 @@ func (sim *SimulationState) CheckAndSaveInfo() {
 	fmt.Fprintln(f, "--------------------------------------------------------------------------------")
 }
 
-// read array/slice from buffer
+/*
+Funkcja pomocnicza: Odczyt wycinka liczb float64 z bufora binarnego.
+@param r Buforowany strumień odczytu.
+@param v Docelowy wycinek liczb float64.
+*/
 func readFloat64Slice(r *bufio.Reader, v []float64) {
 	for i := range v {
 		v[i] = readFloat64(r)
 	}
 }
 
-// read float64 from buffer
+/*
+Funkcja pomocnicza: Odczyt pojedynczej liczby float64 (Little-Endian).
+@param r Buforowany strumień odczytu.
+@return Odczytana wartość float64.
+*/
 func readFloat64(r *bufio.Reader) float64 {
 	var v float64
 	if err := binary.Read(r, binary.LittleEndian, &v); err != nil {
@@ -340,14 +369,22 @@ func readFloat64(r *bufio.Reader) float64 {
 	return v
 }
 
-// save array/slice to buffer
+/*
+Funkcja pomocnicza: Zapis wycinka liczb float64 do bufora binarnego.
+@param w Buforowany strumień zapisu.
+@param v Wycinek liczb float64 do zapisania.
+*/
 func writeFloat64Slice(w *bufio.Writer, v []float64) {
 	for _, x := range v {
 		writeFloat64(w, x)
 	}
 }
 
-// save single float64 value to buffer in little-endian format
+/*
+Funkcja pomocnicza: Zapis pojedynczej liczby float64 (Little-Endian).
+@param w Buforowany strumień zapisu.
+@param v Wartość zmiennoprzecinkowa float64.
+*/
 func writeFloat64(w *bufio.Writer, v float64) {
 	if err := binary.Write(w, binary.LittleEndian, v); err != nil {
 		panic(err)

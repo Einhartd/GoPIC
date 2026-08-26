@@ -9,7 +9,14 @@ import (
 	"sync/atomic"
 )
 
-// InitNullCollision precomputes parameters for null-collision MCC.
+/*
+Inicjalizacja parametrów metody Null-Collision dla elektronów i jonów.
+Wyznacza maksymalne częstości zderzeń nu*_e, nu*_i oraz prawdopodobieństwa P*_e, P*_i.
+Etapy:
+ 1. Wyznaczenie maksymalnej częstości zderzeń dla elektronów nu*_e i prawdopodobieństwa P*_e = 1 - exp(-nu*_e * dt_e).
+ 2. Wyznaczenie maksymalnej częstości zderzeń dla jonów nu*_i i prawdopodobieństwa P*_i = 1 - exp(-nu*_i * dt_i).
+ 3. Wyświetlenie parametrów na standardowym wyjściu.
+*/
 func (sim *SimulationState) InitNullCollision() {
 	sim.NuStarE = sim.MaxElectronCollFreq()
 	sim.PStarE = 1.0 - math.Exp(-sim.NuStarE*DT_E)
@@ -21,7 +28,13 @@ func (sim *SimulationState) InitNullCollision() {
 	fmt.Printf(">> GoPIC: null-collision: nu*_i = %e, P*_i = %e\n", sim.NuStarI, sim.PStarI)
 }
 
-// randomSample returns count unique indices drawn from [0, n) without replacement.
+/*
+Losowanie unikalnego podzbioru indeksów cząstek bez powtórzeń (Algorytm Fishera-Yatesa).
+Losuje 'count' unikalnych indeksów z przedziału [0, n) w czasie O(count) bez dodatkowych alokacji GC.
+@param n     Całkowita liczba dostępnych cząstek w tablicy.
+@param count Liczba kandydatów do wylosowania (N*_coll).
+@return Wycinek zawierający 'count' unikalnych indeksów cząstek.
+*/
 func (sim *SimulationState) randomSample(n, count int) []int {
 	pool := sim.CandidatePool[:n]
 	for i := 0; i < n; i++ {
@@ -34,11 +47,15 @@ func (sim *SimulationState) randomSample(n, count int) []int {
 	return pool[:count]
 }
 
-// sampleBinomial losuje liczbę zdarzeń z rozkładu dwumianowego Binomial(n, p).
-// Zastosowano aproksymację normalną N(mu, sigma^2) zgodnie z twierdzeniem de Moivre'a-Laplace'a.
-// Założenie matematyczne: Dla dużej liczby cząstek (n >= 1000) oraz n*p >= 5.0, rozkład Binomial(n, p)
-// jest w pełni zbieżny z rozkładem Gaussa N(n*p, n*p*(1-p)).
-// Optymalizacja redukuje złożoność czasową z O(n) losowań Bernoulliego do O(1) przy zachowaniu błędu statystycznego < 0.01%.
+/*
+Losowanie liczby zdarzeń z rozkładu dwumianowego Binomial(n, p).
+Dla n >= 1000 i n*p >= 5.0 stosuje aproksymację Gaussa N(mu, sigma^2) (tw. de Moivre'a-Laplace'a),
+co redukuje złożoność z O(n) do O(1) przy błędzie statystycznym < 0.01%.
+Dla małych prób wykonuje dokładne losowanie Bernoulliego.
+@param n Liczba prób (całkowita liczba cząstek w domenie).
+@param p Prawdopodobieństwo sukcesu w pojedynczej próbie (P*).
+@return Wylosowana całkowita liczba zderzeń pozornych N*_coll.
+*/
 func (sim *SimulationState) sampleBinomial(n int, p float64) int {
 	if n <= 0 || p <= 0.0 {
 		return 0
@@ -70,6 +87,15 @@ func (sim *SimulationState) sampleBinomial(n int, p float64) int {
 	return count
 }
 
+/*
+KROK 7: Zderzenia elektronów metodą Null-Collision z równoległym chunkingiem (Goroutines).
+Etapy:
+ 1. Losowanie łącznej liczby kandydatów N*_coll ~ Binomial(N_e, P*_e) i unikalnych indeksów bez powtórzeń.
+ 2. Podział kandydatów na równe chunki pomiędzy workery (goroutines).
+ 3. Każdy worker oblicza energię, rzeczywistą częstość nu(E) i test akceptacji p_accept = nu(E) / nu*_e.
+ 4. Wywołanie CollisionElectron i buforowanie nowo powstałych par (e-, Ar+) w prywatnych tablicach AoS.
+ 5. Scalenie (flush) buforów workerów do głównych tablic SoA stanu symulacji.
+*/
 func (sim *SimulationState) Step7CollisionsElectrons() {
 	nCollStar := sim.sampleBinomial(sim.N_e, sim.PStarE)
 	if nCollStar > sim.N_e {
@@ -79,6 +105,7 @@ func (sim *SimulationState) Step7CollisionsElectrons() {
 		return
 	}
 
+	// Losowanie unikalnego podzbioru kandydatów (częściowy Fisher-Yates)
 	candidates := sim.randomSample(sim.N_e, nCollStar)
 
 	numWorkers := len(sim.WorkerEDensity)
@@ -87,6 +114,7 @@ func (sim *SimulationState) Step7CollisionsElectrons() {
 		sim.WorkerNewIons[w] = sim.WorkerNewIons[w][:0]
 	}
 
+	// ZRÓWNOLEGLENIE: Podział tablicy kandydatów 'candidates' na równe chunki
 	totalCandidates := len(candidates)
 	chunkSize := (totalCandidates + numWorkers - 1) / numWorkers
 
@@ -103,6 +131,9 @@ func (sim *SimulationState) Step7CollisionsElectrons() {
 		}
 
 		workerID, s, e := w, start, end
+
+		// Start goroutine: Każdy worker niezależnie testuje akceptację zderzeń
+		// dla swojego podzbioru kandydatów i zapisuje nowe cząstki do WorkerNewElectrons[workerID].
 		wg.Go(func() {
 			var localColl uint64
 			for i := s; i < e; i++ {
@@ -117,19 +148,24 @@ func (sim *SimulationState) Step7CollisionsElectrons() {
 					pAccept = 1.0
 				}
 
+				// Test akceptacji metody Null-Collision (P = nu(E) / nu*_max)
 				if sim.WorkerR01(workerID) < pAccept {
 					sim.CollisionElectron(sim.X_e[k], &sim.Vx_e[k], &sim.Vy_e[k], &sim.Vz_e[k], eIdx, workerID)
 					localColl++
 				}
 			}
+			// Bezpieczna atomowa akumulacja globalnego licznika zderzeń
 			if localColl > 0 {
 				atomic.AddUint64(&sim.N_e_coll, localColl)
 			}
 		})
 	}
+
+	// Bariera synchronizacyjna: oczekiwanie na zakończenie wszystkich zderzeń w chunkach
 	wg.Wait()
 
-	// Flush buforów workerów do stanu głównego
+	// SCALENIE (FLUSH): Przepisanie nowych cząstek (wtórne e- i jony Ar+) z prywatnych
+	// buforów AoS do głównych tablic SoA stanu symulacji.
 	for w := 0; w < numWorkers; w++ {
 		for _, p := range sim.WorkerNewElectrons[w] {
 			sim.X_e[sim.N_e] = p.X
@@ -148,6 +184,17 @@ func (sim *SimulationState) Step7CollisionsElectrons() {
 	}
 }
 
+/*
+KROK 8: Zderzenia jonów metodą Null-Collision (Subcycling co N_SUB kroków).
+Etapy:
+ 1. Sprawdzenie warunku subcyclingu (t % N_SUB == 0).
+ 2. Losowanie liczby kandydatów N*_coll ~ Binomial(N_i, P*_i) i unikalnych indeksów bez powtórzeń.
+ 3. Podział kandydatów na równe chunki pomiędzy workery (goroutines).
+ 4. Dla każdego kandydata: wylosowanie wektora prędkości atomu tła z rozkładu RMB.
+ 5. Test akceptacji zderzenia p_accept = nu(E) / nu*_i i wywołanie CollisionIon in-place.
+
+@param t Indeks bieżącego podkroku czasowego w cyklu RF (0 .. N_T-1).
+*/
 func (sim *SimulationState) Step8CollisionIons(t int) {
 	if (t % N_SUB) != 0 {
 		return
@@ -165,6 +212,8 @@ func (sim *SimulationState) Step8CollisionIons(t int) {
 
 	numWorkers := len(sim.WorkerEDensity)
 	totalCandidates := len(candidates)
+
+	// ZRÓWNOLEGLENIE: Podział kandydatów zderzeń jonowych na chunki
 	chunkSize := (totalCandidates + numWorkers - 1) / numWorkers
 
 	var wg sync.WaitGroup
@@ -180,6 +229,8 @@ func (sim *SimulationState) Step8CollisionIons(t int) {
 		}
 
 		workerID, s, e := w, start, end
+
+		// Start goroutine: test akceptacji i modyfikacja prędkości zderzających się jonów
 		wg.Go(func() {
 			var localColl uint64
 			for i := s; i < e; i++ {
@@ -210,5 +261,7 @@ func (sim *SimulationState) Step8CollisionIons(t int) {
 			}
 		})
 	}
+
+	// Bariera synchronizacyjna jonów
 	wg.Wait()
 }

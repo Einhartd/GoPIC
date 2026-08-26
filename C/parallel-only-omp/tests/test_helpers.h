@@ -13,6 +13,11 @@
 #include <cstring>
 #include <cstdlib>
 
+/*
+Resetowanie globalnego stanu symulacji do wartości zerowych.
+Zeruje liczniki cząstek, czasy, profile gęstości, pola potencjału oraz histogramy diagnostyczne.
+Używane przed wykonaniem każdego przypadku testowego w środowisku Google Test.
+*/
 inline void reset_state() {
     N_e = 0; N_i = 0;
     N_e_abs_pow = 0; N_e_abs_gnd = 0;
@@ -30,10 +35,17 @@ inline void reset_state() {
     std::fill(std::begin(ifed_gnd), std::end(ifed_gnd), 0);
 }
 
+/*
+Ustawienie ziarna generatora pseudolosowego Mersenne Twister w wątku bieżącym.
+@param seed Wartość ziarna początkowego.
+*/
 inline void seed_rng(uint64_t seed = 67) {
     MTgen.seed(seed);
 }
 
+/*
+Zapis stanu generatora liczb pseudolosowych do pliku rng_state.bin.
+*/
 inline void save_rng_state() {
     std::ofstream f("rng_state.bin");
     if (!f) {
@@ -43,6 +55,9 @@ inline void save_rng_state() {
     f << MTgen;
 }
 
+/*
+Wczytanie stanu generatora liczb pseudolosowych z pliku rng_state.bin.
+*/
 inline void load_rng_state() {
     std::ifstream f("rng_state.bin");
     if (!f) {

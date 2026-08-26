@@ -258,3 +258,4 @@ __marimo__/
 hpc_logs/
 FlameGraph/
 flamegraphs_output/
+plots/

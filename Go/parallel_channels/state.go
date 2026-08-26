@@ -9,6 +9,10 @@ import (
 	"github.com/seehuhn/mt19937"
 )
 
+/*
+Prywatne bufory diagnostyczne dla pojedynczego workera (elektrony).
+Gromadzi lokalne wartości gęstości, prędkości, energii i EEPF bez konfliktów zapisu.
+*/
 type electronWorkerDiagnostics struct {
 	counter_e     [N_G]float64
 	ue            [N_G]float64
@@ -21,6 +25,10 @@ type electronWorkerDiagnostics struct {
 	abs_gnd       uint64
 }
 
+/*
+Prywatne bufory diagnostyczne dla pojedynczego workera (jony).
+Gromadzi lokalne wartości profilu prędkości, energii i histogramów IFED.
+*/
 type ionWorkerDiagnostics struct {
 	counter_i [N_G]float64
 	ui        [N_G]float64
@@ -31,11 +39,13 @@ type ionWorkerDiagnostics struct {
 	ifed_gnd  [N_IFED]int
 }
 
-// CreatedParticle represents a single newly generated particle in AoS layout.
-// AoS is chosen for temporary thread-local worker buffers during collisions because:
-// 1. Spatial Locality: Writing X, Vx, Vy, Vz (32 bytes) sequentially to a single slice fits in 1 L1 cache line (64B).
-// 2. Go Runtime Efficiency: Maintains 1 slice header per worker instead of 4 separate slice allocations & capacity checks.
-// 3. Low Flush Cost: Merging small buffers (~20-50 particles/step) into main SoA arrays takes sub-nanosecond time.
+/*
+Reprezentacja pojedynczej nowo utworzonej makrocząstki w układzie AoS (Array of Structures).
+Układ AoS dla tymczasowych buforów zderzeń został wybrany ze względu na:
+ 1. Lokalność przestrzenną: Zapis pozycji i 3 składowych prędkości (32B) mieści się w 1 linii cache L1 (64B).
+ 2. Efektywność runtime Go: 1 nagłówek wycinka na workera zamiast 4 osobnych alokacji.
+ 3. Niski koszt scalania: Przepisanie do głównych tablic SoA po zakończeniu pętli cząstek.
+*/
 type CreatedParticle struct {
 	X  float64
 	Vx float64
@@ -44,115 +54,131 @@ type CreatedParticle struct {
 }
 
 var (
-	RMB_sigma = math.Sqrt(K_BOLTZMANN * TEMPERATURE / AR_MASS) // RMB_sigma is the standard deviation for the Maxwell-Boltzmann velocity distribution.
+	// RMB_sigma określa odchylenie standardowe dla rozkładu prędkości Maxwella-Boltzmanna tła atomowego.
+	RMB_sigma = math.Sqrt(K_BOLTZMANN * TEMPERATURE / AR_MASS)
 )
 
+/*
+Główny stan symulacji PIC/MCC (1D3V) w implementacji równoległej Go opartej na trwałych workerach i kanałach (Channels).
+Przechowuje tablice cząstek w układzie SoA, siatki przestrzenne, diagnostyki czasoprzestrzenne,
+struktury robocze workerów oraz kanały komunikacyjne (WorkerCmdChan, WorkerDoneChan).
+*/
 type SimulationState struct {
-
-	//	Step1ComputeElectronDensity()
+	// Prywatne bufory depozycji gęstości ładunku (Krok 1)
 	WorkerEDensity []Xvector
-	//	Step1ComputeIonDensity()
 	WorkerIDensity []Xvector
-	//	Step3MoveElectrons()
+
+	// Prywatne bufory diagnostyk (Krok 3 i Krok 4)
 	WorkerEDiag []electronWorkerDiagnostics
-	//	Step4MoveIons()
 	WorkerIDiag []ionWorkerDiagnostics
 
-	// Boundary absorption flag buffers (2-phase boundary checking)
+	// Tablice flag absorpcji na elektrodach dla dwufazowej filtracji granic (Krok 5 i Krok 6)
 	AbsorbedE []uint8
 	AbsorbedI []uint8
 
-	// Collisions worker buffers for new particles (AoS per worker)
+	// Prywatne bufory na nowo utworzone cząstki w procesach jonizacji MCC
 	WorkerNewElectrons [][]CreatedParticle
 	WorkerNewIons      [][]CreatedParticle
 
-	Sigma     [N_CS]CrossSection // set of cross section arrays
-	SigmaTotE CrossSection       // total macroscopic cross section of electrons
-	SigmaTotI CrossSection       // total macroscopic cross section of ions
+	// Tablice przekrojów czynnych
+	Sigma     [N_CS]CrossSection // Zestaw tablic przekrojów czynnych dla wszystkich procesów
+	SigmaTotE CrossSection       // Całkowity makroskopowy przekrój czynny dla elektronów
+	SigmaTotI CrossSection       // Całkowity makroskopowy przekrój czynny dla jonów
 
-	N_e                   int            // number of electrons
-	N_i                   int            // number of ions
-	X_e, Vx_e, Vy_e, Vz_e ParticleVector // coordinates of electrons (one spatial, three velocity components)
-	X_i, Vx_i, Vy_i, Vz_i ParticleVector // coordinates of ions (one spatial, three velocity components)
+	// Tablice cząstek SoA (Structure of Arrays)
+	N_e                   int            // Aktualna liczba aktywnych elektronów
+	N_i                   int            // Aktualna liczba aktywnych jonów
+	X_e, Vx_e, Vy_e, Vz_e ParticleVector // Współrzędna 1D i wektor prędkości 3V dla elektronów
+	X_i, Vx_i, Vy_i, Vz_i ParticleVector // Współrzędna 1D i wektor prędkości 3V dla jonów
 
-	Efield, Pot                      Xvector // electric field and potential
-	E_density, I_density             Xvector // electron and ion densities
-	Cumul_e_density, Cumul_i_density Xvector // cumulative densities
+	// Siatki przestrzenne potencjału, pola E i gęstości
+	Efield, Pot                      Xvector // Rozkład pola elektrycznego i potencjału
+	E_density, I_density             Xvector // Chwilowe gęstości elektronów i jonów
+	Cumul_e_density, Cumul_i_density Xvector // Skumulowane gęstości uśredniane w czasie
 
-	N_e_abs_pow uint64 // counter for electrons absorbed at the powered electrode
-	N_e_abs_gnd uint64 // counter for electrons absorbed at the grounded electrode
-	N_i_abs_pow uint64 // counter for ions absorbed at the powered electrode
-	N_i_abs_gnd uint64 // counter for ions absorbed at the grounded electrode
+	// Liczniki cząstek pochłoniętych na elektrodach
+	N_e_abs_pow uint64 // Licznik elektronów zaabsorbowanych na elektrodzie zasilanej
+	N_e_abs_gnd uint64 // Licznik elektronów zaabsorbowanych na elektrodzie uziemionej
+	N_i_abs_pow uint64 // Licznik jonów zaabsorbowanych na elektrodzie zasilanej
+	N_i_abs_gnd uint64 // Licznik jonów zaabsorbowanych na elektrodzie uziemionej
 
-	Eepf EepfVector // time integrated EEPF in the center of the plasma
+	// Diagnostyka energetyczna elektronów w centrum wyładowania
+	Eepf EepfVector // Scałkowany w czasie rozkład energii elektronów EEPF
 
-	Ifed_pow          IfedVector // IFED at the powered electrode
-	Ifed_gnd          IfedVector // IFED at the grounded electrode
-	Mean_i_energy_pow float64    // mean ion energy at the powered electrode
-	Mean_i_energy_gnd float64    // mean ion energy at the grounded electrode
+	// Diagnostyka energetyczna jonów na elektrodach
+	Ifed_pow          IfedVector // Rozkład strumienia energii jonów IFED na elektrodzie zasilanej
+	Ifed_gnd          IfedVector // Rozkład strumienia energii jonów IFED na elektrodzie uziemionej
+	Mean_i_energy_pow float64    // Średnia energia jonów uderzających w elektrodę zasilaną [eV]
+	Mean_i_energy_gnd float64    // Średnia energia jonów uderzających w elektrodę uziemioną [eV]
 
-	Pot_xt        XtDistr // XT distribution of the potential
-	Efield_xt     XtDistr // XT distribution of the electric field
-	Ne_xt         XtDistr // XT distribution of the electron density
-	Ni_xt         XtDistr // XT distribution of the ion density
-	Ue_xt         XtDistr // XT distribution of the mean electron velocity
-	Ui_xt         XtDistr // XT distribution of the mean ion velocity
-	Je_xt         XtDistr // XT distribution of the electron current density
-	Ji_xt         XtDistr // XT distribution of the ion current density
-	Powere_xt     XtDistr // XT distribution of the electron powering (power absorption) rate
-	Poweri_xt     XtDistr // XT distribution of the ion powering (power absorption) rate
-	Meanee_xt     XtDistr // XT distribution of the mean electron energy
-	Meanei_xt     XtDistr // XT distribution of the mean ion energy
-	Counter_e_xt  XtDistr // XT counter for electron properties
-	Counter_i_xt  XtDistr // XT counter for ion properties
-	Ioniz_rate_xt XtDistr // XT distribution of the ionisation rate
+	// Czasoprzestrzenne macierze diagnostyczne (XT)
+	Pot_xt        XtDistr // Rozkład czasoprzestrzenny potencjału
+	Efield_xt     XtDistr // Rozkład czasoprzestrzenny pola elektrycznego
+	Ne_xt         XtDistr // Rozkład czasoprzestrzenny gęstości elektronów
+	Ni_xt         XtDistr // Rozkład czasoprzestrzenny gęstości jonów
+	Ue_xt         XtDistr // Rozkład czasoprzestrzenny średniej prędkości elektronów
+	Ui_xt         XtDistr // Rozkład czasoprzestrzenny średniej prędkości jonów
+	Je_xt         XtDistr // Rozkład czasoprzestrzenny gęstości prądu elektronów
+	Ji_xt         XtDistr // Rozkład czasoprzestrzenny gęstości prądu jonów
+	Powere_xt     XtDistr // Rozkład mocy pochłanianej przez elektrony (je * E)
+	Poweri_xt     XtDistr // Rozkład mocy pochłanianej przez jony (ji * E)
+	Meanee_xt     XtDistr // Rozkład czasoprzestrzenny średniej energii elektronów
+	Meanei_xt     XtDistr // Rozkład czasoprzestrzenny średniej energii jonów
+	Counter_e_xt  XtDistr // Licznik próbek elektronowych dla siatki XT
+	Counter_i_xt  XtDistr // Licznik próbek jonowych dla siatki XT
+	Ioniz_rate_xt XtDistr // Rozkład czasoprzestrzenny częstości jonizacji
 
-	Mean_energy_accu_center    float64  // mean electron energy accumulator in the center of the gap
-	Mean_energy_counter_center uint64   // mean electron energy counter in the center of the gap
-	N_e_coll                   uint64   // counter for electron collisions
-	N_i_coll                   uint64   // counter for ion collisions
-	Time                       float64  // total simulated time (from the beginning of the simulation)
-	Cycle                      int      // current cycle
-	No_of_cycles               int      // total cycles in the run
-	Cycles_done                int      // cycles completed
-	Arg1                       int      // used for reading command line arguments
-	St0                        string   // used for reading command line arguments
-	Datafile                   *os.File // used for saving data
-	Measurement_mode           bool     // flag that controls measurements and data saving
+	// Zmienne statystyczne i sterujące symulacją
+	Mean_energy_accu_center    float64  // Akumulator energii elektronów w centrum
+	Mean_energy_counter_center uint64   // Licznik próbek energii elektronów w centrum
+	N_e_coll                   uint64   // Całkowita liczba zderzeń elektronów
+	N_i_coll                   uint64   // Całkowita liczba zderzeń jonów
+	Time                       float64  // Całkowity fizyczny czas symulacji [s]
+	Cycle                      int      // Numer bieżącego cyklu RF
+	No_of_cycles               int      // Liczba cykli do wykonania w bieżącym uruchomieniu
+	Cycles_done                int      // Liczba cykli ukończonych w poprzednich uruchomieniach
+	Arg1                       int      // Argument wiersza poleceń (liczba cykli)
+	St0                        string   // Łańcuch znakowy pierwszego argumentu
+	Datafile                   *os.File // Uchwyt do pliku zbieżności conv.dat
+	Measurement_mode           bool     // Flaga włączająca tryb pomiarowy i diagnostyki
 
-	// List of rng instances for workers
+	// Niezależne generatory pseudolosowe dla każdego workera
 	RngWorkers []*rand.Rand
-	// RNG instance used before deploying workers
+	// Główny generator pseudolosowy
 	Rng *rand.Rand
-	// Underlying mt19937 source for state serialization
+	// Źródło Mersenne Twister do serializacji stanu
 	MtSrc *mt19937.MT19937
 
-	// Null-collision precomputed parameters
-	NuStarE float64
-	PStarE  float64
-	NuStarI float64
-	PStarI  float64
+	// Parametry metody Null-Collision
+	NuStarE float64 // Maksymalna częstość zderzeń dla elektronów nu*_e
+	PStarE  float64 // Maksymalne prawdopodobieństwo zderzenia elektronu P*_e
+	NuStarI float64 // Maksymalna częstość zderzeń dla jonów nu*_i
+	PStarI  float64 // Maksymalne prawdopodobieństwo zderzenia jonu P*_i
 
-	// NumWorkers controls the number of persistent worker goroutines.
-	// Independent of GOMAXPROCS (OS threads).
+	// Liczba trwałych workerów goroutines
 	NumWorkers int
 
-	// fields for comm channels
-	// slice kanalow po jednym na workera, koordynator wysyla nim polecenia
+	// Kanały komunikacyjne architektury Channels:
+	// WorkerCmdChan: po jednym kanale na workera (koordynator wysyła nim polecenia WorkerCommand)
 	WorkerCmdChan []chan WorkerCommand
-	// zbiorczy kanal do sygnalizowania konca pracy
+	// WorkerDoneChan: wspólny buforowany kanał, którym workery sygnalizują ukończenie kroku
 	WorkerDoneChan chan int
 
-	CandidatesE []int
-	CandidatesI []int
+	CandidatesE []int // Wycinek indeksów kandydatów elektronowych dla Null-Collision
+	CandidatesI []int // Wycinek indeksów kandydatów jonowych dla Null-Collision
 
-	// Pre-allocated pool for random sampling without GC allocations
+	// Wstępnie zaalokowana pula indeksów do bezalokacyjnego losowania kandydatów
 	CandidatePool []int
 }
 
-// NewSimulationState creates and initializes a SimulationState with mt19937 RNG.
-// optNumWorkers controls how many persistent worker goroutines are spawned,
-// independently of GOMAXPROCS. If omitted or <= 0, defaults to runtime.GOMAXPROCS(0).
+/*
+Tworzy i inicjalizuje nową instancję stanu symulacji SimulationState dla architektury Channels.
+Inicjalizuje generatory Mersenne Twister, prealokuje bufory, tworzy kanały i uruchamia
+trwałe goroutines workerów za pomocą InitWorkers().
+@param seed          Ziarno początkowe dla generatora liczb pseudolosowych.
+@param optNumWorkers Opcjonalna liczba trwałych workerów. Domyślnie runtime.GOMAXPROCS(0).
+@return Wskaźnik do w pełni zainicjalizowanej struktury SimulationState.
+*/
 func NewSimulationState(seed int64, optNumWorkers ...int) *SimulationState {
 	src := mt19937.New()
 	src.Seed(seed)
@@ -202,35 +228,51 @@ func NewSimulationState(seed int64, optNumWorkers ...int) *SimulationState {
 	return sim
 }
 
-// Commands for workers
+// =============================================================================
+// ENUMERACJA ROZKAZÓW DLA WORKERÓW (WorkerCommand)
+// =============================================================================
 const (
-	CmdComputeEDensity = iota
-	CmdComputeIDensity
-	CmdMoveElectrons
-	CmdMoveIons
-	CmdCheckBoundariesE
-	CmdCheckBoundariesI
-	CmdCollisionsE
-	CmdCollisionsI
-	CmdStop
+	CmdComputeEDensity WorkerCommand = iota // Krok 1a: Depozycja gęstości elektronów
+	CmdComputeIDensity                     // Krok 1b: Depozycja gęstości jonów
+	CmdMoveElectrons                       // Krok 3: Popychanie elektronów Leap-Frog
+	CmdMoveIons                            // Krok 4: Popychanie jonów Leap-Frog
+	CmdCheckBoundariesE                    // Krok 5: Oznaczanie granic elektronów
+	CmdCheckBoundariesI                    // Krok 6: Oznaczanie granic jonów i IFED
+	CmdCollisionsE                         // Krok 7: Zderzenia elektronów MCC
+	CmdCollisionsI                         // Krok 8: Zderzenia jonów MCC
+	CmdStop                                // Rozkaz zakończenia pętli workera
 )
 
-// R01 returns a uniform random number in [0,1) for this state.
+/*
+Losuje liczbę zmiennoprzecinkową o rozkładzie jednorodnym w przedziale [0, 1) z głównego generatora.
+@return Liczba pseudolosowa z przedziału [0, 1).
+*/
 func (sim *SimulationState) R01() float64 {
 	return sim.Rng.Float64()
 }
 
-// RMB returns a normal random number with mean 0 and stddev RMB_sigma for this state.
+/*
+Losuje prędkość termiczną z jednowymiarowego rozkładu Maxwella-Boltzmanna (średnia 0, odchylenie RMB_sigma).
+@return Prędkość termiczna atomu tła [m/s].
+*/
 func (sim *SimulationState) RMB() float64 {
 	return sim.Rng.NormFloat64() * RMB_sigma
 }
 
-// WorkerR01 returns a uniform random number in [0,1) for a specific worker.
+/*
+Losuje liczbę o rozkładzie jednorodnym w [0, 1) z generatora przypisanego do konkretnego workera.
+@param workerID Identyfikator workera (0 .. NumWorkers-1).
+@return Liczba pseudolosowa z przedziału [0, 1).
+*/
 func (sim *SimulationState) WorkerR01(workerID int) float64 {
 	return sim.RngWorkers[workerID].Float64()
 }
 
-// WorkerRMB returns a normal random number with mean 0 and stddev RMB_sigma for a specific worker.
+/*
+Losuje prędkość termiczną z rozkładu Maxwella-Boltzmanna dla wskazanego workera.
+@param workerID Identyfikator workera (0 .. NumWorkers-1).
+@return Prędkość termiczna atomu tła [m/s].
+*/
 func (sim *SimulationState) WorkerRMB(workerID int) float64 {
 	return sim.RngWorkers[workerID].NormFloat64() * RMB_sigma
 }

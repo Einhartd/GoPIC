@@ -4,18 +4,27 @@ import (
 	"math"
 )
 
-//----------------------------------------------------------------------//
-// e / Ar collision  (cold gas approximation)                           //
-//----------------------------------------------------------------------//
-
+/*
+Obsługa pojedynczego zderzenia elektronu z neutralnym atomem argonu (MCC).
+Przybliżenie zimnego gazu (prędkość atomu argonu pomijana w porównaniu z elektronem).
+Etapy:
+ 1. Obliczenie prędkości względnej g oraz prędkości środka masy w.
+ 2. Wyznaczenie kątów Eulera (theta, phi) wektora prędkości przed zderzeniem.
+ 3. Losowanie typu procesu (sprężyste, wzbudzenie, jonizacja) na podstawie przekrojów czynnych.
+ 4. Obliczenie strat energii dla procesów niesprężystych i kątów rozproszenia (chi, eta).
+ 5. W przypadku jonizacji: dodanie elektronu wtórnego i jonu Ar+ do lokalnych buforów workera.
+ 6. Transformacja kątowa prędkości elektronu pierwotnego po zderzeniu.
+@param xe       Pozycja 1D zderzającego się elektronu [m].
+@param vxe, vye, vze  Wskaźniki do składowych prędkości elektronu (modyfikowane in-place).
+@param eindex   Indeks przedziału energii w tabelach przekrojów czynnych.
+@param workerID Identyfikator workera (goroutine) do izolowanego losowania liczb i buforów.
+*/
 func (sim *SimulationState) CollisionElectron(xe float64, vxe, vye, vze *float64, eindex int, workerID int) {
-
 	var t0, t1, t2, rnd float64
 	var g, g2, gx, gy, gz, wx, wy, wz, theta, phi float64
 	var chi, eta, chi2, eta2, sc, cc, se, ce, st, ct, sp, cp, energy, e_sc, e_ej float64
 
-	// calculate relative velocity before collision & velocity of the centre of mass
-
+	// 1. Prędkość względna przed zderzeniem oraz prędkość środka masy (COM)
 	gx = *vxe
 	gy = *vye
 	gz = *vze
@@ -24,8 +33,7 @@ func (sim *SimulationState) CollisionElectron(xe float64, vxe, vye, vze *float64
 	wy = F1 * (*vye)
 	wz = F1 * (*vze)
 
-	// find Euler angles
-
+	// 2. Kąty Eulera wektora prędkości
 	if gx == 0 {
 		theta = 0.5 * PI
 	} else {
@@ -45,43 +53,33 @@ func (sim *SimulationState) CollisionElectron(xe float64, vxe, vye, vze *float64
 	sp = math.Sin(phi)
 	cp = math.Cos(phi)
 
-	// choose the type of collision based on the cross sections
-	// take into account energy loss in inelastic collisions
-	// generate scattering and azimuth angles
-	// in case of ionization handle the 'new' electron
-
+	// 3. Wybór typu zderzenia na podstawie skumulowanych przekrojów czynnych
 	t0 = sim.Sigma[E_ELA][eindex]
 	t1 = t0 + sim.Sigma[E_EXC][eindex]
 	t2 = t1 + sim.Sigma[E_ION][eindex]
 	rnd = sim.WorkerR01(workerID)
-	if rnd < (t0 / t2) { // elastic scattering
-		chi = math.Acos(1.0 - 2.0*sim.WorkerR01(workerID)) // isotropic scattering
-		eta = TWO_PI * sim.WorkerR01(workerID)             // azimuthal angle
-	} else if rnd < (t1 / t2) { // excitation
+	if rnd < (t0 / t2) { // Zderzenie sprężyste
+		chi = math.Acos(1.0 - 2.0*sim.WorkerR01(workerID)) // Rozpraszanie izotropowe
+		eta = TWO_PI * sim.WorkerR01(workerID)             // Kąt azymutalny
+	} else if rnd < (t1 / t2) { // Wzbudzenie (niesprężyste)
 		energy = 0.5 * E_MASS * g * g
-		energy = math.Abs(energy - E_EXC_TH*EV_TO_J)       // subtract energy loss for excitation
-		g = math.Sqrt(2.0 * energy / E_MASS)               // relative velocity after energy loss
-		chi = math.Acos(1.0 - 2.0*sim.WorkerR01(workerID)) // isotropic scattering
-		eta = TWO_PI * sim.WorkerR01(workerID)             // azimuthal angle
-	} else { // ionization
+		energy = math.Abs(energy - E_EXC_TH*EV_TO_J)       // Odjęcie progu wzbudzenia (11.5 eV)
+		g = math.Sqrt(2.0 * energy / E_MASS)               // Prędkość względna po stracie energii
+		chi = math.Acos(1.0 - 2.0*sim.WorkerR01(workerID)) // Rozpraszanie izotropowe
+		eta = TWO_PI * sim.WorkerR01(workerID)             // Kąt azymutalny
+	} else { // Jonizacja (niesprężysta)
 		energy = 0.5 * E_MASS * g * g
-		// subtract energy loss of ionization
-		energy = math.Abs(energy - E_ION_TH*EV_TO_J)
-		// energy of the ejected electron
+		energy = math.Abs(energy - E_ION_TH*EV_TO_J) // Odjęcie progu jonizacji (15.8 eV)
+
+		// Energia wybitego elektronu wtórnego (rozkład wg formy różniczkowej Opla)
 		e_ej = 10.0 * math.Tan(sim.WorkerR01(workerID)*math.Atan(energy/EV_TO_J/20.0)) * EV_TO_J
-		// energy of scattered electron after the collision
-		e_sc = math.Abs(energy - e_ej)
-		// relative velocity of scattered electron
+		
+		e_sc = math.Abs(energy - e_ej) // Pozostała energia elektronu rozproszonego
 		g = math.Sqrt(2.0 * e_sc / E_MASS)
-		// relative velocity of ejected electron
 		g2 = math.Sqrt(2.0 * e_ej / E_MASS)
-		// scattering angle for scattered electron
 		chi = math.Acos(math.Sqrt(e_sc / energy))
-		// scattering angle for ejected electrons
 		chi2 = math.Acos(math.Sqrt(e_ej / energy))
-		// azimuthal angle for scattered electron
 		eta = TWO_PI * sim.WorkerR01(workerID)
-		// azimuthal angle for ejected electron
 		eta2 = eta + PI
 		sc = math.Sin(chi2)
 		cc = math.Cos(chi2)
@@ -91,7 +89,7 @@ func (sim *SimulationState) CollisionElectron(xe float64, vxe, vye, vze *float64
 		gy = g2 * (st*cp*cc + ct*cp*sc*ce - sp*sc*se)
 		gz = g2 * (st*sp*cc + ct*sp*sc*ce + cp*sc*se)
 
-		// dodanie nowego elektronu do bufora workera
+		// Dodanie nowego elektronu wtórnego do bufora workera
 		sim.WorkerNewElectrons[workerID] = append(sim.WorkerNewElectrons[workerID], CreatedParticle{
 			X:  xe,
 			Vx: wx + F2*gx,
@@ -99,8 +97,7 @@ func (sim *SimulationState) CollisionElectron(xe float64, vxe, vye, vze *float64
 			Vz: wz + F2*gz,
 		})
 
-		// dodanie nowego jonu do bufora workera
-		// velocity is sampled from background thermal distribution
+		// Dodanie nowego jonu Ar+ (prędkość losowana z rozkładu RMB tła)
 		sim.WorkerNewIons[workerID] = append(sim.WorkerNewIons[workerID], CreatedParticle{
 			X:  xe,
 			Vx: sim.WorkerRMB(workerID),
@@ -109,37 +106,40 @@ func (sim *SimulationState) CollisionElectron(xe float64, vxe, vye, vze *float64
 		})
 	}
 
-	// scatter the primary electron
-
+	// 4. Rozproszenie elektronu pierwotnego (rotacja wektora prędkości)
 	sc = math.Sin(chi)
 	cc = math.Cos(chi)
 	se = math.Sin(eta)
 	ce = math.Cos(eta)
 
-	// compute new relative velocity:
-
 	gx = g * (ct*cc - st*sc*ce)
 	gy = g * (st*cp*cc + ct*cp*sc*ce - sp*sc*se)
 	gz = g * (st*sp*cc + ct*sp*sc*ce + cp*sc*se)
 
-	// post-collision velocity of the colliding electron
-
+	// Końcowa prędkość elektronu po zderzeniu w układzie laboratoryjnym
 	*vxe = wx + F2*gx
 	*vye = wy + F2*gy
 	*vze = wz + F2*gz
 }
 
-//----------------------------------------------------------------------//
-// Ar+ / Ar collision                                                   //
-//----------------------------------------------------------------------//
-
+/*
+Obsługa pojedynczego zderzenia jonu Ar+ z neutralnym atomem argonu (MCC).
+Uwzględnia prędkość termiczną tła atomowego (przekazaną w parametrach vx_2..vz_2).
+Etapy:
+ 1. Obliczenie prędkości względnej g oraz prędkości środka masy w (masy obu cząstek równe).
+ 2. Wyznaczenie kątów Eulera (theta, phi) wektora prędkości względnej.
+ 3. Wybór typu zderzenia na podstawie przekrojów czynnych (izotropowe vs wsteczna wymiana ładunku).
+ 4. Transformacja kątowa i wyznaczenie nowej prędkości jonu w układzie laboratoryjnym.
+@param vx_1, vy_1, vz_1 Wskaźniki do składowych prędkości jonu (modyfikowane in-place).
+@param vx_2, vy_2, vz_2 Wskaźniki do składowych prędkości atomu tła (z rozkładu RMB).
+@param e_index          Indeks energii w układzie środka masy w tabelach przekrojów.
+@param workerID         Identyfikator workera (goroutine).
+*/
 func (sim *SimulationState) CollisionIon(vx_1, vy_1, vz_1, vx_2, vy_2, vz_2 *float64, e_index int, workerID int) {
 	var g, gx, gy, gz, wx, wy, wz, rnd float64
 	var theta, phi, chi, eta, st, ct, sp, cp, sc, cc, se, ce, t1, t2 float64
 
-	// calculate relative velocity before collision
-	// random Maxwellian target atom already selected (vx_2,vy_2,vz_2 velocity components of target atom come with the call)
-
+	// 1. Prędkość względna g oraz prędkość środka masy w
 	gx = (*vx_1) - (*vx_2)
 	gy = (*vy_1) - (*vy_2)
 	gz = (*vz_1) - (*vz_2)
@@ -148,8 +148,7 @@ func (sim *SimulationState) CollisionIon(vx_1, vy_1, vz_1, vx_2, vy_2, vz_2 *flo
 	wy = 0.5 * ((*vy_1) + (*vy_2))
 	wz = 0.5 * ((*vz_1) + (*vz_2))
 
-	// find Euler angles
-
+	// 2. Kąty Eulera
 	if gx == 0 {
 		theta = 0.5 * PI
 	} else {
@@ -165,17 +164,16 @@ func (sim *SimulationState) CollisionIon(vx_1, vy_1, vz_1, vx_2, vy_2, vz_2 *flo
 		phi = math.Atan2(gz, gy)
 	}
 
-	// determine the type of collision based on cross sections and generate scattering angle
-
+	// 3. Wybór procesu: rozpraszanie izotropowe vs wsteczne (wymiana ładunku)
 	t1 = sim.Sigma[I_ISO][e_index]
 	t2 = t1 + sim.Sigma[I_BACK][e_index]
 	rnd = sim.WorkerR01(workerID)
-	if rnd < (t1 / t2) { // isotropic scattering
-		chi = math.Acos(1.0 - 2.0*sim.WorkerR01(workerID)) // scattering angle
-	} else { // backward scattering
-		chi = PI // scattering angle
+	if rnd < (t1 / t2) { // Rozpraszanie izotropowe
+		chi = math.Acos(1.0 - 2.0*sim.WorkerR01(workerID))
+	} else { // Rozpraszanie wsteczne (wymiana ładunku Charge Exchange)
+		chi = PI
 	}
-	eta = TWO_PI * sim.WorkerR01(workerID) // azimuthal angle
+	eta = TWO_PI * sim.WorkerR01(workerID)
 	sc = math.Sin(chi)
 	cc = math.Cos(chi)
 	se = math.Sin(eta)
@@ -185,14 +183,12 @@ func (sim *SimulationState) CollisionIon(vx_1, vy_1, vz_1, vx_2, vy_2, vz_2 *flo
 	sp = math.Sin(phi)
 	cp = math.Cos(phi)
 
-	// compute new relative velocity
-
+	// 4. Transformacja prędkości i wyznaczenie nowej prędkości jonu
 	gx = g * (ct*cc - st*sc*ce)
 	gy = g * (st*cp*cc + ct*cp*sc*ce - sp*sc*se)
 	gz = g * (st*sp*cc + ct*sp*sc*ce + cp*sc*se)
 
-	// post-collision velocity of the ion
-
+	// Nowa prędkość jonu w układzie laboratoryjnym
 	*vx_1 = wx + 0.5*gx
 	*vy_1 = wy + 0.5*gy
 	*vz_1 = wz + 0.5*gz

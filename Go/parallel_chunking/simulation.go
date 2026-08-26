@@ -6,33 +6,41 @@ import (
 	"sync"
 )
 
-//----------------------------------------------------------------------//
-// initialization of the simulation by placing a given number of        //
-// electrons and ions at random positions between the electrodes        //
-//----------------------------------------------------------------------//
-
+/*
+Inicjalizacja cząstek początkowych (seed) w domenie 1D3V.
+Losuje pozycje elektronów i jonów z rozkładu jednorodnego w przedziale [0, L] oraz zeruje prędkości.
+@param nseed Liczba par makrocząstek do wylosowania na początku symulacji.
+*/
 func (sim *SimulationState) InitParticles(nseed int) {
-	for i := 0; i < nseed; i++ {
-		sim.X_e[i] = L * sim.R01() // initial random position of the electron
+	for i := range nseed {
+		sim.X_e[i] = L * sim.R01() // Początkowa losowa pozycja elektronu [m]
 		sim.Vx_e[i] = 0
 		sim.Vy_e[i] = 0
-		sim.Vz_e[i] = 0            // initial velocity components of the electron
-		sim.X_i[i] = L * sim.R01() // initial random position of the ion
+		sim.Vz_e[i] = 0            // Składowe prędkości elektronu
+		sim.X_i[i] = L * sim.R01() // Początkowa losowa pozycja jonu [m]
 		sim.Vx_i[i] = 0
 		sim.Vy_i[i] = 0
-		sim.Vz_i[i] = 0 // initial velocity components of the ion
+		sim.Vz_i[i] = 0 // Składowe prędkości jonu
 	}
-	sim.N_e = nseed // initial number of electrons
-	sim.N_i = nseed // initial number of ions
+	sim.N_e = nseed // Początkowa liczba elektronów
+	sim.N_i = nseed // Początkowa liczba jonów
 }
 
-//---------------------------------------------------------------------//
-// simulation of one radiofrequency cycle                              //
-//---------------------------------------------------------------------//
-
+/*
+KROK 1a: Obliczanie gęstości ładunku elektronów metodą CIC (Cloud-in-Cell) z chunkingiem.
+Etapy:
+ 1. Podział tablicy N_e na równe chunki pomiędzy goroutines.
+ 2. Każdy worker zeruje swój prywatny bufor WorkerEDensity i wykonuje depozycję wagową CIC.
+ 3. Redukcja (sumowanie) buforów workerów do tablicy globalnej E_density.
+ 4. Korekta gęstości w skrajnych półkomórkach (węzły 0 i N_G-1) mnożona x2.
+ 5. Akumulacja do skumulowanej gęstości Cumul_e_density.
+*/
 func (sim *SimulationState) Step1ComputeElectronDensity() {
 	numWorkers := sim.NumWorkers
 	var wg sync.WaitGroup
+
+	// ZRÓWNOLEGLENIE: Podział przestrzeni N_e cząstek na równe bloki (chunki).
+	// Rozmiar chunka wyliczany jako ceil(N_e / numWorkers).
 	chunkSize := (sim.N_e + numWorkers - 1) / numWorkers
 
 	for w := 0; w < numWorkers; w++ {
@@ -46,12 +54,15 @@ func (sim *SimulationState) Step1ComputeElectronDensity() {
 		}
 		workerID, s, e := w, start, end
 
+		// Start goroutine (workerID): Przetwarzanie zakresu cząstek [s, e).
+		// Każdy worker operuje wyłącznie na swoim prywatnym buforze WorkerEDensity[workerID],
+		// co eliminuje wyścigi danych (Data Races) i potrzebę stosowania blokad (Mutex).
 		wg.Go(func() {
-			// zerowanie tablicy dla workera
+			// 1. Zerowanie prywatnego bufora gęstości danego workera
 			for p := range N_G {
 				sim.WorkerEDensity[workerID][p] = 0.0
 			}
-			// Depozycja czastek przypisanych do workera
+			// 2. Depozycja wagowa ładunku cząstek do siatki (schemat liniowy CIC)
 			var c0 float64
 			var p int
 			for k := s; k < e; k++ {
@@ -62,9 +73,11 @@ func (sim *SimulationState) Step1ComputeElectronDensity() {
 			}
 		})
 	}
+
+	// BARIERA SYNCHRONIZACYJNA: Oczekiwanie na zakończenie depozycji przez wszystkie goroutines.
 	wg.Wait()
 
-	// Redukcja - watek glowny zeruje E_density i sumuje wyniki workerow
+	// REDUKCJA: Wątek główny zeruje globalną tablicę i sumuje wkłady ze wszystkich workerów.
 	for p := range N_G {
 		sim.E_density[p] = 0.0
 	}
@@ -74,7 +87,7 @@ func (sim *SimulationState) Step1ComputeElectronDensity() {
 		}
 	}
 
-	// Poprawki brzegowe i akumulacja
+	// Poprawki brzegowe dla skrajnych półkomórek (węzły 0 i N_G-1) oraz akumulacja w czasie
 	sim.E_density[0] *= 2.0
 	sim.E_density[N_G-1] *= 2.0
 	for p := range N_G {
@@ -82,12 +95,21 @@ func (sim *SimulationState) Step1ComputeElectronDensity() {
 	}
 }
 
-func (sim *SimulationState) Step1ComputeIonDensity(t int) {
-	if (t % N_SUB) == 0 { // ion density - computed in every N_SUB-th time steps (subcycling)
+/*
+KROK 1b: Obliczanie gęstości ładunku jonów (Subcycling co N_SUB kroków).
+Etapy:
+ 1. Jeśli (t % N_SUB == 0): podział jonów na chunki i depozycja CIC do prywatnych buforów.
+ 2. Redukcja buforów workerów do tablicy globalnej I_density z korektą brzegową x2.
+ 3. Akumulacja do Cumul_i_density w KAŻDYM kroku czasowym (niezmiennik subcyclingu).
 
-		//	TODO dodac sterowana ilosc gorutyn
+@param t Indeks bieżącego podkroku czasowego w cyklu RF (0 .. N_T-1).
+*/
+func (sim *SimulationState) Step1ComputeIonDensity(t int) {
+	if (t % N_SUB) == 0 { // Gęstość jonów przeliczana w subcyclingu co N_SUB kroków
 		numWorkers := sim.NumWorkers
 		var wg sync.WaitGroup
+
+		// ZRÓWNOLEGLENIE: Podział tablicy jonów N_i na chunki pomiędzy workery
 		chunkSize := (sim.N_i + numWorkers - 1) / numWorkers
 
 		for w := range numWorkers {
@@ -98,6 +120,7 @@ func (sim *SimulationState) Step1ComputeIonDensity(t int) {
 			}
 			workerID, s, e := w, start, end
 
+			// Start goroutine: lokalna depozycja CIC jonów do bufora WorkerIDensity[workerID]
 			wg.Go(func() {
 				for p := range N_G {
 					sim.WorkerIDensity[workerID][p] = 0.0
@@ -112,8 +135,11 @@ func (sim *SimulationState) Step1ComputeIonDensity(t int) {
 				}
 			})
 		}
+
+		// Bariera synchronizacyjna jonów
 		wg.Wait()
 
+		// Redukcja buforów jonowych do globalnej tablicy I_density
 		for p := range N_G {
 			sim.I_density[p] = 0.0
 		}
@@ -126,22 +152,43 @@ func (sim *SimulationState) Step1ComputeIonDensity(t int) {
 		sim.I_density[0] *= 2.0
 		sim.I_density[N_G-1] *= 2.0
 	}
+	// Niezmiennik subcyclingu: ciągła akumulacja do średniej w każdym kroku czasowym
 	for p := range N_G {
 		sim.Cumul_i_density[p] += sim.I_density[p]
 	}
 }
 
+/*
+KROK 2: Rozwiązanie równania Poissona (1D Field Solver).
+Oblicza gęstość ładunku wypadkowego rho = e * (n_i - n_e) i wywołuje solver trójdiagonalny.
+Wykonywane sekwencyjnie w jednym wątku (zbyt mały rozmiar siatki N_G=400 na zysk z paralelizacji).
+@param currentTime Aktualny fizyczny czas symulacji [s].
+*/
 func (sim *SimulationState) Step2SolvePoisson(currentTime float64) {
 	var rho Xvector
 	for p := 0; p < N_G; p++ {
-		rho[p] = E_CHARGE * (sim.I_density[p] - sim.E_density[p]) // get charge density
+		rho[p] = E_CHARGE * (sim.I_density[p] - sim.E_density[p]) // Gęstość ładunku przestrzennego
 	}
-	sim.SolvePoisson(&rho, currentTime) // compute potential and electric field
+	sim.SolvePoisson(&rho, currentTime) // Obliczenie potencjału i pola E
 }
 
+/*
+KROK 3: Popychanie elektronów (Push / Leap-Frog) i akumulacja diagnostyk z chunkingiem.
+Etapy:
+ 1. Podział elektronów na chunki pomiędzy goroutines.
+ 2. W trybie pomiarowym: wyzerowanie prywatnych struktur diagnostycznych WorkerEDiag.
+ 3. Interpolacja liniowa pola elektrycznego (CIC) do ciągłej pozycji elektronu.
+ 4. Gromadzenie wielkości diagnostycznych (prędkość, energia, jonizacja, EEPF w centrum).
+ 5. Integracja równań ruchu schematem Leap-Frog (aktualizacja Vx_e i X_e).
+ 6. Redukcja struktur diagnostycznych workerów do globalnych macierzy XT i tablicy EEPF.
+
+@param t_index Indeks przedziału czasowego dla diagnostyk XT (t / N_BIN).
+*/
 func (sim *SimulationState) Step3MoveElectrons(t_index int) {
 	numWorkers := sim.NumWorkers
 	var wg sync.WaitGroup
+
+	// ZRÓWNOLEGLENIE: Popychanie N_e elektronów podzielone na ciągłe chunki.
 	chunkSize := (sim.N_e + numWorkers - 1) / numWorkers
 
 	for w := 0; w < numWorkers; w++ {
@@ -155,6 +202,9 @@ func (sim *SimulationState) Step3MoveElectrons(t_index int) {
 		}
 		workerID, s, e := w, start, end
 
+		// Start goroutine: Przetwarzanie cząstek k = s .. e-1
+		// Zapisy pozycji X_e i prędkości Vx_e są rozłączne (brak konfliktów).
+		// Diagnostyki trafiają do prywatnej struktury WorkerEDiag[workerID].
 		wg.Go(func() {
 			diag := &sim.WorkerEDiag[workerID]
 			*diag = electronWorkerDiagnostics{}
@@ -163,6 +213,7 @@ func (sim *SimulationState) Step3MoveElectrons(t_index int) {
 			var p, energy_index int
 
 			for k := s; k < e; k++ {
+				// Interpolacja pola elektrycznego do pozycji cząstki (CIC)
 				c0 = sim.X_e[k] * INV_DX
 				p = int(c0)
 				c1 = float64(p) + 1.0 - c0
@@ -190,6 +241,7 @@ func (sim *SimulationState) Step3MoveElectrons(t_index int) {
 					diag.ioniz[p] += c1 * rate
 					diag.ioniz[p+1] += c2 * rate
 
+					// Zliczanie EEPF w centralnym obszarze [0.45*L, 0.55*L]
 					if (MIN_X < sim.X_e[k]) && (sim.X_e[k] < MAX_X) {
 						energy_index = int(energy / DE_EEPF)
 						if energy_index < N_EEPF {
@@ -200,15 +252,17 @@ func (sim *SimulationState) Step3MoveElectrons(t_index int) {
 					}
 				}
 
-				// update velocity and position
+				// Integracja równań ruchu (schemat Leap-Frog)
 				sim.Vx_e[k] -= e_x * FACTOR_E
 				sim.X_e[k] += sim.Vx_e[k] * DT_E
 			}
 		})
 	}
 
+	// Bariera synchronizacyjna: oczekiwanie na zakończenie ruchu wszystkich elektronów
 	wg.Wait()
 
+	// Redukcja diagnostyk ze wszystkich workerów do macierzy XT i tablicy EEPF
 	if sim.Measurement_mode {
 		for w := 0; w < numWorkers; w++ {
 			for p := 0; p < N_G; p++ {
@@ -226,6 +280,18 @@ func (sim *SimulationState) Step3MoveElectrons(t_index int) {
 	}
 }
 
+/*
+KROK 4: Popychanie jonów (Push / Leap-Frog, Subcycling co N_SUB kroków).
+Etapy:
+ 1. Sprawdzenie warunku subcyclingu (t % N_SUB == 0).
+ 2. Podział jonów na chunki pomiędzy goroutines.
+ 3. W trybie pomiarowym: zerowanie buforów diagnostycznych i interpolacja pola E.
+ 4. Popychanie cząstek schematem Leap-Frog z uwzględnieniem dodatniego ładunku jonów (+e).
+ 5. Redukcja diagnostyk jonowych do globalnych macierzy czasoprzestrzennych XT.
+
+@param t_index Indeks przedziału czasowego dla diagnostyk XT (t / N_BIN).
+@param t       Indeks bieżącego podkroku czasowego w cyklu RF (0 .. N_T-1).
+*/
 func (sim *SimulationState) Step4MoveIons(t_index, t int) {
 	if (t % N_SUB) != 0 {
 		return
@@ -233,6 +299,8 @@ func (sim *SimulationState) Step4MoveIons(t_index, t int) {
 
 	numWorkers := sim.NumWorkers
 	var wg sync.WaitGroup
+
+	// ZRÓWNOLEGLENIE: Popychanie N_i jonów w chunkach w krokach subcyclingu
 	chunkSize := (sim.N_i + numWorkers - 1) / numWorkers
 
 	for w := 0; w < numWorkers; w++ {
@@ -246,6 +314,7 @@ func (sim *SimulationState) Step4MoveIons(t_index, t int) {
 		}
 		workerID, s, e := w, start, end
 
+		// Start goroutine: popychanie jonów Leap-Frog i zbieranie diagnostyk jonowych
 		wg.Go(func() {
 			diag := &sim.WorkerIDiag[workerID]
 			*diag = ionWorkerDiagnostics{}
@@ -272,14 +341,17 @@ func (sim *SimulationState) Step4MoveIons(t_index, t int) {
 					diag.meanei[p+1] += c2 * energy
 				}
 
+				// Jony mają ładunek dodatni (+e)
 				sim.Vx_i[k] += e_x * FACTOR_I
 				sim.X_i[k] += sim.Vx_i[k] * DT_I
 			}
 		})
 	}
 
+	// Bariera synchronizacyjna jonów
 	wg.Wait()
 
+	// Redukcja diagnostyk jonowych do macierzy XT
 	if sim.Measurement_mode {
 		for w := 0; w < numWorkers; w++ {
 			for p := 0; p < N_G; p++ {
@@ -291,11 +363,20 @@ func (sim *SimulationState) Step4MoveIons(t_index, t int) {
 	}
 }
 
+/*
+KROK 5: Sprawdzanie granic dla elektronów (Dwufazowe: Równoległe oznaczanie + Seryjna kompaktacja).
+Etapy:
+ 1. Faza 1 (Równoległa): Podział N_e na chunki, oznaczanie cząstek w tablicy AbsorbedE[] i zliczanie absorpcji.
+ 2. Redukcja liczników absorpcji na elektrodzie zasilanej i uziemionej.
+ 3. Faza 2 (Seryjna): Kompaktacja tablic SoA in-place metodą swap-with-last.
+*/
 func (sim *SimulationState) Step5CheckBoundariesElectrons() {
 	numWorkers := sim.NumWorkers
 	chunkSize := (sim.N_e + numWorkers - 1) / numWorkers
 	var wg sync.WaitGroup
 
+	// FAZA 1 (Równoległa): Każda goroutine skanuje swój chunk elektronów i oznacza
+	// cząstki poza domeną w tablicy flag AbsorbedE[] (1 = zasilana, 2 = uziemiona).
 	for w := 0; w < numWorkers; w++ {
 		start := w * chunkSize
 		end := (w + 1) * chunkSize
@@ -325,15 +406,19 @@ func (sim *SimulationState) Step5CheckBoundariesElectrons() {
 			}
 		})
 	}
+
+	// Bariera synchronizacyjna: wszystkie flagi absorpcji muszą być zapisane przed kompaktacją
 	wg.Wait()
 
-	// Reduce absorption counters
+	// Redukcja liczników absorpcji elektronów
 	for w := 0; w < numWorkers; w++ {
 		sim.N_e_abs_pow += sim.WorkerEDiag[w].abs_pow
 		sim.N_e_abs_gnd += sim.WorkerEDiag[w].abs_gnd
 	}
 
-	// Sequential fast-swap deletion of absorbed electrons
+	// FAZA 2 (Sekwencyjna): Kompaktacja tablic elektronów in-place (swap-with-last).
+	// Wykonywana jednowątkowo, ponieważ in-place nadpisuje skrajne elementy tablic SoA
+	// i dekrementuje N_e bez konieczności kosztownej reallokacji pamięci.
 	k := 0
 	for k < sim.N_e {
 		if sim.AbsorbedE[k] != 0 {
@@ -349,6 +434,16 @@ func (sim *SimulationState) Step5CheckBoundariesElectrons() {
 	}
 }
 
+/*
+KROK 6: Sprawdzanie granic dla jonów (Subcycling co N_SUB kroków).
+Etapy:
+ 1. Sprawdzenie warunku subcyclingu (t % N_SUB == 0).
+ 2. Faza 1 (Równoległa): Oznaczanie jonów poza domeną i próbkowanie histogramu energii uderzenia IFED.
+ 3. Redukcja liczników absorpcji oraz histogramów IFED do tablicy globalnej.
+ 4. Faza 2 (Seryjna): Kompaktacja tablicy jonów swap-with-last.
+
+@param t Indeks bieżącego podkroku czasowego w cyklu RF (0 .. N_T-1).
+*/
 func (sim *SimulationState) Step6CheckBoundariesIons(t int) {
 	if (t % N_SUB) != 0 {
 		return
@@ -358,12 +453,10 @@ func (sim *SimulationState) Step6CheckBoundariesIons(t int) {
 	chunkSize := (sim.N_i + numWorkers - 1) / numWorkers
 	var wg sync.WaitGroup
 
-	for w := 0; w < numWorkers; w++ {
+	// FAZA 1 (Równoległa): Oznaczanie jonów i próbkowanie histogramu IFED w chunkach
+	for w := range numWorkers {
 		start := w * chunkSize
-		end := (w + 1) * chunkSize
-		if end > sim.N_i {
-			end = sim.N_i
-		}
+		end := min((w+1)*chunkSize, sim.N_i)
 		if start >= end {
 			continue
 		}
@@ -406,9 +499,11 @@ func (sim *SimulationState) Step6CheckBoundariesIons(t int) {
 			}
 		})
 	}
+
+	// Bariera synchronizacyjna
 	wg.Wait()
 
-	// Reduce absorption counters and IFED energy distributions
+	// Redukcja liczników absorpcji oraz histogramów IFED
 	for w := 0; w < numWorkers; w++ {
 		sim.N_i_abs_pow += sim.WorkerIDiag[w].abs_pow
 		sim.N_i_abs_gnd += sim.WorkerIDiag[w].abs_gnd
@@ -418,7 +513,7 @@ func (sim *SimulationState) Step6CheckBoundariesIons(t int) {
 		}
 	}
 
-	// Sequential fast-swap deletion of absorbed ions
+	// FAZA 2 (Sekwencyjna): Kompaktacja tablicy jonów in-place (swap-with-last)
 	k := 0
 	for k < sim.N_i {
 		if sim.AbsorbedI[k] != 0 {
@@ -434,6 +529,12 @@ func (sim *SimulationState) Step6CheckBoundariesIons(t int) {
 	}
 }
 
+/*
+KROK 9: Zbieranie chwilowych danych siatkowych do czasoprzestrzennych macierzy XT.
+Kopiuje profile potencjału, pola elektrycznego oraz gęstości elektronów i jonów.
+Wykonywane tylko w trybie pomiarowym (Measurement_mode == true).
+@param t_index Indeks przedziału czasowego w macierzy XT (t / N_BIN).
+*/
 func (sim *SimulationState) Step9CollectXtData(t_index int) {
 	if !sim.Measurement_mode {
 		return
@@ -447,13 +548,25 @@ func (sim *SimulationState) Step9CollectXtData(t_index int) {
 	}
 }
 
+/*
+Wykonanie jednego pełnego cyklu radiowej częstotliwości RF (N_T = 4000 kroków czasowych).
+Główny silnik iteracyjny symulacji PIC/MCC.
+Etapy dla każdego z N_T kroków czasowych:
+ 1. Krok 1a/1b: Obliczenie gęstości elektronów i jonów (CIC).
+ 2. Krok 2: Rozwiązanie równania Poissona i wyznaczenie pola E.
+ 3. Krok 3/4: Popychanie elektronów i jonów schematem Leap-Frog.
+ 4. Krok 5/6: Sprawdzanie granic i kompaktacja tablic cząstek.
+ 5. Krok 7/8: Zderzenia elektronów i jonów metodą MCC.
+ 6. Krok 9: Rejestracja diagnostyk XT.
+ 7. Zapis zbieżności do pliku conv.dat.
+*/
 func (sim *SimulationState) DoOneCycle() {
 	var t int
 	var t_index int
 
-	for t = 0; t < N_T; t++ { // the RF period is divided into N_T equal time intervals (time step DT_E)
-		sim.Time += DT_E    // update of the total simulated time
-		t_index = t / N_BIN // index for XT distributions
+	for t = range N_T { // Okres RF jest dzielony na N_T jednakowych przedziałów czasowych DT_E
+		sim.Time += DT_E    // Aktualizacja fizycznego czasu symulacji
+		t_index = t / N_BIN // Indeks dla rozkładów czasoprzestrzennych XT
 
 		sim.Step1ComputeElectronDensity()
 		sim.Step1ComputeIonDensity(t)
@@ -477,6 +590,12 @@ func (sim *SimulationState) DoOneCycle() {
 	fmt.Fprintf(sim.Datafile, "%8d  %8d  %8d\n", sim.Cycle, sim.N_e, sim.N_i)
 }
 
+/*
+Funkcja pomocnicza: Wyznacza minimum z dwóch liczb całkowitych.
+@param a Pierwsza liczba całkowita.
+@param b Druga liczba całkowita.
+@return Mniejsza z liczb a i b.
+*/
 func minInt(a, b int) int {
 	if a < b {
 		return a

@@ -8,6 +8,9 @@
 #include <array>
 #include <omp.h>
 
+// Makro określające sposób inlinowania funkcji pojedynczego kroku PIC.
+// W trybie profilowania (PROFILE_RECORD) wyłączamy inlining (__attribute__((noinline))),
+// aby każda funkcja kroku była wyraźnie widoczna w raportach narzędzia perf.
 #ifdef PROFILE_RECORD                                                                                                                                                               
     #define PIC_STEP inline __attribute__((noinline))                                                                                                                               
 #else                                                                                                                                                                               
@@ -16,123 +19,171 @@
 
 using namespace std;
 
-// Cross Sections & Macroscopic Parameters
-inline cross_section    sigma[N_CS];         // Set of cross section arrays
-inline cross_section    sigma_tot_e;         // Total macroscopic cross section of electrons
-inline cross_section    sigma_tot_i;         // Total macroscopic cross section of ions
+// =============================================================================
+// Przekroje czynne i parametry makroskopowe
+// =============================================================================
 
-// Particle Coordinates & Counts
-inline int              N_e = 0;             // Number of active electrons
-inline int              N_i = 0;             // Number of active ions
-inline particle_vector  x_e, vx_e, vy_e, vz_e;// Electron positions & 3V velocities
-inline particle_vector  x_i, vx_i, vy_i, vz_i;// Ion positions & 3V velocities
+// Zestaw tabel przekrojów czynnych dla wszystkich procesów
+inline cross_section    sigma[N_CS];
+// Całkowity makroskopowy przekrój czynny dla elektronów (sigma * n_gaz)         
+inline cross_section    sigma_tot_e;
+// Całkowity makroskopowy przekrój czynny dla jonów (sigma * n_gaz)
+inline cross_section    sigma_tot_i;
 
-// Grid Quantities (Electric Field, Potential, Densities)
-inline xvector          efield, pot;         // Electric field and potential on grid
-inline xvector          e_density, i_density;// Instantaneous electron and ion densities
-inline xvector          cumul_e_density, cumul_i_density; // Time-accumulated densities
+// =============================================================================
+// Koordynaty i liczniki cząstek
+// =============================================================================
 
+// Aktualna liczba aktywnych elektronów w symulacji
+inline int              N_e = 0;
+// Aktualna liczba aktywnych jonów w symulacji
+inline int              N_i = 0;
+// Pozycje 1D oraz składowe prędkości 3V dla elektronów
+inline particle_vector  x_e, vx_e, vy_e, vz_e;
+// Pozycje 1D oraz składowe prędkości 3V dla jonów
+inline particle_vector  x_i, vx_i, vy_i, vz_i;
 
-// Absorption Counters & Energy Distributions
-inline Ullong           N_e_abs_pow = 0;     // Electrons absorbed at powered electrode
-inline Ullong           N_e_abs_gnd = 0;     // Electrons absorbed at grounded electrode
-inline Ullong           N_i_abs_pow = 0;     // Ions absorbed at powered electrode
-inline Ullong           N_i_abs_gnd = 0;     // Ions absorbed at grounded electrode
+// =============================================================================
+// Wielkości na siatce przestrzennej (Pole elektryczne, potencjał, gęstości)
+// =============================================================================
 
-inline eepf_vector      eepf     = {0.0};    // Time-integrated EEPF at gap center
-inline ifed_vector      ifed_pow = {0};      // IFED at powered electrode
-inline ifed_vector      ifed_gnd = {0};      // IFED at grounded electrode
-inline double           mean_i_energy_pow;   // Mean ion energy at powered electrode
-inline double           mean_i_energy_gnd;   // Mean ion energy at grounded electrode
+// Pole elektryczne i potencjał elektrostatyczny w węzłach siatki
+inline xvector          efield, pot;
+// Chwilowe gęstości ładunku elektronów i jonów na siatce
+inline xvector          e_density, i_density;
+// Skumulowane w czasie gęstości do uśrednień diagnostycznych
+inline xvector          cumul_e_density, cumul_i_density;
 
+// =============================================================================
+// Liczniki absorpcji na elektrodach i rozkłady energetyczne
+// =============================================================================
 
-// Spatiotemporal (XT) Diagnostic Arrays
-inline xt_distr pot_xt                     = {0.0}; // XT distribution of potential
-inline xt_distr efield_xt                  = {0.0}; // XT distribution of electric field
-inline xt_distr ne_xt                      = {0.0}; // XT distribution of electron density
-inline xt_distr ni_xt                      = {0.0}; // XT distribution of ion density
-inline xt_distr ue_xt                      = {0.0}; // XT distribution of electron velocity
-inline xt_distr ui_xt                      = {0.0}; // XT distribution of ion velocity
-inline xt_distr je_xt                      = {0.0}; // XT distribution of electron current
-inline xt_distr ji_xt                      = {0.0}; // XT distribution of ion current
-inline xt_distr powere_xt                  = {0.0}; // XT distribution of electron power
-inline xt_distr poweri_xt                  = {0.0}; // XT distribution of ion power
-inline xt_distr meanee_xt                  = {0.0}; // XT distribution of electron energy
-inline xt_distr meanei_xt                  = {0.0}; // XT distribution of ion energy
-inline xt_distr counter_e_xt               = {0.0}; // XT counter for electrons
-inline xt_distr counter_i_xt               = {0.0}; // XT counter for ions
-inline xt_distr ioniz_rate_xt              = {0.0}; // XT distribution of ionisation rate
+// Liczba elektronów zaabsorbowanych na elektrodzie zasilanej (x=0)
+inline Ullong           N_e_abs_pow = 0;
+// Liczba elektronów zaabsorbowanych na elektrodzie uziemionej (x=L)
+inline Ullong           N_e_abs_gnd = 0;
+// Liczba jonów zaabsorbowanych na elektrodzie zasilanej (x=0)
+inline Ullong           N_i_abs_pow = 0;
+// Liczba jonów zaabsorbowanych na elektrodzie uziemionej (x=L)
+inline Ullong           N_i_abs_gnd = 0;
 
-inline double   mean_energy_accu_center    = 0;     // Mean electron energy accumulator (center)
-inline Ullong   mean_energy_counter_center = 0;     // Mean electron energy counter (center)
-inline Ullong   N_e_coll                   = 0;     // Total electron collisions counter
-inline Ullong   N_i_coll                   = 0;     // Total ion collisions counter
-inline double   Time;                               // Total simulated physical time
-inline int      cycle, no_of_cycles, cycles_done;   // Simulation cycle tracking
-inline int      arg1;                               // Command line argument 1
-inline char     st0[80];                            // Command line argument string buffer
-inline FILE     *datafile;                          // Output data file handle
-inline bool     measurement_mode;                   // Measurements & data collection flag
+// Całkowany w czasie rozkład EEPF w centralnym obszarze szczeliny
+inline eepf_vector      eepf     = {0.0};
+// Rozkład strumieniowo-energetyczny jonów (IFED) na elektrodzie zasilanej
+inline ifed_vector      ifed_pow = {0};
+// Rozkład strumieniowo-energetyczny jonów (IFED) na elektrodzie uziemionej
+inline ifed_vector      ifed_gnd = {0};
+// Średnia energia jonów uderzających w elektrodę zasilaną [eV]
+inline double           mean_i_energy_pow;
+// Średnia energia jonów uderzających w elektrodę uziemioną [eV]
+inline double           mean_i_energy_gnd;
 
+// =============================================================================
+// Tablice diagnostyk czasoprzestrzennych (XT)
+// =============================================================================
 
-// Null-Collision Precomputed Parameters
-inline double nu_star_e = 0.0;
-inline double P_star_e  = 0.0;
-inline double nu_star_i = 0.0;
-inline double P_star_i  = 0.0;
+inline xt_distr pot_xt                     = {0.0}; // Rozkład czasoprzestrzenny potencjału
+inline xt_distr efield_xt                  = {0.0}; // Rozkład czasoprzestrzenny pola elektrycznego
+inline xt_distr ne_xt                      = {0.0}; // Rozkład czasoprzestrzenny gęstości elektronów
+inline xt_distr ni_xt                      = {0.0}; // Rozkład czasoprzestrzenny gęstości jonów
+inline xt_distr ue_xt                      = {0.0}; // Rozkład czasoprzestrzenny średniej prędkości elektronów
+inline xt_distr ui_xt                      = {0.0}; // Rozkład czasoprzestrzenny średniej prędkości jonów
+inline xt_distr je_xt                      = {0.0}; // Rozkład czasoprzestrzenny gęstości prądu elektronowego
+inline xt_distr ji_xt                      = {0.0}; // Rozkład czasoprzestrzenny gęstości prądu jonowego
+inline xt_distr powere_xt                  = {0.0}; // Rozkład czasoprzestrzenny mocy pochłanianej przez elektrony (j_e * E)
+inline xt_distr poweri_xt                  = {0.0}; // Rozkład czasoprzestrzenny mocy pochłanianej przez jony (j_i * E)
+inline xt_distr meanee_xt                  = {0.0}; // Rozkład czasoprzestrzenny średniej energii elektronów
+inline xt_distr meanei_xt                  = {0.0}; // Rozkład czasoprzestrzenny średniej energii jonów
+inline xt_distr counter_e_xt               = {0.0}; // Licznik próbek elektronów dla uśrednień XT
+inline xt_distr counter_i_xt               = {0.0}; // Licznik próbek jonów dla uśrednień XT
+inline xt_distr ioniz_rate_xt              = {0.0}; // Rozkład czasoprzestrzenny częstości jonizacji
 
-// Cache-line aligned (64 bytes) per-thread scalar counters to eliminate False Sharing.
-// --Kazdy watek otrzymuje swoja strukture, ktora jest wyrownana do nowej linii cache, czyli
-// co 64 bajty, bo sama struktura zajmuje tylko 32 bajty, co powodowaloby false sharing
+// =============================================================================
+// Zmienne sterujące symulacją i liczniki globalne
+// =============================================================================
+
+inline double   mean_energy_accu_center    = 0;     // Akumulator energii elektronów w środku szczeliny
+inline Ullong   mean_energy_counter_center = 0;     // Licznik próbek energii elektronów w środku szczeliny
+inline Ullong   N_e_coll                   = 0;     // Całkowity licznik zderzeń elektronów
+inline Ullong   N_i_coll                   = 0;     // Całkowity licznik zderzeń jonów
+inline double   Time;                               // Całkowity fizyczny czas symulacji [s]
+inline int      cycle, no_of_cycles, cycles_done;   // Zmienne śledzenia cykli RF
+inline int      arg1;                               // Pierwszy argument linii poleceń (liczba cykli)
+inline char     st0[80];                            // Bufor tekstowy na argumenty
+inline FILE     *datafile;                          // Uchwyt do pliku wyjściowego conv.dat
+inline bool     measurement_mode;                   // Flaga aktywacji trybu pomiarowego / diagnostyk
+
+// =============================================================================
+// Wstępnie obliczone parametry metody zderzeń zerowych (Null-Collision)
+// =============================================================================
+
+inline double nu_star_e = 0.0;                       // Maksymalna częstość zderzeń dla elektronów nu*_e
+inline double P_star_e  = 0.0;                       // Maksymalne prawdopodobieństwo zderzenia elektronu P*_e
+inline double nu_star_i = 0.0;                       // Maksymalna częstość zderzeń dla jonów nu*_i
+inline double P_star_i  = 0.0;                       // Maksymalne prawdopodobieństwo zderzenia jonu P*_i
+
+// =============================================================================
+// Struktury pamięci lokalnej dla wątków OpenMP (Eliminacja False Sharing)
+// =============================================================================
+
+// Struktura skalarów wątku wyrównana do linii pamięci podręcznej (64 bajty).
+// Zapobiega zjawisku False Sharing (unieważnianiu linii cache między rdzeniami),
+// ponieważ każdy wątek operuje na własnej, niezależnej linii pamięci L1/L2.
 struct alignas(64) AlignedThreadCounters {
-    //  
-    double accu_center = 0.0;
-    Ullong counter_center = 0;
-    Ullong local_abs_pow = 0;
-    Ullong local_abs_gnd = 0;
+    double accu_center = 0.0;                        // Lokalny akumulator energii w centrum
+    Ullong counter_center = 0;                       // Lokalny licznik próbek energii w centrum
+    Ullong local_abs_pow = 0;                        // Licznik cząstek zaabsorbowanych na elektrodzie zasilanej
+    Ullong local_abs_gnd = 0;                        // Licznik cząstek zaabsorbowanych na elektrodzie uziemionej
 };
 
-// WorkerBuffers: Pre-allocated thread-local state for zero-allocation OpenMP
-// -- Tworzymy jeden globalny obiekt, ktory posiada w sobie wektory
-// O wielkosci rownej liczbie przydzielonych watkow
+// WorkerBuffers: Wstępnie zaalokowane bufory robocze dla wątków OpenMP.
+// Kluczowy wzorzec optymalizacji:
+// 1. Zero alokacji pamięci wewnątrz głównej pętli czasowej (4000 kroków / cykl).
+// 2. Każdy wątek pisze wyłącznie do swoich prywatnych tablic o rozmiarze N_G / N_EEPF / N_IFED.
+// 3. Po zakończeniu fazy równoległej następuje szybka redukcja do tablic globalnych.
 struct WorkerBuffers {
-    // Thread-local density deposition buffers
+    // Prywatne bufory depozycji gęstości ładunku (Krok 1)
     std::vector<std::array<double, N_G>> e_density;
     std::vector<std::array<double, N_G>> i_density;
 
-    // Thread-local electron diagnostic buffers
+    // Prywatne bufory diagnostyk elektronowych (Krok 3)
     std::vector<std::array<double, N_G>> counter_e;
     std::vector<std::array<double, N_G>> ue;
     std::vector<std::array<double, N_G>> meanee;
     std::vector<std::array<double, N_G>> ioniz;
     std::vector<std::array<double, N_EEPF>> eepf;
 
-    // Cache-aligned scalar counters per thread (prevents False Sharing)
+    // Wyrównane do linii cache liczniki skalarne na wątek
     std::vector<AlignedThreadCounters> thread_counters;
 
-    // Thread-local ion diagnostic buffers
+    // Prywatne bufory diagnostyk jonowych (Krok 4)
     std::vector<std::array<double, N_G>> counter_i;
     std::vector<std::array<double, N_G>> ui;
     std::vector<std::array<double, N_G>> meanei;
 
-    // Stream compaction & boundary filtering buffers
+    // Bufory dla filtracji granic i kompaktacji tablic cząstek (Kroki 5 i 6)
     std::vector<int> thread_counts;
     std::vector<int> thread_offsets;
     std::vector<std::vector<int>> thread_local_indices;
     std::vector<std::array<int, N_IFED>> local_ifed_pow;
     std::vector<std::array<int, N_IFED>> local_ifed_gnd;
 
-    // Pre-allocated temporary arrays for surviving particles
+    // Wstępnie zaalokowane tablice tymczasowe dla ocalałych cząstek
     std::vector<double> temp_x;
     std::vector<double> temp_vx;
     std::vector<double> temp_vy;
     std::vector<double> temp_vz;
 
-    // Per-thread candidate indices for Null-Collision sampling.
-    // Each thread owns its own scratch buffer to avoid shared mutable state.
+    // Prywatne bufory indeksów kandydatów dla metody Null-Collision (Kroki 7 i 8)
     std::vector<std::vector<int>> candidates_e;
     std::vector<std::vector<int>> candidates_i;
 
+    /*
+    Inicjalizacja i prealokacja wszystkich prywatnych buforów wątków.
+    Wywoływana przed rozpoczęciem faz równoległych w celu zapewnienia,
+    że wektory mają odpowiedni rozmiar dla zadanej liczby wątków num_threads.
+    @param num_threads Liczba aktywnych wątków OpenMP w zespole.
+    */
     void init_buffers(int num_threads) {
         if ((int)e_density.size() >= num_threads) return;
 
@@ -174,8 +225,14 @@ struct WorkerBuffers {
 
 inline WorkerBuffers worker_buffers;
 
-// Thread-Local Random Number Generators
+// =============================================================================
+// Niezależne generatory liczb pseudolosowych na poziomie wątku (thread_local)
+// Każdy wątek OpenMP posiada własny stan generatora Mersenne Twister,
+// co zapewnia w 100% bezblokadowe (lock-free) losowanie liczb.
+// =============================================================================
+
 inline thread_local std::random_device rd{}; 
 inline thread_local std::mt19937 MTgen(rd());
 inline thread_local std::uniform_real_distribution<> R01(0.0, 1.0);
 inline thread_local std::normal_distribution<> RMB(0.0, sqrt(K_BOLTZMANN * TEMPERATURE / AR_MASS));
+
