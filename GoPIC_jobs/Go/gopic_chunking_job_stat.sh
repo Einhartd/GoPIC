@@ -3,14 +3,18 @@
 #SBATCH --partition=plgrid-lem-cpu
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
-#SBATCH --cpus-per-task=64
+#SBATCH --cpus-per-task=8
 #SBATCH --mem-per-cpu=4G
 #SBATCH --time=00:20:00
 
 set -euo pipefail
 
-export GOMAXPROCS=${SLURM_CPUS_PER_TASK}
+# -----------------------------------------------------------------------------
+# Konfiguracja Go (GOMAXPROCS) i liczby workerów
+# -----------------------------------------------------------------------------
+export GOMAXPROCS=${GOMAXPROCS:-${SLURM_CPUS_PER_TASK}}
 NUM_WORKERS="${NUM_WORKERS:-$GOMAXPROCS}"
+# -----------------------------------------------------------------------------
 N_CYCLES="${N_CYCLES:-100}"
 USE_NC="${USE_NULL_COLLISION:-0}"
 MEASURE_FLAG="${MEASUREMENT_MODE:-${MEASUREMENT:-0}}"

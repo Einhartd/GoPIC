@@ -2,80 +2,87 @@
 
 Ten dokument zawiera komendy do zlecania zadań Slurm (`sbatch`) dla wszystkich implementacji symulacji **GoPIC** (Go, C++, Python), z podziałem na pomiary liczników sprzętowych (`perf stat`) oraz profilowanie (`perf record`).
 
-> [!NOTE]
-> **Liczbę rdzeni CPU** ustawia się bezpośrednio w nagłówku danego skryptu: `#SBATCH --cpus-per-task=...`.
-> Poniższe komendy skupiają się na wyborze wersji (**Null-Collision** vs **Standard**), liczbie gorutyn (**NUM_WORKERS**) oraz włączeniu trybu pomiarowego (**MEASUREMENT=m**).
+> [!IMPORTANT]
+> **Architektura procesorów AMD EPYC i powiązanie rdzeni (Affinity):**
+> Na procesorach AMD EPYC (architektura Zen/CCX) alokacja pofragmentowanych pojedynczych rdzeni prowadzi do drastycznego spadku wydajności z powodu opóźnień magistrali *Infinity Fabric*.
+> Z tego powodu domyślna jednostka alokacji w skryptach równoległych wynosi **`#SBATCH --cpus-per-task=8`** (1 pełny moduł CCX ze wspólnym 32 MB L3 Cache).
+> 
+> Aby przetestować skalowanie (np. na 1, 2, 4 lub 8 wątkach), **nie zmieniaj nagłówka Slurma**, lecz przekaż zmienną środowiskową:
+> - Dla **C++ OpenMP**: `OMP_THREADS=K` (np. `OMP_THREADS=2`)
+> - Dla **Go**: `GOMAXPROCS=K,NUM_WORKERS=K` (np. `GOMAXPROCS=2,NUM_WORKERS=2`)
 
 ---
 
 ## Spis treści
 1. [Szybka ściągawka (Cheat Sheet)](#1-szybka-ściągawka-cheat-sheet)
-2. [Go — Zadania równoległe i sekwencyjne](#2-go)
+2. [Dostępne flagi środowiskowe](#dostępne-flagi-środowiskowe---exportall)
+3. [Go — Zadania równoległe i sekwencyjne](#2-go)
    - [Go Chunking](#21-go-chunking)
    - [Go Channels](#22-go-channels)
    - [Go Sequential](#23-go-sequential)
-3. [C++ — Zadania OpenMP, MPI i sekwencyjne](#3-c)
+4. [C++ — Zadania OpenMP i sekwencyjne](#3-c)
    - [C++ OpenMP](#31-c-openmp)
-   - [C++ Hybrid (MPI + OpenMP)](#32-c-hybrid-mpi--openmp)
-   - [C++ Sequential](#33-c-sequential)
-4. [Python — Zadania sekwencyjne, Numba i hybrydowe](#4-python)
-5. [Zarządzanie zadaniami Slurm](#5-zarządzanie-zadaniami-slurm)
+   - [C++ Sequential](#32-c-sequential)
+5. [Python — Zadania sekwencyjne i Numba](#4-python)
+6. [Zarządzanie zadaniami Slurm](#5-zarządzanie-zadaniami-slurm)
+7. [Automatyczne generowanie Flame Graphs](#6-automatyczne-generowanie-flame-graphs-na-klastrze)
 
 ---
 
 ## 1. Szybka ściągawka (Cheat Sheet)
 
 ```bash
-# Go Chunking (Null-Collision, gorutyny = rdzenie ze skryptu):
-sbatch --export=ALL,USE_NULL_COLLISION=1 GoPIC/GoPIC_jobs/Go/gopic_chunking_job_stat.sh
+# C++ OpenMP na 2 wątkach (w zwartym bloku 8 rdzeni CCX):
+sbatch --export=ALL,OMP_THREADS=2 GoPIC/GoPIC_jobs/C/edupic_omp_job_stat.sh
 
-# Go Chunking (Null-Collision, z pełnymi pomiarami fizycznymi / measurement mode):
-sbatch --export=ALL,USE_NULL_COLLISION=1,MEASUREMENT=m GoPIC/GoPIC_jobs/Go/gopic_chunking_job_stat.sh
-
-# C++ OpenMP (tryb pomiarowy / measurement mode):
-sbatch --export=ALL,MEASUREMENT=m GoPIC/GoPIC_jobs/C/edupic_omp_job_stat.sh
-
-# C++ OpenMP (domyślny zoptymalizowany pomiar stat):
+# C++ OpenMP na pełnym bloku 8 rdzeni CCX:
 sbatch GoPIC/GoPIC_jobs/C/edupic_omp_job_stat.sh
+
+# Go Chunking (Null-Collision, 2 wątki / 2 workerów):
+sbatch --export=ALL,USE_NULL_COLLISION=1,GOMAXPROCS=2,NUM_WORKERS=2 GoPIC/GoPIC_jobs/Go/gopic_chunking_job_stat.sh
+
+# Go Chunking (Null-Collision, pełne 8 rdzeni CCX):
+sbatch --export=ALL,USE_NULL_COLLISION=1 GoPIC/GoPIC_jobs/Go/gopic_chunking_job_stat.sh
 ```
 
 ---
 
 ## Dostępne flagi środowiskowe (`--export=ALL,...`)
 
-- `USE_NULL_COLLISION=1` — wybór wersji zoptymalizowanej Null-Collision (brak flagi = Standard MCC).
+- `OMP_THREADS=K` (C++) — liczba wątków OpenMP (domyślnie równa przydzielonym rdzeniom `$SLURM_CPUS_PER_TASK`).
+- `GOMAXPROCS=K` (Go) — liczba wątków systemowych runtime Go.
+- `NUM_WORKERS=K` (Go) — liczba gorutyn workerów symulacji (domyślnie równa `$GOMAXPROCS`).
+- `USE_NULL_COLLISION=1` — wybór wersji zoptymalizowanej Null-Collision (brak flagi = Standard MCC dla Go/Python).
 - `MEASUREMENT=m` (lub `MEASUREMENT_MODE=1`) — uruchomienie w trybie pomiarowym (`measurement_mode`), zbieranie diagnostyk $XT$, IFED, EEPF oraz generowanie raportu `info.txt`.
-- `NUM_WORKERS=K` (dla Go) — liczba gorutyn workerów (domyślnie równa liczbie rdzeni ze skryptu `$SLURM_CPUS_PER_TASK`).
-- `N_CYCLES=N` — liczba cykli RF do wykonania (domyślnie 100 dla stat, 20 dla record).
+- `N_CYCLES=N` — liczba cykli RF do wykonania (domyślnie 100 dla stat, 20/100 dla record).
+
+---
+
+## 2. Go
 
 ### 2.1. Go Chunking
 
 #### Pomiary liczników sprzętowych (`perf stat` — 100 cykli):
 ```bash
-# Wersja Null-Collision (liczba gorutyn = liczba rdzeni ze skryptu):
+# Null-Collision na 2 rdzeniach / 2 workerach:
+sbatch --export=ALL,USE_NULL_COLLISION=1,GOMAXPROCS=2,NUM_WORKERS=2 GoPIC/GoPIC_jobs/Go/gopic_chunking_job_stat.sh
+
+# Null-Collision na 8 rdzeniach / 8 workerach (pełny CCX):
 sbatch --export=ALL,USE_NULL_COLLISION=1 GoPIC/GoPIC_jobs/Go/gopic_chunking_job_stat.sh
 
-# Wersja Null-Collision z oversubscription (np. 16, 32, 64 gorutyny):
+# Null-Collision z oversubscription (np. 16 lub 32 gorutyny na 8 rdzeniach):
 sbatch --export=ALL,USE_NULL_COLLISION=1,NUM_WORKERS=16 GoPIC/GoPIC_jobs/Go/gopic_chunking_job_stat.sh
-sbatch --export=ALL,USE_NULL_COLLISION=1,NUM_WORKERS=32 GoPIC/GoPIC_jobs/Go/gopic_chunking_job_stat.sh
-sbatch --export=ALL,USE_NULL_COLLISION=1,NUM_WORKERS=64 GoPIC/GoPIC_jobs/Go/gopic_chunking_job_stat.sh
 
-# Wersja Standard MCC (domyślna liczba gorutyn):
+# Standard MCC:
 sbatch GoPIC/GoPIC_jobs/Go/gopic_chunking_job_stat.sh
-
-# Wersja Standard MCC ze zdefiniowaną liczbą gorutyn:
-sbatch --export=ALL,NUM_WORKERS=16 GoPIC/GoPIC_jobs/Go/gopic_chunking_job_stat.sh
 ```
 
-#### Profilowanie drzewa wywołań (`perf record` — 20 cykli):
+#### Profilowanie drzewa wywołań (`perf record`):
 ```bash
-# Wersja Null-Collision:
+# Null-Collision:
 sbatch --export=ALL,USE_NULL_COLLISION=1 GoPIC/GoPIC_jobs/Go/gopic_chunking_job_record.sh
 
-# Wersja Null-Collision ze zdefiniowaną liczbą gorutyn:
-sbatch --export=ALL,USE_NULL_COLLISION=1,NUM_WORKERS=16 GoPIC/GoPIC_jobs/Go/gopic_chunking_job_record.sh
-
-# Wersja Standard MCC:
+# Standard MCC:
 sbatch GoPIC/GoPIC_jobs/Go/gopic_chunking_job_record.sh
 ```
 
@@ -85,22 +92,22 @@ sbatch GoPIC/GoPIC_jobs/Go/gopic_chunking_job_record.sh
 
 #### Pomiary liczników sprzętowych (`perf stat`):
 ```bash
-# Wersja Null-Collision (gorutyny = rdzenie ze skryptu):
+# Null-Collision na 2 workerach:
+sbatch --export=ALL,USE_NULL_COLLISION=1,GOMAXPROCS=2,NUM_WORKERS=2 GoPIC/GoPIC_jobs/Go/gopic_channels_job_stat.sh
+
+# Null-Collision na 8 workerach:
 sbatch --export=ALL,USE_NULL_COLLISION=1 GoPIC/GoPIC_jobs/Go/gopic_channels_job_stat.sh
 
-# Wersja Null-Collision ze zdefiniowaną liczbą gorutyn:
-sbatch --export=ALL,USE_NULL_COLLISION=1,NUM_WORKERS=16 GoPIC/GoPIC_jobs/Go/gopic_channels_job_stat.sh
-
-# Wersja Standard MCC:
+# Standard MCC:
 sbatch GoPIC/GoPIC_jobs/Go/gopic_channels_job_stat.sh
 ```
 
 #### Profilowanie (`perf record`):
 ```bash
-# Wersja Null-Collision:
+# Null-Collision:
 sbatch --export=ALL,USE_NULL_COLLISION=1 GoPIC/GoPIC_jobs/Go/gopic_channels_job_record.sh
 
-# Wersja Standard MCC:
+# Standard MCC:
 sbatch GoPIC/GoPIC_jobs/Go/gopic_channels_job_record.sh
 ```
 
@@ -127,41 +134,35 @@ sbatch GoPIC/GoPIC_jobs/Go/gopic_job_record.sh
 ## 3. C++
 
 ### 3.1. C++ OpenMP
-*(Implementacja OpenMP wykorzystuje zoptymalizowany, natywny silnik Null-Collision)*
+*(Implementacja OpenMP wykorzystuje zoptymalizowany, natywny silnik Null-Collision oraz powiązanie wątków w module CCX)*
 
 #### Pomiary liczników sprzętowych (`perf stat` — 100 cykli):
 ```bash
-# Standardowy pomiar stat:
+# Uruchomienie na 2 wątkach (w zwartym bloku CCX):
+sbatch --export=ALL,OMP_THREADS=2 GoPIC/GoPIC_jobs/C/edupic_omp_job_stat.sh
+
+# Uruchomienie na 4 wątkach:
+sbatch --export=ALL,OMP_THREADS=4 GoPIC/GoPIC_jobs/C/edupic_omp_job_stat.sh
+
+# Uruchomienie na pełnym bloku 8 wątków:
 sbatch GoPIC/GoPIC_jobs/C/edupic_omp_job_stat.sh
 
-# Z pełnymi diagnostykami czasoprzestrzennymi (measurement mode):
-sbatch --export=ALL,MEASUREMENT=m GoPIC/GoPIC_jobs/C/edupic_omp_job_stat.sh
+# Z pełnymi diagnostykami fizycznymi (measurement mode):
+sbatch --export=ALL,MEASUREMENT=m,OMP_THREADS=2 GoPIC/GoPIC_jobs/C/edupic_omp_job_stat.sh
 ```
 
-#### Profilowanie (`perf record` — 20 cykli):
+#### Profilowanie (`perf record`):
 ```bash
-# Profilowanie wywołań i generowanie Flame Graph:
+# Profilowanie wywołań i generowanie Flame Graph (2 wątki):
+sbatch --export=ALL,OMP_THREADS=2 GoPIC/GoPIC_jobs/C/edupic_omp_job_record.sh
+
+# Profilowanie na 8 wątkach:
 sbatch GoPIC/GoPIC_jobs/C/edupic_omp_job_record.sh
 ```
 
 ---
 
-### 3.2. C++ Hybrid (MPI + OpenMP)
-
-```bash
-# Stat (Null-Collision):
-sbatch --export=ALL,USE_NULL_COLLISION=1 GoPIC/GoPIC_jobs/C/edupic_hybrid_job_stat.sh
-
-# Stat (Standard MCC):
-sbatch GoPIC/GoPIC_jobs/C/edupic_hybrid_job_stat.sh
-
-# Record (Null-Collision):
-sbatch --export=ALL,USE_NULL_COLLISION=1 GoPIC/GoPIC_jobs/C/edupic_hybrid_job_record.sh
-```
-
----
-
-### 3.3. C++ Sequential
+### 3.2. C++ Sequential
 
 ```bash
 # Stat (Null-Collision):
@@ -190,9 +191,6 @@ sbatch --export=ALL,USE_NULL_COLLISION=1 GoPIC/GoPIC_jobs/python/pypic_numba_job
 
 # Python Numba (Record, Null-Collision):
 sbatch --export=ALL,USE_NULL_COLLISION=1 GoPIC/GoPIC_jobs/python/pypic_numba_job_record.sh
-
-# Python Hybrid MPI (Stat, Null-Collision):
-sbatch --export=ALL,USE_NULL_COLLISION=1 GoPIC/GoPIC_jobs/python/pypic_hybrid_job_stat.sh
 ```
 
 ---
