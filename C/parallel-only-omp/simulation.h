@@ -5,6 +5,7 @@
 #include <array>
 #include <cmath>
 #include <omp.h>
+#include "collisions.h"
 
 #include "null_collision.h"
    
