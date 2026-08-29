@@ -53,18 +53,18 @@ Etapy:
 PIC_STEP void step1_compute_electron_density_body(int tid, int num_threads) {
     worker_buffers.e_density[tid].fill(0.0);
 
-    int p;
-    double c0;
-    #pragma omp for
+    #pragma omp for schedule(static)
     for (int k = 0; k < N_e; k++) {
-        c0 = x_e[k] * INV_DX;
-        p  = int(c0);
-        worker_buffers.e_density[tid][p]   += (p + 1 - c0) * FACTOR_W;
-        worker_buffers.e_density[tid][p+1] += (c0 - p) * FACTOR_W;
+        double c0 = x_e[k] * INV_DX;
+        int p     = int(c0);
+        double c2 = (c0 - p) * FACTOR_W;
+        double c1 = FACTOR_W - c2;
+        worker_buffers.e_density[tid][p]   += c1;
+        worker_buffers.e_density[tid][p+1] += c2;
     }
 
     // Zintegrowana redukcja prywatnych buforów, korekta brzegowa x2 oraz akumulacja cumul_e_density
-    #pragma omp for
+    #pragma omp for schedule(static)
     for (int p = 0; p < N_G; p++) {
         double sum = 0.0;
         for (int t = 0; t < num_threads; t++) {
@@ -107,17 +107,17 @@ PIC_STEP void step1_compute_ion_density_body(int tid, int num_threads, int t) {
     if ((t % N_SUB) == 0) {
         worker_buffers.i_density[tid].fill(0.0);
 
-        int p;
-        double c0;
-        #pragma omp for
+        #pragma omp for schedule(static)
         for (int k = 0; k < N_i; k++) {
-            c0 = x_i[k] * INV_DX;
-            p  = int(c0);
-            worker_buffers.i_density[tid][p]   += (p + 1 - c0) * FACTOR_W;
-            worker_buffers.i_density[tid][p+1] += (c0 - p) * FACTOR_W;
+            double c0 = x_i[k] * INV_DX;
+            int p     = int(c0);
+            double c2 = (c0 - p) * FACTOR_W;
+            double c1 = FACTOR_W - c2;
+            worker_buffers.i_density[tid][p]   += c1;
+            worker_buffers.i_density[tid][p+1] += c2;
         }
 
-        #pragma omp for
+        #pragma omp for schedule(static)
         for (int p = 0; p < N_G; p++) {
             double sum = 0.0;
             for (int t2 = 0; t2 < num_threads; t2++) {
@@ -131,7 +131,7 @@ PIC_STEP void step1_compute_ion_density_body(int tid, int num_threads, int t) {
         }
     } else {
         // Ważny niezmiennik fizyczny: cumul_i_density akumuluje się w KAŻDYM kroku czasowym
-        #pragma omp for
+        #pragma omp for schedule(static)
         for (int p = 0; p < N_G; p++) cumul_i_density[p] += i_density[p];
     }
 }
@@ -179,6 +179,101 @@ Etapy:
 @param t_index     Indeks przedziału czasowego dla diagnostyk XT (t / N_BIN).
 */
 PIC_STEP void step3_move_electrons_body(int tid, int num_threads, int t_index) {
+    if (__builtin_expect(!measurement_mode, 1)) {
+        int chunk = (N_e + num_threads - 1) / num_threads;
+        int k_start = std::min(tid * chunk, N_e);
+        int k_end   = std::min(k_start + chunk, N_e);
+
+#if defined(__AVX512F__) && defined(__AVX512DQ__)
+        const __m512d v_inv_dx    = _mm512_set1_pd(INV_DX);
+        const __m512d v_one       = _mm512_set1_pd(1.0);
+        const __m512d v_factor_e  = _mm512_set1_pd(FACTOR_E);
+        const __m512d v_dt_e      = _mm512_set1_pd(DT_E);
+        const __m256i v_one_epi32 = _mm256_set1_epi32(1);
+
+        int k = k_start;
+        for (; k <= k_end - 8; k += 8) {
+            __m512d vx  = _mm512_loadu_pd(&x_e[k]);
+            __m512d vc0 = _mm512_mul_pd(vx, v_inv_dx);
+            __m256i vp  = _mm512_cvttpd_epi32(vc0);
+            __m512d vpd = _mm512_cvtepi32_pd(vp);
+            __m512d vc2 = _mm512_sub_pd(vc0, vpd);
+            __m512d vc1 = _mm512_sub_pd(v_one, vc2);
+
+            __m512d ve0 = _mm512_i32gather_pd(vp, efield, 8);
+            __m256i vp1 = _mm256_add_epi32(vp, v_one_epi32);
+            __m512d ve1 = _mm512_i32gather_pd(vp1, efield, 8);
+
+            __m512d ve_x = _mm512_fmadd_pd(ve1, vc2, _mm512_mul_pd(ve0, vc1));
+
+            __m512d vvx = _mm512_loadu_pd(&vx_e[k]);
+            vvx = _mm512_fnmadd_pd(ve_x, v_factor_e, vvx);
+            _mm512_storeu_pd(&vx_e[k], vvx);
+
+            vx = _mm512_fmadd_pd(vvx, v_dt_e, vx);
+            _mm512_storeu_pd(&x_e[k], vx);
+        }
+        for (; k < k_end; k++) {
+            double c0 = x_e[k] * INV_DX;
+            int p     = int(c0);
+            double c1 = p + 1.0 - c0;
+            double c2 = c0 - p;
+            double e_x = c1 * efield[p] + c2 * efield[p+1];
+            vx_e[k] -= e_x * FACTOR_E;
+            x_e[k]  += vx_e[k] * DT_E;
+        }
+#elif defined(__AVX2__)
+        const __m256d v_inv_dx    = _mm256_set1_pd(INV_DX);
+        const __m256d v_one       = _mm256_set1_pd(1.0);
+        const __m256d v_factor_e  = _mm256_set1_pd(FACTOR_E);
+        const __m256d v_dt_e      = _mm256_set1_pd(DT_E);
+        const __m128i v_one_epi32 = _mm_set1_epi32(1);
+
+        int k = k_start;
+        for (; k <= k_end - 4; k += 4) {
+            __m256d vx  = _mm256_loadu_pd(&x_e[k]);
+            __m256d vc0 = _mm256_mul_pd(vx, v_inv_dx);
+            __m128i vp  = _mm256_cvttpd_epi32(vc0);
+            __m256d vpd = _mm256_cvtepi32_pd(vp);
+            __m256d vc2 = _mm256_sub_pd(vc0, vpd);
+            __m256d vc1 = _mm256_sub_pd(v_one, vc2);
+
+            __m256d ve0 = _mm256_i32gather_pd(efield, vp, 8);
+            __m128i vp1 = _mm_add_epi32(vp, v_one_epi32);
+            __m256d ve1 = _mm256_i32gather_pd(efield, vp1, 8);
+
+            __m256d ve_x = _mm256_fmadd_pd(ve1, vc2, _mm256_mul_pd(ve0, vc1));
+
+            __m256d vvx = _mm256_loadu_pd(&vx_e[k]);
+            vvx = _mm256_fnmadd_pd(ve_x, v_factor_e, vvx);
+            _mm256_storeu_pd(&vx_e[k], vvx);
+
+            vx = _mm256_fmadd_pd(vvx, v_dt_e, vx);
+            _mm256_storeu_pd(&x_e[k], vx);
+        }
+        for (; k < k_end; k++) {
+            double c0 = x_e[k] * INV_DX;
+            int p     = int(c0);
+            double c1 = p + 1.0 - c0;
+            double c2 = c0 - p;
+            double e_x = c1 * efield[p] + c2 * efield[p+1];
+            vx_e[k] -= e_x * FACTOR_E;
+            x_e[k]  += vx_e[k] * DT_E;
+        }
+#else
+        for (int k = k_start; k < k_end; k++) {
+            double c0 = x_e[k] * INV_DX;
+            int p     = int(c0);
+            double c1 = p + 1.0 - c0;
+            double c2 = c0 - p;
+            double e_x = c1 * efield[p] + c2 * efield[p+1];
+            vx_e[k] -= e_x * FACTOR_E;
+            x_e[k]  += vx_e[k] * DT_E;
+        }
+#endif
+        return;
+    }
+
     if (measurement_mode) {
         // Czyszczenie lokalnych buforów diagnostycznych wątku przed pętlą cząstkową.
         // Każdy wątek gromadzi własne statystyki niezależnie, bez konfliktów zapisu.
@@ -195,7 +290,7 @@ PIC_STEP void step3_move_electrons_body(int tid, int num_threads, int t_index) {
     double c0, c1, c2, e_x, mean_v, v_sqr, energy, velocity, rate;
 
     // Równoległe popychanie elektronów. Każdy wątek przetwarza swój podzbiór cząstek.
-    #pragma omp for
+    #pragma omp for schedule(static)
     for (int k = 0; k < N_e; k++) {
         c0  = x_e[k] * INV_DX;
         p   = int(c0);
@@ -203,37 +298,35 @@ PIC_STEP void step3_move_electrons_body(int tid, int num_threads, int t_index) {
         c2  = c0 - p;
         e_x = c1 * efield[p] + c2 * efield[p+1];
 
-        if (measurement_mode) {
-            mean_v = vx_e[k] - 0.5 * e_x * FACTOR_E;
+        mean_v = vx_e[k] - 0.5 * e_x * FACTOR_E;
 
-            worker_buffers.counter_e[tid][p]   += c1;
-            worker_buffers.counter_e[tid][p+1] += c2;
+        worker_buffers.counter_e[tid][p]   += c1;
+        worker_buffers.counter_e[tid][p+1] += c2;
 
-            worker_buffers.ue[tid][p]   += c1 * mean_v;
-            worker_buffers.ue[tid][p+1] += c2 * mean_v;
+        worker_buffers.ue[tid][p]   += c1 * mean_v;
+        worker_buffers.ue[tid][p+1] += c2 * mean_v;
 
-            v_sqr  = mean_v * mean_v + vy_e[k] * vy_e[k] + vz_e[k] * vz_e[k];
-            energy = 0.5 * E_MASS * v_sqr / EV_TO_J;
+        v_sqr  = mean_v * mean_v + vy_e[k] * vy_e[k] + vz_e[k] * vz_e[k];
+        energy = 0.5 * E_MASS * v_sqr / EV_TO_J;
 
-            worker_buffers.meanee[tid][p]   += c1 * energy;
-            worker_buffers.meanee[tid][p+1] += c2 * energy;
+        worker_buffers.meanee[tid][p]   += c1 * energy;
+        worker_buffers.meanee[tid][p+1] += c2 * energy;
 
-            energy_index = min(int(energy / DE_CS + 0.5), CS_RANGES-1);
-            velocity = sqrt(v_sqr);
-            rate = sigma[E_ION][energy_index] * velocity * DT_E * GAS_DENSITY;
+        energy_index = min(int(energy / DE_CS + 0.5), CS_RANGES-1);
+        velocity = sqrt(v_sqr);
+        rate = sigma[E_ION][energy_index] * velocity * DT_E * GAS_DENSITY;
 
-            worker_buffers.ioniz[tid][p]   += c1 * rate;
-            worker_buffers.ioniz[tid][p+1] += c2 * rate;
+        worker_buffers.ioniz[tid][p]   += c1 * rate;
+        worker_buffers.ioniz[tid][p+1] += c2 * rate;
 
-            // Zliczanie funkcji EEPF w centralnym obszarze szczeliny [0.45*L, 0.55*L]
-            if ((MIN_X < x_e[k]) && (x_e[k] < MAX_X)) {
-                energy_index = (int)(energy / DE_EEPF);
-                if (energy_index < N_EEPF) {
-                    worker_buffers.eepf[tid][energy_index] += 1.0;
-                }
-                worker_buffers.thread_counters[tid].accu_center   += energy;
-                worker_buffers.thread_counters[tid].counter_center++;
+        // Zliczanie funkcji EEPF w centralnym obszarze szczeliny [0.45*L, 0.55*L]
+        if ((MIN_X < x_e[k]) && (x_e[k] < MAX_X)) {
+            energy_index = (int)(energy / DE_EEPF);
+            if (energy_index < N_EEPF) {
+                worker_buffers.eepf[tid][energy_index] += 1.0;
             }
+            worker_buffers.thread_counters[tid].accu_center   += energy;
+            worker_buffers.thread_counters[tid].counter_center++;
         }
 
         // Integracja równań ruchu (schemat Leap-Frog)
@@ -311,6 +404,101 @@ Etapy:
 PIC_STEP void step4_move_ions_body(int tid, int num_threads, int t_index, int t) {
     if ((t % N_SUB) != 0) return;
 
+    if (__builtin_expect(!measurement_mode, 1)) {
+        int chunk = (N_i + num_threads - 1) / num_threads;
+        int k_start = std::min(tid * chunk, N_i);
+        int k_end   = std::min(k_start + chunk, N_i);
+
+#if defined(__AVX512F__) && defined(__AVX512DQ__)
+        const __m512d v_inv_dx    = _mm512_set1_pd(INV_DX);
+        const __m512d v_one       = _mm512_set1_pd(1.0);
+        const __m512d v_factor_i  = _mm512_set1_pd(FACTOR_I);
+        const __m512d v_dt_i      = _mm512_set1_pd(DT_I);
+        const __m256i v_one_epi32 = _mm256_set1_epi32(1);
+
+        int k = k_start;
+        for (; k <= k_end - 8; k += 8) {
+            __m512d vx  = _mm512_loadu_pd(&x_i[k]);
+            __m512d vc0 = _mm512_mul_pd(vx, v_inv_dx);
+            __m256i vp  = _mm512_cvttpd_epi32(vc0);
+            __m512d vpd = _mm512_cvtepi32_pd(vp);
+            __m512d vc2 = _mm512_sub_pd(vc0, vpd);
+            __m512d vc1 = _mm512_sub_pd(v_one, vc2);
+
+            __m512d ve0 = _mm512_i32gather_pd(vp, efield, 8);
+            __m256i vp1 = _mm256_add_epi32(vp, v_one_epi32);
+            __m512d ve1 = _mm512_i32gather_pd(vp1, efield, 8);
+
+            __m512d ve_x = _mm512_fmadd_pd(ve1, vc2, _mm512_mul_pd(ve0, vc1));
+
+            __m512d vvx = _mm512_loadu_pd(&vx_i[k]);
+            vvx = _mm512_fmadd_pd(ve_x, v_factor_i, vvx); // ion has +e charge
+            _mm512_storeu_pd(&vx_i[k], vvx);
+
+            vx = _mm512_fmadd_pd(vvx, v_dt_i, vx);
+            _mm512_storeu_pd(&x_i[k], vx);
+        }
+        for (; k < k_end; k++) {
+            double c0 = x_i[k] * INV_DX;
+            int p     = int(c0);
+            double c1 = p + 1.0 - c0;
+            double c2 = c0 - p;
+            double e_x = c1 * efield[p] + c2 * efield[p+1];
+            vx_i[k] += e_x * FACTOR_I;
+            x_i[k]  += vx_i[k] * DT_I;
+        }
+#elif defined(__AVX2__)
+        const __m256d v_inv_dx    = _mm256_set1_pd(INV_DX);
+        const __m256d v_one       = _mm256_set1_pd(1.0);
+        const __m256d v_factor_i  = _mm256_set1_pd(FACTOR_I);
+        const __m256d v_dt_i      = _mm256_set1_pd(DT_I);
+        const __m128i v_one_epi32 = _mm_set1_epi32(1);
+
+        int k = k_start;
+        for (; k <= k_end - 4; k += 4) {
+            __m256d vx  = _mm256_loadu_pd(&x_i[k]);
+            __m256d vc0 = _mm256_mul_pd(vx, v_inv_dx);
+            __m128i vp  = _mm256_cvttpd_epi32(vc0);
+            __m256d vpd = _mm256_cvtepi32_pd(vp);
+            __m256d vc2 = _mm256_sub_pd(vc0, vpd);
+            __m256d vc1 = _mm256_sub_pd(v_one, vc2);
+
+            __m256d ve0 = _mm256_i32gather_pd(efield, vp, 8);
+            __m128i vp1 = _mm_add_epi32(vp, v_one_epi32);
+            __m256d ve1 = _mm256_i32gather_pd(efield, vp1, 8);
+
+            __m256d ve_x = _mm256_fmadd_pd(ve1, vc2, _mm256_mul_pd(ve0, vc1));
+
+            __m256d vvx = _mm256_loadu_pd(&vx_i[k]);
+            vvx = _mm256_fmadd_pd(ve_x, v_factor_i, vvx);
+            _mm256_storeu_pd(&vx_i[k], vvx);
+
+            vx = _mm256_fmadd_pd(vvx, v_dt_i, vx);
+            _mm256_storeu_pd(&x_i[k], vx);
+        }
+        for (; k < k_end; k++) {
+            double c0 = x_i[k] * INV_DX;
+            int p     = int(c0);
+            double c1 = p + 1.0 - c0;
+            double c2 = c0 - p;
+            double e_x = c1 * efield[p] + c2 * efield[p+1];
+            vx_i[k] += e_x * FACTOR_I;
+            x_i[k]  += vx_i[k] * DT_I;
+        }
+#else
+        for (int k = k_start; k < k_end; k++) {
+            double c0 = x_i[k] * INV_DX;
+            int p     = int(c0);
+            double c1 = p + 1.0 - c0;
+            double c2 = c0 - p;
+            double e_x = c1 * efield[p] + c2 * efield[p+1];
+            vx_i[k] += e_x * FACTOR_I;
+            x_i[k]  += vx_i[k] * DT_I;
+        }
+#endif
+        return;
+    }
+
     if (measurement_mode) {
         worker_buffers.counter_i[tid].fill(0.0);
         worker_buffers.ui[tid].fill(0.0);
@@ -320,7 +508,7 @@ PIC_STEP void step4_move_ions_body(int tid, int num_threads, int t_index, int t)
     int p;
     double c0, c1, c2, e_x, mean_v, v_sqr, energy;
 
-    #pragma omp for
+    #pragma omp for schedule(static)
     for (int k = 0; k < N_i; k++) {
         c0  = x_i[k] * INV_DX;
         p   = int(c0);
@@ -328,21 +516,19 @@ PIC_STEP void step4_move_ions_body(int tid, int num_threads, int t_index, int t)
         c2  = c0 - p;
         e_x = c1 * efield[p] + c2 * efield[p+1];
 
-        if (measurement_mode) {
-            mean_v = vx_i[k] + 0.5 * e_x * FACTOR_I;
+        mean_v = vx_i[k] + 0.5 * e_x * FACTOR_I;
 
-            worker_buffers.counter_i[tid][p]   += c1;
-            worker_buffers.counter_i[tid][p+1] += c2;
+        worker_buffers.counter_i[tid][p]   += c1;
+        worker_buffers.counter_i[tid][p+1] += c2;
 
-            worker_buffers.ui[tid][p]   += c1 * mean_v;
-            worker_buffers.ui[tid][p+1] += c2 * mean_v;
+        worker_buffers.ui[tid][p]   += c1 * mean_v;
+        worker_buffers.ui[tid][p+1] += c2 * mean_v;
 
-            v_sqr  = mean_v * mean_v + vy_i[k] * vy_i[k] + vz_i[k] * vz_i[k];
-            energy = 0.5 * AR_MASS * v_sqr / EV_TO_J;
+        v_sqr  = mean_v * mean_v + vy_i[k] * vy_i[k] + vz_i[k] * vz_i[k];
+        energy = 0.5 * AR_MASS * v_sqr / EV_TO_J;
 
-            worker_buffers.meanei[tid][p]   += c1 * energy;
-            worker_buffers.meanei[tid][p+1] += c2 * energy;
-        }
+        worker_buffers.meanei[tid][p]   += c1 * energy;
+        worker_buffers.meanei[tid][p+1] += c2 * energy;
 
         // Jony mają ładunek dodatni (+e), więc przyspieszenie ma znak plus
         vx_i[k] += e_x * FACTOR_I;
@@ -773,84 +959,6 @@ PIC_STEP void step9_collect_xt_data(int t_index) {
         efield_xt[p][t_index] += efield[p];
         ne_xt    [p][t_index] += e_density[p];
         ni_xt    [p][t_index] += i_density[p];
-    }
-}
-
-/*
-Równoległe sortowanie cząstek według komórek siatki (Cell Sorting / Binning).
-Grupuje cząstki należące do tej samej komórki przestrzennej w pamięci ciągłej,
-co drastycznie poprawia lokalność przestrzenną pamięci podręcznej (Cache Locality)
-podczas fazy depozycji ładunku oraz popychania cząstek.
-@param x   Wektor pozycji 1D cząstek.
-@param vx  Wektor składowej X prędkości cząstek.
-@param vy  Wektor składowej Y prędkości cząstek.
-@param vz  Wektor składowej Z prędkości cząstek.
-@param N_p Liczba aktywnych cząstek danego gatunku.
-*/
-PIC_STEP void sort_particles_by_cell(particle_vector &x, particle_vector &vx,
-                                    particle_vector &vy, particle_vector &vz, int N_p) {
-
-    if (N_p <= 1) return;
-
-    int num_threads = omp_get_max_threads();
-    worker_buffers.init_buffers(num_threads);
-
-    static std::vector<std::vector<int>> thread_bin_counts;
-    static std::vector<std::vector<int>> thread_bin_offsets;
-
-    if ((int)thread_bin_counts.size() < num_threads) {
-        thread_bin_counts.resize(num_threads, std::vector<int>(N_G, 0));
-        thread_bin_offsets.resize(num_threads, std::vector<int>(N_G, 0));
-    }
-
-    #pragma omp parallel
-    {
-        int tid = omp_get_thread_num();
-        int nthreads = omp_get_num_threads();
-
-        std::fill(thread_bin_counts[tid].begin(), thread_bin_counts[tid].end(), 0);
-
-        #pragma omp for
-        for (int k = 0; k < N_p; k++) {
-            int cell = int(x[k] * INV_DX);
-            if (cell < 0) cell = 0;
-            if (cell >= N_G - 1) cell = N_G - 2;
-            thread_bin_counts[tid][cell]++;
-        }
-
-        // Wyznaczenie globalnych i lokalnych offsetów zapisu
-        #pragma omp single
-        {
-            int running_sum = 0;
-            for (int c = 0; c < N_G; c++) {
-                for (int t = 0; t < nthreads; t++) {
-                    thread_bin_offsets[t][c] = running_sum;
-                    running_sum += thread_bin_counts[t][c];
-                }
-            }
-        }
-
-        // Równoległy zapis na posortowane pozycje w temp
-        #pragma omp for
-        for (int k = 0; k < N_p; k++) {
-            int cell = int(x[k] * INV_DX);
-            if (cell < 0) cell = 0;
-            if (cell >= N_G - 1) cell = N_G - 2;
-
-            int dst_idx = thread_bin_offsets[tid][cell]++;
-            worker_buffers.temp_x[dst_idx] = x[k];
-            worker_buffers.temp_vx[dst_idx] = vx[k];
-            worker_buffers.temp_vy[dst_idx] = vy[k];
-            worker_buffers.temp_vz[dst_idx] = vz[k];
-        }
-
-        #pragma omp for
-        for (int k = 0; k < N_p; k++) {
-            x[k] = worker_buffers.temp_x[k];
-            vx[k] = worker_buffers.temp_vx[k];
-            vy[k] = worker_buffers.temp_vy[k];
-            vz[k] = worker_buffers.temp_vz[k];
-        }
     }
 }
 

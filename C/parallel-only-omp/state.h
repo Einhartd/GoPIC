@@ -6,6 +6,7 @@
 #include <algorithm>
 #include <vector>
 #include <array>
+#include <immintrin.h>
 #include <omp.h>
 
 // Makro określające sposób inlinowania funkcji pojedynczego kroku PIC.
@@ -142,9 +143,9 @@ struct alignas(64) AlignedThreadCounters {
 // 2. Każdy wątek pisze wyłącznie do swoich prywatnych tablic o rozmiarze N_G / N_EEPF / N_IFED.
 // 3. Po zakończeniu fazy równoległej następuje szybka redukcja do tablic globalnych.
 struct WorkerBuffers {
-    // Prywatne bufory depozycji gęstości ładunku (Krok 1)
-    std::vector<std::array<double, N_G>> e_density;
-    std::vector<std::array<double, N_G>> i_density;
+    // Prywatne bufory depozycji gęstości ładunku (Krok 1) (z buforem SIMD)
+    std::vector<std::array<double, N_G + 16>> e_density;
+    std::vector<std::array<double, N_G + 16>> i_density;
 
     // Prywatne bufory diagnostyk elektronowych (Krok 3)
     std::vector<std::array<double, N_G>> counter_e;

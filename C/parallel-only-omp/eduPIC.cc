@@ -77,10 +77,6 @@ int main (int argc, char *argv[]){
         load_particle_data();
         printf(">> eduPIC: running %d cycle(s)\n",no_of_cycles);
         for (cycle=cycles_done+1;cycle<=cycles_done+no_of_cycles;cycle++) {
-            if ((cycle % 5) == 0){
-                sort_particles_by_cell(x_e, vx_e, vy_e, vz_e, N_e);
-                sort_particles_by_cell(x_i, vx_i, vy_i, vz_i, N_i);
-            }
             do_one_cycle();
         }
         cycles_done += no_of_cycles;
