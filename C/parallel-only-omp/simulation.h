@@ -184,93 +184,32 @@ PIC_STEP void step3_move_electrons_body(int tid, int num_threads, int t_index) {
         int k_start = std::min(tid * chunk, N_e);
         int k_end   = std::min(k_start + chunk, N_e);
 
-#if defined(__AVX512F__) && defined(__AVX512DQ__)
-        const __m512d v_inv_dx    = _mm512_set1_pd(INV_DX);
-        const __m512d v_one       = _mm512_set1_pd(1.0);
-        const __m512d v_factor_e  = _mm512_set1_pd(FACTOR_E);
-        const __m512d v_dt_e      = _mm512_set1_pd(DT_E);
-        const __m256i v_one_epi32 = _mm256_set1_epi32(1);
-
         int k = k_start;
         for (; k <= k_end - 8; k += 8) {
-            __m512d vx  = _mm512_loadu_pd(&x_e[k]);
-            __m512d vc0 = _mm512_mul_pd(vx, v_inv_dx);
-            __m256i vp  = _mm512_cvttpd_epi32(vc0);
-            __m512d vpd = _mm512_cvtepi32_pd(vp);
-            __m512d vc2 = _mm512_sub_pd(vc0, vpd);
-            __m512d vc1 = _mm512_sub_pd(v_one, vc2);
-
-            __m512d ve0 = _mm512_i32gather_pd(vp, efield, 8);
-            __m256i vp1 = _mm256_add_epi32(vp, v_one_epi32);
-            __m512d ve1 = _mm512_i32gather_pd(vp1, efield, 8);
-
-            __m512d ve_x = _mm512_fmadd_pd(ve1, vc2, _mm512_mul_pd(ve0, vc1));
-
-            __m512d vvx = _mm512_loadu_pd(&vx_e[k]);
-            vvx = _mm512_fnmadd_pd(ve_x, v_factor_e, vvx);
-            _mm512_storeu_pd(&vx_e[k], vvx);
-
-            vx = _mm512_fmadd_pd(vvx, v_dt_e, vx);
-            _mm512_storeu_pd(&x_e[k], vx);
+            #pragma GCC unroll 8
+            #pragma GCC ivdep
+            for (int i = 0; i < 8; ++i) {
+                int idx = k + i;
+                double c0 = x_e[idx] * INV_DX;
+                int p     = int(c0);
+                double c2 = c0 - p;
+                double c1 = 1.0 - c2;
+                double e_x = c1 * efield[p] + c2 * efield[p+1];
+                double v   = vx_e[idx] - e_x * FACTOR_E;
+                vx_e[idx]  = v;
+                x_e[idx]  += v * DT_E;
+            }
         }
         for (; k < k_end; k++) {
             double c0 = x_e[k] * INV_DX;
             int p     = int(c0);
-            double c1 = p + 1.0 - c0;
             double c2 = c0 - p;
+            double c1 = 1.0 - c2;
             double e_x = c1 * efield[p] + c2 * efield[p+1];
-            vx_e[k] -= e_x * FACTOR_E;
-            x_e[k]  += vx_e[k] * DT_E;
+            double v   = vx_e[k] - e_x * FACTOR_E;
+            vx_e[k]    = v;
+            x_e[k]    += v * DT_E;
         }
-#elif defined(__AVX2__)
-        const __m256d v_inv_dx    = _mm256_set1_pd(INV_DX);
-        const __m256d v_one       = _mm256_set1_pd(1.0);
-        const __m256d v_factor_e  = _mm256_set1_pd(FACTOR_E);
-        const __m256d v_dt_e      = _mm256_set1_pd(DT_E);
-        const __m128i v_one_epi32 = _mm_set1_epi32(1);
-
-        int k = k_start;
-        for (; k <= k_end - 4; k += 4) {
-            __m256d vx  = _mm256_loadu_pd(&x_e[k]);
-            __m256d vc0 = _mm256_mul_pd(vx, v_inv_dx);
-            __m128i vp  = _mm256_cvttpd_epi32(vc0);
-            __m256d vpd = _mm256_cvtepi32_pd(vp);
-            __m256d vc2 = _mm256_sub_pd(vc0, vpd);
-            __m256d vc1 = _mm256_sub_pd(v_one, vc2);
-
-            __m256d ve0 = _mm256_i32gather_pd(efield, vp, 8);
-            __m128i vp1 = _mm_add_epi32(vp, v_one_epi32);
-            __m256d ve1 = _mm256_i32gather_pd(efield, vp1, 8);
-
-            __m256d ve_x = _mm256_fmadd_pd(ve1, vc2, _mm256_mul_pd(ve0, vc1));
-
-            __m256d vvx = _mm256_loadu_pd(&vx_e[k]);
-            vvx = _mm256_fnmadd_pd(ve_x, v_factor_e, vvx);
-            _mm256_storeu_pd(&vx_e[k], vvx);
-
-            vx = _mm256_fmadd_pd(vvx, v_dt_e, vx);
-            _mm256_storeu_pd(&x_e[k], vx);
-        }
-        for (; k < k_end; k++) {
-            double c0 = x_e[k] * INV_DX;
-            int p     = int(c0);
-            double c1 = p + 1.0 - c0;
-            double c2 = c0 - p;
-            double e_x = c1 * efield[p] + c2 * efield[p+1];
-            vx_e[k] -= e_x * FACTOR_E;
-            x_e[k]  += vx_e[k] * DT_E;
-        }
-#else
-        for (int k = k_start; k < k_end; k++) {
-            double c0 = x_e[k] * INV_DX;
-            int p     = int(c0);
-            double c1 = p + 1.0 - c0;
-            double c2 = c0 - p;
-            double e_x = c1 * efield[p] + c2 * efield[p+1];
-            vx_e[k] -= e_x * FACTOR_E;
-            x_e[k]  += vx_e[k] * DT_E;
-        }
-#endif
         return;
     }
 
@@ -409,93 +348,32 @@ PIC_STEP void step4_move_ions_body(int tid, int num_threads, int t_index, int t)
         int k_start = std::min(tid * chunk, N_i);
         int k_end   = std::min(k_start + chunk, N_i);
 
-#if defined(__AVX512F__) && defined(__AVX512DQ__)
-        const __m512d v_inv_dx    = _mm512_set1_pd(INV_DX);
-        const __m512d v_one       = _mm512_set1_pd(1.0);
-        const __m512d v_factor_i  = _mm512_set1_pd(FACTOR_I);
-        const __m512d v_dt_i      = _mm512_set1_pd(DT_I);
-        const __m256i v_one_epi32 = _mm256_set1_epi32(1);
-
         int k = k_start;
         for (; k <= k_end - 8; k += 8) {
-            __m512d vx  = _mm512_loadu_pd(&x_i[k]);
-            __m512d vc0 = _mm512_mul_pd(vx, v_inv_dx);
-            __m256i vp  = _mm512_cvttpd_epi32(vc0);
-            __m512d vpd = _mm512_cvtepi32_pd(vp);
-            __m512d vc2 = _mm512_sub_pd(vc0, vpd);
-            __m512d vc1 = _mm512_sub_pd(v_one, vc2);
-
-            __m512d ve0 = _mm512_i32gather_pd(vp, efield, 8);
-            __m256i vp1 = _mm256_add_epi32(vp, v_one_epi32);
-            __m512d ve1 = _mm512_i32gather_pd(vp1, efield, 8);
-
-            __m512d ve_x = _mm512_fmadd_pd(ve1, vc2, _mm512_mul_pd(ve0, vc1));
-
-            __m512d vvx = _mm512_loadu_pd(&vx_i[k]);
-            vvx = _mm512_fmadd_pd(ve_x, v_factor_i, vvx); // ion has +e charge
-            _mm512_storeu_pd(&vx_i[k], vvx);
-
-            vx = _mm512_fmadd_pd(vvx, v_dt_i, vx);
-            _mm512_storeu_pd(&x_i[k], vx);
+            #pragma GCC unroll 8
+            #pragma GCC ivdep
+            for (int i = 0; i < 8; ++i) {
+                int idx = k + i;
+                double c0 = x_i[idx] * INV_DX;
+                int p     = int(c0);
+                double c2 = c0 - p;
+                double c1 = 1.0 - c2;
+                double e_x = c1 * efield[p] + c2 * efield[p+1];
+                double v   = vx_i[idx] + e_x * FACTOR_I;
+                vx_i[idx]  = v;
+                x_i[idx]  += v * DT_I;
+            }
         }
         for (; k < k_end; k++) {
             double c0 = x_i[k] * INV_DX;
             int p     = int(c0);
-            double c1 = p + 1.0 - c0;
             double c2 = c0 - p;
+            double c1 = 1.0 - c2;
             double e_x = c1 * efield[p] + c2 * efield[p+1];
-            vx_i[k] += e_x * FACTOR_I;
-            x_i[k]  += vx_i[k] * DT_I;
+            double v   = vx_i[k] + e_x * FACTOR_I;
+            vx_i[k]    = v;
+            x_i[k]    += v * DT_I;
         }
-#elif defined(__AVX2__)
-        const __m256d v_inv_dx    = _mm256_set1_pd(INV_DX);
-        const __m256d v_one       = _mm256_set1_pd(1.0);
-        const __m256d v_factor_i  = _mm256_set1_pd(FACTOR_I);
-        const __m256d v_dt_i      = _mm256_set1_pd(DT_I);
-        const __m128i v_one_epi32 = _mm_set1_epi32(1);
-
-        int k = k_start;
-        for (; k <= k_end - 4; k += 4) {
-            __m256d vx  = _mm256_loadu_pd(&x_i[k]);
-            __m256d vc0 = _mm256_mul_pd(vx, v_inv_dx);
-            __m128i vp  = _mm256_cvttpd_epi32(vc0);
-            __m256d vpd = _mm256_cvtepi32_pd(vp);
-            __m256d vc2 = _mm256_sub_pd(vc0, vpd);
-            __m256d vc1 = _mm256_sub_pd(v_one, vc2);
-
-            __m256d ve0 = _mm256_i32gather_pd(efield, vp, 8);
-            __m128i vp1 = _mm_add_epi32(vp, v_one_epi32);
-            __m256d ve1 = _mm256_i32gather_pd(efield, vp1, 8);
-
-            __m256d ve_x = _mm256_fmadd_pd(ve1, vc2, _mm256_mul_pd(ve0, vc1));
-
-            __m256d vvx = _mm256_loadu_pd(&vx_i[k]);
-            vvx = _mm256_fmadd_pd(ve_x, v_factor_i, vvx);
-            _mm256_storeu_pd(&vx_i[k], vvx);
-
-            vx = _mm256_fmadd_pd(vvx, v_dt_i, vx);
-            _mm256_storeu_pd(&x_i[k], vx);
-        }
-        for (; k < k_end; k++) {
-            double c0 = x_i[k] * INV_DX;
-            int p     = int(c0);
-            double c1 = p + 1.0 - c0;
-            double c2 = c0 - p;
-            double e_x = c1 * efield[p] + c2 * efield[p+1];
-            vx_i[k] += e_x * FACTOR_I;
-            x_i[k]  += vx_i[k] * DT_I;
-        }
-#else
-        for (int k = k_start; k < k_end; k++) {
-            double c0 = x_i[k] * INV_DX;
-            int p     = int(c0);
-            double c1 = p + 1.0 - c0;
-            double c2 = c0 - p;
-            double e_x = c1 * efield[p] + c2 * efield[p+1];
-            vx_i[k] += e_x * FACTOR_I;
-            x_i[k]  += vx_i[k] * DT_I;
-        }
-#endif
         return;
     }
 
