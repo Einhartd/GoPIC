@@ -777,6 +777,84 @@ PIC_STEP void step9_collect_xt_data(int t_index) {
 }
 
 /*
+Równoległe sortowanie cząstek według komórek siatki (Cell Sorting / Binning).
+Grupuje cząstki należące do tej samej komórki przestrzennej w pamięci ciągłej,
+co drastycznie poprawia lokalność przestrzenną pamięci podręcznej (Cache Locality)
+podczas fazy depozycji ładunku oraz popychania cząstek.
+@param x   Wektor pozycji 1D cząstek.
+@param vx  Wektor składowej X prędkości cząstek.
+@param vy  Wektor składowej Y prędkości cząstek.
+@param vz  Wektor składowej Z prędkości cząstek.
+@param N_p Liczba aktywnych cząstek danego gatunku.
+*/
+PIC_STEP void sort_particles_by_cell(particle_vector &x, particle_vector &vx,
+                                    particle_vector &vy, particle_vector &vz, int N_p) {
+
+    if (N_p <= 1) return;
+
+    int num_threads = omp_get_max_threads();
+    worker_buffers.init_buffers(num_threads);
+
+    static std::vector<std::vector<int>> thread_bin_counts;
+    static std::vector<std::vector<int>> thread_bin_offsets;
+
+    if ((int)thread_bin_counts.size() < num_threads) {
+        thread_bin_counts.resize(num_threads, std::vector<int>(N_G, 0));
+        thread_bin_offsets.resize(num_threads, std::vector<int>(N_G, 0));
+    }
+
+    #pragma omp parallel
+    {
+        int tid = omp_get_thread_num();
+        int nthreads = omp_get_num_threads();
+
+        std::fill(thread_bin_counts[tid].begin(), thread_bin_counts[tid].end(), 0);
+
+        #pragma omp for
+        for (int k = 0; k < N_p; k++) {
+            int cell = int(x[k] * INV_DX);
+            if (cell < 0) cell = 0;
+            if (cell >= N_G - 1) cell = N_G - 2;
+            thread_bin_counts[tid][cell]++;
+        }
+
+        // Wyznaczenie globalnych i lokalnych offsetów zapisu
+        #pragma omp single
+        {
+            int running_sum = 0;
+            for (int c = 0; c < N_G; c++) {
+                for (int t = 0; t < nthreads; t++) {
+                    thread_bin_offsets[t][c] = running_sum;
+                    running_sum += thread_bin_counts[t][c];
+                }
+            }
+        }
+
+        // Równoległy zapis na posortowane pozycje w temp
+        #pragma omp for
+        for (int k = 0; k < N_p; k++) {
+            int cell = int(x[k] * INV_DX);
+            if (cell < 0) cell = 0;
+            if (cell >= N_G - 1) cell = N_G - 2;
+
+            int dst_idx = thread_bin_offsets[tid][cell]++;
+            worker_buffers.temp_x[dst_idx] = x[k];
+            worker_buffers.temp_vx[dst_idx] = vx[k];
+            worker_buffers.temp_vy[dst_idx] = vy[k];
+            worker_buffers.temp_vz[dst_idx] = vz[k];
+        }
+
+        #pragma omp for
+        for (int k = 0; k < N_p; k++) {
+            x[k] = worker_buffers.temp_x[k];
+            vx[k] = worker_buffers.temp_vx[k];
+            vy[k] = worker_buffers.temp_vy[k];
+            vz[k] = worker_buffers.temp_vz[k];
+        }
+    }
+}
+
+/*
 Główna pętla czasowa jednego pełnego okresu RF (4000 podkroków czasowych DT_E).
 Wykorzystuje jeden trwały zespół wątków OpenMP (#pragma omp parallel) obejmujący
 całą pętlę podkroków, eliminując narzut ciągłego tworzenia i niszczenia wątków.
