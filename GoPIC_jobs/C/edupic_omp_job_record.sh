@@ -51,7 +51,28 @@ BINARY="${BUILD_DIR}/edupic_omp_${SLURM_JOB_ID}"
 rm -f "${BINARY}"
 
 echo ">> Kompilacja: C++ OpenMP (zoptymalizowany silnik Null-Collision)..."
-g++ -std=c++17 -O3 -fno-omit-frame-pointer -march=native -fopenmp -fno-math-errno -DPROFILE_RECORD "${SRC_DIR}/eduPIC.cc" -o "${BINARY}" -lm
+g++ -std=c++17 -O3 -fno-omit-frame-pointer \
+ -march=znver4 -mtune=znver4 \
+ -ffast-math -funroll-loops \
+ -mprefer-vector-width=512 \
+ -fopenmp -fopenmp-simd \
+ -fno-math-errno \
+ -fopt-info-vec-optimized \
+ -DPROFILE_RECORD \
+ "${SRC_DIR}/eduPIC.cc" -o "${BINARY}" -lm
+
+# Znaczenie flag:
+# -fno-omit-frame-pointer -> zachowuje wskaznik ramki stosu, zamiast uzywac go jako rejestru ogolnego przeznaczenia
+#                            potrzebne do 'perf record'
+# -march=znver4, -mtune=znver4 -> wymusza generowanie kodu maszynowego scisle pod architekture AMD Zen 4
+# -mprefer-vector-width=512 -> Nakazuje kompilatorowi uzywanie pelnych 512-bitowych rejestrow wektorowych
+# -ffast-math -> Zezwala na agresywne uproszczenia operacji zmiennoprzecinkowych
+# -funroll-loops -> Automatycznie rozwija petle, ktorych liczbe iteracji kompilator jest w stanie oszacowac
+# -fopenmp-simd -> Wlacza obsluge dyrektyw '#pragma omp simd' oraz '#pragma omp declare simd'
+# -fno-math-errno -> Wylacza ustawianie globalnej zmiennej systemowej 'errno' po wywolaniach funkcji matematycznych
+# -fopt-info-vec-optimized -> flaga diagnostyczna, podczas kompilacji wypisuje w logach zadania dokladne
+#                             informacje o tym, ktore petle w ktorych liniach kodu zostaly pomyslnie
+#                             zwektoryzowane do instrukcji SIMD
 
 if [ ! -f "${BINARY}" ]; then
     echo ">> BŁĄD: Kompilacja nie powiodła się, brak pliku ${BINARY}!"

@@ -40,18 +40,18 @@ inline int              N_e = 0;
 // Aktualna liczba aktywnych jonów w symulacji
 inline int              N_i = 0;
 // Pozycje 1D oraz składowe prędkości 3V dla elektronów
-inline particle_vector  x_e, vx_e, vy_e, vz_e;
+alignas(64) inline particle_vector  x_e, vx_e, vy_e, vz_e;
 // Pozycje 1D oraz składowe prędkości 3V dla jonów
-inline particle_vector  x_i, vx_i, vy_i, vz_i;
+alignas(64) inline particle_vector  x_i, vx_i, vy_i, vz_i;
 
 // =============================================================================
 // Wielkości na siatce przestrzennej (Pole elektryczne, potencjał, gęstości)
 // =============================================================================
 
 // Pole elektryczne i potencjał elektrostatyczny w węzłach siatki
-inline xvector          efield, pot;
+alignas(64) inline xvector          efield, pot;
 // Chwilowe gęstości ładunku elektronów i jonów na siatce
-inline xvector          e_density, i_density;
+alignas(64) inline xvector          e_density, i_density;
 // Skumulowane w czasie gęstości do uśrednień diagnostycznych
 inline xvector          cumul_e_density, cumul_i_density;
 

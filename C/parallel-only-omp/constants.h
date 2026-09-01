@@ -64,8 +64,8 @@ typedef double   cross_section[CS_RANGES];                    // Tablica przekro
 // =============================================================================
 
 const int        MAX_N_P = 1000000;                           // Maksymalna pojemność tablic cząstek (elektronów / jonów)
-typedef double   particle_vector[MAX_N_P];                    // Tablica przechowująca właściwości cząstek (pozycja, prędkości)
-typedef double   xvector[N_G + 16];                           // Tablica wielkości zdefiniowanych w węzłach siatki (z buforem SIMD)
+typedef double __attribute__((aligned(64)))   particle_vector[MAX_N_P];                    // Tablica przechowująca właściwości cząstek (pozycja, prędkości)
+typedef double __attribute__((aligned(64)))   xvector[N_G + 16];                           // Tablica wielkości zdefiniowanych w węzłach siatki (z buforem SIMD)
 typedef unsigned long long int Ullong;                        // Skrót dla 64-bitowej liczby całkowitej bez znaku
 
 // =============================================================================

@@ -186,7 +186,7 @@ PIC_STEP void step3_move_electrons_body(int tid, int num_threads, int t_index) {
 
         int k = k_start;
         for (; k <= k_end - 8; k += 8) {
-            #pragma GCC unroll 8
+            #pragma omp simd simdlen(8) aligned(x_e, vx_e: 64)
             #pragma GCC ivdep
             for (int i = 0; i < 8; ++i) {
                 int idx = k + i;
@@ -350,7 +350,7 @@ PIC_STEP void step4_move_ions_body(int tid, int num_threads, int t_index, int t)
 
         int k = k_start;
         for (; k <= k_end - 8; k += 8) {
-            #pragma GCC unroll 8
+            #pragma omp simd simdlen(8) aligned(x_e, vx_e: 64)
             #pragma GCC ivdep
             for (int i = 0; i < 8; ++i) {
                 int idx = k + i;
