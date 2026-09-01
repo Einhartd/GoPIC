@@ -135,6 +135,8 @@ struct alignas(64) AlignedThreadCounters {
     Ullong counter_center = 0;                       // Lokalny licznik próbek energii w centrum
     Ullong local_abs_pow = 0;                        // Licznik cząstek zaabsorbowanych na elektrodzie zasilanej
     Ullong local_abs_gnd = 0;                        // Licznik cząstek zaabsorbowanych na elektrodzie uziemionej
+    Ullong local_coll_e = 0;                         // Lokalny licznik zderzeń elektronów (lock-free)
+    Ullong local_coll_i = 0;                         // Lokalny licznik zderzeń jonów (lock-free)
 };
 
 // WorkerBuffers: Wstępnie zaalokowane bufory robocze dla wątków OpenMP.
@@ -224,6 +226,22 @@ struct WorkerBuffers {
         temp_vx.resize(MAX_N_P);
         temp_vy.resize(MAX_N_P);
         temp_vz.resize(MAX_N_P);
+
+        #pragma omp parallel for schedule(static)
+        for (int i = 0; i < MAX_N_P; i++) {
+            temp_x[i] = 0.0;
+            temp_vx[i] = 0.0;
+            temp_vy[i] = 0.0;
+            temp_vz[i] = 0.0;
+        }
+
+        #pragma omp parallel for schedule(static)
+        for (int i = 0; i < num_threads; ++i) {
+            e_density[i].fill(0.0);
+            i_density[i].fill(0.0);
+            counter_e[i].fill(0.0);
+            counter_i[i].fill(0.0);
+        }
     }
 };
 

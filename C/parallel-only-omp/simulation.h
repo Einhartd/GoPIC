@@ -186,6 +186,9 @@ PIC_STEP void step3_move_electrons_body(int tid, int num_threads, int t_index) {
 
         #pragma omp simd simdlen(8) aligned(x_e, vx_e: 64)
         for (int k = k_start; k < k_end; k++) {
+            __builtin_prefetch(&x_e[k+16], 0, 1);
+            __builtin_prefetch(&vx_e[k+16], 1, 1);
+
             double c0 = x_e[k] * INV_DX;
             int p     = int(c0);
             double c2 = c0 - p;
@@ -335,6 +338,9 @@ PIC_STEP void step4_move_ions_body(int tid, int num_threads, int t_index, int t)
 
         #pragma omp simd simdlen(8) aligned(x_i, vx_i: 64)
         for (int k = k_start; k < k_end; k++) {
+            __builtin_prefetch(&x_i[k+16], 0, 1);
+            __builtin_prefetch(&vx_i[k+16], 1, 1);
+
             double c0 = x_i[k] * INV_DX;
             int p     = int(c0);
             double c2 = c0 - p;
@@ -423,30 +429,23 @@ Ciało funkcji wykonywane wewnątrz zespołu wątków OpenMP.
 @param num_threads Całkowita liczba wątków w zespole.
 */
 PIC_STEP void step5_check_boundaries_electrons_body(int tid, int num_threads) {
-    static std::vector<uint8_t> absorbed;
-    #pragma omp single
-    {
-        if (absorbed.size() < (size_t)MAX_N_P) absorbed.resize(MAX_N_P, 0);
-    }
-
+    worker_buffers.absorbed_indices[tid].clear();
     worker_buffers.thread_counters[tid].local_abs_pow = 0;
     worker_buffers.thread_counters[tid].local_abs_gnd = 0;
 
-    // Faza 1: Równoległe oznaczanie cząstek poza domeną
-    #pragma omp for
+    // Faza 1: Równoległe sprawdzanie i zbieranie indeksów pochłoniętych elektronów
+    #pragma omp for schedule(static)
     for (int k = 0; k < N_e; k++) {
         if (x_e[k] < 0.0) {
-            absorbed[k] = 1;
+            worker_buffers.absorbed_indices[tid].push_back(k);
             worker_buffers.thread_counters[tid].local_abs_pow++;
         } else if (x_e[k] > L) {
-            absorbed[k] = 1;
+            worker_buffers.absorbed_indices[tid].push_back(k);
             worker_buffers.thread_counters[tid].local_abs_gnd++;
-        } else {
-            absorbed[k] = 0;
         }
     }
 
-    // Faza 2: Błyskawiczna dwu-wskaźnikowa kompaktacja in-place
+    // Faza 2: Błyskawiczna kompaktacja - tylko dla usuniętych cząstek
     #pragma omp single
     {
         int total_abs = 0;
@@ -457,25 +456,22 @@ PIC_STEP void step5_check_boundaries_electrons_body(int tid, int num_threads) {
         }
 
         if (total_abs > 0) {
-            int left = 0;
-            int right = N_e - 1;
-            while (left <= right) {
-                while (left <= right && !absorbed[left]) {
-                    left++;
-                }
-                while (left <= right && absorbed[right]) {
-                    right--;
-                }
-                if (left < right) {
-                    x_e[left]  = x_e[right];
-                    vx_e[left] = vx_e[right];
-                    vy_e[left] = vy_e[right];
-                    vz_e[left] = vz_e[right];
-                    left++;
-                    right--;
+            int last_valid = N_e - 1;
+            for (int t = 0; t < num_threads; t++) {
+                for (int dead_idx : worker_buffers.absorbed_indices[t]) {
+                    while (last_valid > dead_idx && (x_e[last_valid] < 0.0 || x_e[last_valid] > L)) {
+                        last_valid--;
+                    }
+                    if (last_valid > dead_idx) {
+                        x_e[dead_idx]  = x_e[last_valid];
+                        vx_e[dead_idx] = vx_e[last_valid];
+                        vy_e[dead_idx] = vy_e[last_valid];
+                        vz_e[dead_idx] = vz_e[last_valid];
+                        last_valid--;
+                    }
                 }
             }
-            N_e = left;
+            N_e -= total_abs;
         }
     }
 }
@@ -504,21 +500,16 @@ Ciało funkcji wykonywane wewnątrz zespołu wątków OpenMP.
 PIC_STEP void step6_check_boundaries_ions_body(int tid, int num_threads, int t) {
     if ((t % N_SUB) != 0) return;
 
-    static std::vector<uint8_t> absorbed;
-    #pragma omp single
-    {
-        if (absorbed.size() < (size_t)MAX_N_P) absorbed.resize(MAX_N_P, 0);
-    }
-
+    worker_buffers.absorbed_indices[tid].clear();
     worker_buffers.thread_counters[tid].local_abs_pow = 0;
     worker_buffers.thread_counters[tid].local_abs_gnd = 0;
     worker_buffers.local_ifed_pow[tid].fill(0);
     worker_buffers.local_ifed_gnd[tid].fill(0);
 
-    #pragma omp for
+    #pragma omp for schedule(static)
     for (int k = 0; k < N_i; k++) {
         if (x_i[k] < 0.0) {
-            absorbed[k] = 1;
+            worker_buffers.absorbed_indices[tid].push_back(k);
             worker_buffers.thread_counters[tid].local_abs_pow++;
             double v_sqr  = vx_i[k] * vx_i[k] + vy_i[k] * vy_i[k] + vz_i[k] * vz_i[k];
             double energy = 0.5 * AR_MASS * v_sqr / EV_TO_J;
@@ -527,7 +518,7 @@ PIC_STEP void step6_check_boundaries_ions_body(int tid, int num_threads, int t) 
                 worker_buffers.local_ifed_pow[tid][energy_index]++;
             }
         } else if (x_i[k] > L) {
-            absorbed[k] = 1;
+            worker_buffers.absorbed_indices[tid].push_back(k);
             worker_buffers.thread_counters[tid].local_abs_gnd++;
             double v_sqr  = vx_i[k] * vx_i[k] + vy_i[k] * vy_i[k] + vz_i[k] * vz_i[k];
             double energy = 0.5 * AR_MASS * v_sqr / EV_TO_J;
@@ -535,9 +526,19 @@ PIC_STEP void step6_check_boundaries_ions_body(int tid, int num_threads, int t) 
             if (energy_index < N_IFED) {
                 worker_buffers.local_ifed_gnd[tid][energy_index]++;
             }
-        } else {
-            absorbed[k] = 0;
         }
+    }
+
+    // Równoległa redukcja histogramu IFED (N_IFED = 200)
+    #pragma omp for schedule(static)
+    for (int e = 0; e < N_IFED; ++e) {
+        int sum_pow = 0, sum_gnd = 0;
+        for (int t2 = 0; t2 < num_threads; ++t2) {
+            sum_pow += worker_buffers.local_ifed_pow[t2][e];
+            sum_gnd += worker_buffers.local_ifed_gnd[t2][e];
+        }
+        ifed_pow[e] += sum_pow;
+        ifed_gnd[e] += sum_gnd;
     }
 
     #pragma omp single
@@ -547,32 +548,25 @@ PIC_STEP void step6_check_boundaries_ions_body(int tid, int num_threads, int t) 
             total_abs += worker_buffers.thread_counters[t2].local_abs_pow + worker_buffers.thread_counters[t2].local_abs_gnd;
             N_i_abs_pow += worker_buffers.thread_counters[t2].local_abs_pow;
             N_i_abs_gnd += worker_buffers.thread_counters[t2].local_abs_gnd;
-            for (int e = 0; e < N_IFED; ++e) {
-                ifed_pow[e] += worker_buffers.local_ifed_pow[t2][e];
-                ifed_gnd[e] += worker_buffers.local_ifed_gnd[t2][e];
-            }
         }
 
         if (total_abs > 0) {
-            int left = 0;
-            int right = N_i - 1;
-            while (left <= right) {
-                while (left <= right && !absorbed[left]) {
-                    left++;
-                }
-                while (left <= right && absorbed[right]) {
-                    right--;
-                }
-                if (left < right) {
-                    x_i[left]  = x_i[right];
-                    vx_i[left] = vx_i[right];
-                    vy_i[left] = vy_i[right];
-                    vz_i[left] = vz_i[right];
-                    left++;
-                    right--;
+            int last_valid = N_i - 1;
+            for (int t2 = 0; t2 < num_threads; t2++) {
+                for (int dead_idx : worker_buffers.absorbed_indices[t2]) {
+                    while (last_valid > dead_idx && (x_i[last_valid] < 0.0 || x_i[last_valid] > L)) {
+                        last_valid--;
+                    }
+                    if (last_valid > dead_idx) {
+                        x_i[dead_idx]  = x_i[last_valid];
+                        vx_i[dead_idx] = vx_i[last_valid];
+                        vy_i[dead_idx] = vy_i[last_valid];
+                        vz_i[dead_idx] = vz_i[last_valid];
+                        last_valid--;
+                    }
                 }
             }
-            N_i = left;
+            N_i -= total_abs;
         }
     }
 }
@@ -667,8 +661,7 @@ PIC_STEP void step7_collisions_electrons_body(int tid, int num_threads) {
             if (R01(MTgen) < p_accept) {
                 collision_electron(x_e[ki], &vx_e[ki], &vy_e[ki], &vz_e[ki], energy_index,
                                    new_electrons[tid], new_ions[tid]);
-                #pragma omp atomic
-                N_e_coll++;
+                worker_buffers.thread_counters[tid].local_coll_e++;
             }
         }
     }
@@ -677,10 +670,12 @@ PIC_STEP void step7_collisions_electrons_body(int tid, int num_threads) {
     // pojedynczy wątek zacznie je scalać do głównych tablic cząstek.
     #pragma omp barrier
 
-    // Seryjne przepisanie nowo utworzonych cząstek do globalnych tablic SoA
+    // Seryjne przepisanie nowo utworzonych cząstek do globalnych tablic SoA oraz akumulacja liczników
     #pragma omp single
     {
         for (int t = 0; t < num_threads; ++t) {
+            N_e_coll += worker_buffers.thread_counters[t].local_coll_e;
+            worker_buffers.thread_counters[t].local_coll_e = 0;
             for (size_t i = 0; i < new_electrons[t].x.size(); ++i) {
                 x_e[N_e]    = new_electrons[t].x[i];
                 vx_e[N_e]   = new_electrons[t].vx[i];
@@ -771,9 +766,16 @@ PIC_STEP void step8_collision_ions_body(int tid, int num_threads, int t) {
 
             if (R01(MTgen) < p_accept) {
                 collision_ion(&vx_i[ki], &vy_i[ki], &vz_i[ki], &vx_a, &vy_a, &vz_a, energy_index);
-                #pragma omp atomic
-                N_i_coll++;
+                worker_buffers.thread_counters[tid].local_coll_i++;
             }
+        }
+    }
+
+    #pragma omp single
+    {
+        for (int t = 0; t < num_threads; ++t) {
+            N_i_coll += worker_buffers.thread_counters[t].local_coll_i;
+            worker_buffers.thread_counters[t].local_coll_i = 0;
         }
     }
 }
