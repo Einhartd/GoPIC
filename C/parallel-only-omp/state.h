@@ -53,7 +53,7 @@ alignas(64) inline xvector          efield, pot;
 // Chwilowe gęstości ładunku elektronów i jonów na siatce
 alignas(64) inline xvector          e_density, i_density;
 // Skumulowane w czasie gęstości do uśrednień diagnostycznych
-inline xvector          cumul_e_density, cumul_i_density;
+alignas(64) inline xvector          cumul_e_density, cumul_i_density;
 
 // =============================================================================
 // Liczniki absorpcji na elektrodach i rozkłady energetyczne

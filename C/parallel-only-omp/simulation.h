@@ -184,23 +184,8 @@ PIC_STEP void step3_move_electrons_body(int tid, int num_threads, int t_index) {
         int k_start = std::min(tid * chunk, N_e);
         int k_end   = std::min(k_start + chunk, N_e);
 
-        int k = k_start;
-        for (; k <= k_end - 8; k += 8) {
-            #pragma omp simd simdlen(8) aligned(x_e, vx_e: 64)
-            #pragma GCC ivdep
-            for (int i = 0; i < 8; ++i) {
-                int idx = k + i;
-                double c0 = x_e[idx] * INV_DX;
-                int p     = int(c0);
-                double c2 = c0 - p;
-                double c1 = 1.0 - c2;
-                double e_x = c1 * efield[p] + c2 * efield[p+1];
-                double v   = vx_e[idx] - e_x * FACTOR_E;
-                vx_e[idx]  = v;
-                x_e[idx]  += v * DT_E;
-            }
-        }
-        for (; k < k_end; k++) {
+        #pragma omp simd simdlen(8) aligned(x_e, vx_e: 64)
+        for (int k = k_start; k < k_end; k++) {
             double c0 = x_e[k] * INV_DX;
             int p     = int(c0);
             double c2 = c0 - p;
@@ -348,23 +333,8 @@ PIC_STEP void step4_move_ions_body(int tid, int num_threads, int t_index, int t)
         int k_start = std::min(tid * chunk, N_i);
         int k_end   = std::min(k_start + chunk, N_i);
 
-        int k = k_start;
-        for (; k <= k_end - 8; k += 8) {
-            #pragma omp simd simdlen(8) aligned(x_e, vx_e: 64)
-            #pragma GCC ivdep
-            for (int i = 0; i < 8; ++i) {
-                int idx = k + i;
-                double c0 = x_i[idx] * INV_DX;
-                int p     = int(c0);
-                double c2 = c0 - p;
-                double c1 = 1.0 - c2;
-                double e_x = c1 * efield[p] + c2 * efield[p+1];
-                double v   = vx_i[idx] + e_x * FACTOR_I;
-                vx_i[idx]  = v;
-                x_i[idx]  += v * DT_I;
-            }
-        }
-        for (; k < k_end; k++) {
+        #pragma omp simd simdlen(8) aligned(x_i, vx_i: 64)
+        for (int k = k_start; k < k_end; k++) {
             double c0 = x_i[k] * INV_DX;
             int p     = int(c0);
             double c2 = c0 - p;
