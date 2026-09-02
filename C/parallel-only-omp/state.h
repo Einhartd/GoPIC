@@ -139,6 +139,48 @@ struct alignas(64) AlignedThreadCounters {
     Ullong local_coll_i = 0;                         // Lokalny licznik zderzeń jonów (lock-free)
 };
 
+
+/*
+Bufor na nowo utworzone cząstki (elektrony i jony z procesów jonizacji).
+Wątki zapisują nowo powstałe cząstki do własnych lokalnych instancji,
+unikając konfliktów zapisu (data races).
+*/
+struct NewParticles {
+    std::vector<double> x;
+    std::vector<double> vx;
+    std::vector<double> vy;
+    std::vector<double> vz;
+
+    /*
+    Dodanie nowej cząstki do bufora.
+    @param px  Pozycja 1D nowej cząstki [m].
+    @param pvx Składowa X prędkości [m/s].
+    @param pvy Składowa Y prędkości [m/s].
+    @param pvz Składowa Z prędkości [m/s].
+    */
+    void push(double px, double pvx, double pvy, double pvz) {
+        x.push_back(px);
+        vx.push_back(pvx);
+        vy.push_back(pvy);
+        vz.push_back(pvz);
+    }
+
+    void reserve(size_t cap) {
+        x.reserve(cap);
+        vx.reserve(cap);
+        vy.reserve(cap);
+        vz.reserve(cap);
+    }
+
+    void clear() {
+        x.clear();
+        vx.clear();
+        vy.clear();
+        vz.clear();
+    }
+};
+
+
 // WorkerBuffers: Wstępnie zaalokowane bufory robocze dla wątków OpenMP.
 // Kluczowy wzorzec optymalizacji:
 // 1. Zero alokacji pamięci wewnątrz głównej pętli czasowej (4000 kroków / cykl).
@@ -178,6 +220,10 @@ struct WorkerBuffers {
     std::vector<double> temp_vy;
     std::vector<double> temp_vz;
 
+    // Prywatne bufory nowo narodzonych cząstek dla każdego wątku (Krok 7)
+    std::vector<NewParticles> new_electrons;
+    std::vector<NewParticles> new_ions;
+
     // Prywatne bufory indeksów kandydatów dla metody Null-Collision (Kroki 7 i 8)
     std::vector<std::vector<int>> candidates_e;
     std::vector<std::vector<int>> candidates_i;
@@ -211,6 +257,13 @@ struct WorkerBuffers {
         absorbed_indices.resize(num_threads);
         local_ifed_pow.resize(num_threads);
         local_ifed_gnd.resize(num_threads);
+
+        new_electrons.resize(num_threads);
+        new_ions.resize(num_threads);
+        for (int t = 0; t < num_threads; ++t) {
+            new_electrons[t].reserve(2048);
+            new_ions[t].reserve(2048);
+        }
 
         candidates_e.resize(num_threads);
         candidates_i.resize(num_threads);

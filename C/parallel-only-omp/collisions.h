@@ -5,31 +5,6 @@
 #include <vector>
 #include <omp.h>
 
-/*
-Bufor na nowo utworzone cząstki (elektrony i jony z procesów jonizacji).
-Wątki zapisują nowo powstałe cząstki do własnych lokalnych instancji,
-unikając konfliktów zapisu (data races).
-*/
-struct NewParticles {
-    std::vector<double> x;
-    std::vector<double> vx;
-    std::vector<double> vy;
-    std::vector<double> vz;
-
-    /*
-    Dodanie nowej cząstki do bufora.
-    @param px  Pozycja 1D nowej cząstki [m].
-    @param pvx Składowa X prędkości [m/s].
-    @param pvy Składowa Y prędkości [m/s].
-    @param pvz Składowa Z prędkości [m/s].
-    */
-    void push(double px, double pvx, double pvy, double pvz) {
-        x.push_back(px);
-        vx.push_back(pvx);
-        vy.push_back(pvy);
-        vz.push_back(pvz);
-    }
-};
 
 /*
 Obsługa pojedynczego zderzenia elektronu z neutralnym atomem argonu (MCC).

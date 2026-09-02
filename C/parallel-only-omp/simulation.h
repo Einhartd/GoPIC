@@ -55,6 +55,8 @@ PIC_STEP void step1_compute_electron_density_body(int tid, int num_threads) {
 
     #pragma omp for schedule(static)
     for (int k = 0; k < N_e; k++) {
+        __builtin_prefetch(&x_e[k+16], 0, 1);
+
         double c0 = x_e[k] * INV_DX;
         int p     = int(c0);
         double c2 = (c0 - p) * FACTOR_W;
@@ -64,7 +66,7 @@ PIC_STEP void step1_compute_electron_density_body(int tid, int num_threads) {
     }
 
     // Zintegrowana redukcja prywatnych buforów, korekta brzegowa x2 oraz akumulacja cumul_e_density
-    #pragma omp for schedule(static)
+    #pragma omp for schedule(static) nowait
     for (int p = 0; p < N_G; p++) {
         double sum = 0.0;
         for (int t = 0; t < num_threads; t++) {
@@ -109,6 +111,8 @@ PIC_STEP void step1_compute_ion_density_body(int tid, int num_threads, int t) {
 
         #pragma omp for schedule(static)
         for (int k = 0; k < N_i; k++) {
+            __builtin_prefetch(&x_i[k+16], 0, 1);
+
             double c0 = x_i[k] * INV_DX;
             int p     = int(c0);
             double c2 = (c0 - p) * FACTOR_W;
@@ -117,7 +121,7 @@ PIC_STEP void step1_compute_ion_density_body(int tid, int num_threads, int t) {
             worker_buffers.i_density[tid][p+1] += c2;
         }
 
-        #pragma omp for schedule(static)
+        #pragma omp for schedule(static) nowait
         for (int p = 0; p < N_G; p++) {
             double sum = 0.0;
             for (int t2 = 0; t2 < num_threads; t2++) {
@@ -131,7 +135,7 @@ PIC_STEP void step1_compute_ion_density_body(int tid, int num_threads, int t) {
         }
     } else {
         // Ważny niezmiennik fizyczny: cumul_i_density akumuluje się w KAŻDYM kroku czasowym
-        #pragma omp for schedule(static)
+        #pragma omp for schedule(static) nowait
         for (int p = 0; p < N_G; p++) cumul_i_density[p] += i_density[p];
     }
 }
@@ -436,6 +440,8 @@ PIC_STEP void step5_check_boundaries_electrons_body(int tid, int num_threads) {
     // Faza 1: Równoległe sprawdzanie i zbieranie indeksów pochłoniętych elektronów
     #pragma omp for schedule(static)
     for (int k = 0; k < N_e; k++) {
+        __builtin_prefetch(&x_e[k+16], 0, 1);
+
         if (x_e[k] < 0.0) {
             worker_buffers.absorbed_indices[tid].push_back(k);
             worker_buffers.thread_counters[tid].local_abs_pow++;
@@ -508,6 +514,8 @@ PIC_STEP void step6_check_boundaries_ions_body(int tid, int num_threads, int t) 
 
     #pragma omp for schedule(static)
     for (int k = 0; k < N_i; k++) {
+        __builtin_prefetch(&x_i[k+16], 0, 1);
+
         if (x_i[k] < 0.0) {
             worker_buffers.absorbed_indices[tid].push_back(k);
             worker_buffers.thread_counters[tid].local_abs_pow++;
@@ -530,7 +538,7 @@ PIC_STEP void step6_check_boundaries_ions_body(int tid, int num_threads, int t) 
     }
 
     // Równoległa redukcja histogramu IFED (N_IFED = 200)
-    #pragma omp for schedule(static)
+    #pragma omp for schedule(static) nowait
     for (int e = 0; e < N_IFED; ++e) {
         int sum_pow = 0, sum_gnd = 0;
         for (int t2 = 0; t2 < num_threads; ++t2) {
@@ -599,28 +607,10 @@ Etapy:
 @param num_threads Całkowita liczba wątków w zespole.
 */
 PIC_STEP void step7_collisions_electrons_body(int tid, int num_threads) {
-    // Każdy wątek posiada własne tymczasowe listy nowo utworzonych cząstek.
-    // Zapobiega to równoczesnym zapisom do pojedynczej globalnej tablicy.
-    static std::vector<NewParticles> new_electrons;
-    static std::vector<NewParticles> new_ions;
-
-    #pragma omp single
-    {
-        if (new_electrons.size() < (size_t)num_threads) {
-            new_electrons.resize(num_threads);
-            new_ions.resize(num_threads);
-        }
-    }
 
     // Czyszczenie lokalnych buforów cząstek przed kolejnym krokiem
-    new_electrons[tid].x.clear();
-    new_electrons[tid].vx.clear();
-    new_electrons[tid].vy.clear();
-    new_electrons[tid].vz.clear();
-    new_ions[tid].x.clear();
-    new_ions[tid].vx.clear();
-    new_ions[tid].vy.clear();
-    new_ions[tid].vz.clear();
+    worker_buffers.new_electrons[tid].clear();
+    worker_buffers.new_ions[tid].clear();
 
     // 1. Jeden wątek (single) losuje liczbę kandydatów z rozkładu dwumianowego
     //    i buduje jedną wspólną losową listę indeksów (random_sample).
@@ -660,7 +650,7 @@ PIC_STEP void step7_collisions_electrons_body(int tid, int num_threads) {
             // Metoda akceptacji-odrzucenia (Rejection sampling)
             if (R01(MTgen) < p_accept) {
                 collision_electron(x_e[ki], &vx_e[ki], &vy_e[ki], &vz_e[ki], energy_index,
-                                   new_electrons[tid], new_ions[tid]);
+                                   worker_buffers.new_electrons[tid], worker_buffers.new_ions[tid]);
                 worker_buffers.thread_counters[tid].local_coll_e++;
             }
         }
@@ -676,18 +666,18 @@ PIC_STEP void step7_collisions_electrons_body(int tid, int num_threads) {
         for (int t = 0; t < num_threads; ++t) {
             N_e_coll += worker_buffers.thread_counters[t].local_coll_e;
             worker_buffers.thread_counters[t].local_coll_e = 0;
-            for (size_t i = 0; i < new_electrons[t].x.size(); ++i) {
-                x_e[N_e]    = new_electrons[t].x[i];
-                vx_e[N_e]   = new_electrons[t].vx[i];
-                vy_e[N_e]   = new_electrons[t].vy[i];
-                vz_e[N_e]   = new_electrons[t].vz[i];
+            for (size_t i = 0; i < worker_buffers.new_electrons[t].x.size(); ++i) {
+                x_e[N_e]    = worker_buffers.new_electrons[t].x[i];
+                vx_e[N_e]   = worker_buffers.new_electrons[t].vx[i];
+                vy_e[N_e]   = worker_buffers.new_electrons[t].vy[i];
+                vz_e[N_e]   = worker_buffers.new_electrons[t].vz[i];
                 N_e++;
             }
-            for (size_t i = 0; i < new_ions[t].x.size(); ++i) {
-                x_i[N_i]    = new_ions[t].x[i];
-                vx_i[N_i]   = new_ions[t].vx[i];
-                vy_i[N_i]   = new_ions[t].vy[i];
-                vz_i[N_i]   = new_ions[t].vz[i];
+            for (size_t i = 0; i < worker_buffers.new_ions[t].x.size(); ++i) {
+                x_i[N_i]    = worker_buffers.new_ions[t].x[i];
+                vx_i[N_i]   = worker_buffers.new_ions[t].vx[i];
+                vy_i[N_i]   = worker_buffers.new_ions[t].vy[i];
+                vz_i[N_i]   = worker_buffers.new_ions[t].vz[i];
                 N_i++;
             }
         }
