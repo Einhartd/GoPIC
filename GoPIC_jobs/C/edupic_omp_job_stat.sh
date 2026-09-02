@@ -83,7 +83,6 @@ perf stat \
     -e task-clock,context-switches,cpu-migrations \
     -e cycles:u,instructions:u \
     -e L1-dcache-loads:u,L1-dcache-load-misses:u \
-    -e LLC-loads:u,LLC-load-misses:u \
     -e branch-loads:u,branch-misses:u \
     -o "${DATA_DIR}/perf_cpu_stats.txt" \
     "${BINARY}" "${N_CYCLES}" ${MEASURE_ARG}
