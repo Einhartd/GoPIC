@@ -67,16 +67,27 @@ PIC_STEP void step1_compute_electron_density_body(int tid, int num_threads) {
 
     // Zintegrowana redukcja prywatnych buforów, korekta brzegowa x2 oraz akumulacja cumul_e_density
     #pragma omp for schedule(static) nowait
-    for (int p = 0; p < N_G; p++) {
+    for (int p = 1; p < N_G-1; p++) {
         double sum = 0.0;
         for (int t = 0; t < num_threads; t++) {
             sum += worker_buffers.e_density[t][p];
         }
-        if (p == 0 || p == N_G - 1) {
-            sum *= 2.0;
-        }
         e_density[p] = sum;
         cumul_e_density[p] += sum;
+    }
+
+    if (tid == 0) {
+        double sum0 = 0.0, sumN = 0.0;
+        for (int t = 0; t < num_threads; t++) {
+            sum0 += worker_buffers.e_density[t][0];
+            sumN += worker_buffers.e_density[t][N_G - 1];
+        }
+        double val0 = 2.0 * sum0;
+        double valN = 2.0 * sumN;
+        e_density[0] = val0;
+        cumul_e_density[0] += val0;
+        e_density[N_G - 1] = valN;
+        cumul_e_density[N_G - 1] += valN;
     }
 }
 
@@ -122,17 +133,29 @@ PIC_STEP void step1_compute_ion_density_body(int tid, int num_threads, int t) {
         }
 
         #pragma omp for schedule(static) nowait
-        for (int p = 0; p < N_G; p++) {
+        for (int p = 1; p < N_G - 1; p++) {
             double sum = 0.0;
             for (int t2 = 0; t2 < num_threads; t2++) {
                 sum += worker_buffers.i_density[t2][p];
             }
-            if (p == 0 || p == N_G - 1) {
-                sum *= 2.0;
-            }
             i_density[p] = sum;
             cumul_i_density[p] += sum;
         }
+
+        if (tid == 0) {
+            double sum0 = 0.0, sumN = 0.0;
+            for (int t2 = 0; t2 < num_threads; t2++) {
+                sum0 += worker_buffers.i_density[t2][0];
+                sumN += worker_buffers.i_density[t2][N_G - 1];
+            }
+            double val0 = 2.0 * sum0;
+            double valN = 2.0 * sumN;
+            i_density[0] = val0;
+            i_density[N_G - 1] = valN;
+            cumul_i_density[0] += val0;
+            cumul_i_density[N_G - 1] += valN;
+        }
+
     } else {
         // Ważny niezmiennik fizyczny: cumul_i_density akumuluje się w KAŻDYM kroku czasowym
         #pragma omp for schedule(static) nowait

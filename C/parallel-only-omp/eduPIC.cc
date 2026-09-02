@@ -51,6 +51,9 @@ int main (int argc, char *argv[]){
     compute_null_collision_params();
     //test_cross_sections(); return 1;
 
+    // Inicjalizacja solvera Poissona (prekalkulacja)
+    init_poisson_solver();
+
     // Otwarcie pliku zbieżności conv.dat w trybie dopisywania (append)
     datafile = fopen("conv.dat","a");
 
