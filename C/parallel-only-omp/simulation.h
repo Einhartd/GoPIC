@@ -656,29 +656,28 @@ PIC_STEP void step7_collisions_electrons_body(int tid, int num_threads) {
         }
     }
 
-    // Wszyscy muszą zakończyć zapisywanie do new_electrons/new_ions ZANIM
-    // pojedynczy wątek zacznie je scalać do głównych tablic cząstek.
-    #pragma omp barrier
-
-    // Seryjne przepisanie nowo utworzonych cząstek do globalnych tablic SoA oraz akumulacja liczników
-    #pragma omp single
-    {
-        for (int t = 0; t < num_threads; ++t) {
-            N_e_coll += worker_buffers.thread_counters[t].local_coll_e;
-            worker_buffers.thread_counters[t].local_coll_e = 0;
-            for (size_t i = 0; i < worker_buffers.new_electrons[t].x.size(); ++i) {
-                x_e[N_e]    = worker_buffers.new_electrons[t].x[i];
-                vx_e[N_e]   = worker_buffers.new_electrons[t].vx[i];
-                vy_e[N_e]   = worker_buffers.new_electrons[t].vy[i];
-                vz_e[N_e]   = worker_buffers.new_electrons[t].vz[i];
-                N_e++;
-            }
-            for (size_t i = 0; i < worker_buffers.new_ions[t].x.size(); ++i) {
-                x_i[N_i]    = worker_buffers.new_ions[t].x[i];
-                vx_i[N_i]   = worker_buffers.new_ions[t].vx[i];
-                vy_i[N_i]   = worker_buffers.new_ions[t].vy[i];
-                vz_i[N_i]   = worker_buffers.new_ions[t].vz[i];
-                N_i++;
+    if (global_N_coll_star_e > 0){
+        // Seryjne przepisanie nowo utworzonych cząstek do globalnych tablic SoA oraz akumulacja liczników
+        #pragma omp barrier
+        #pragma omp single
+        {
+            for (int t = 0; t < num_threads; ++t) {
+                N_e_coll += worker_buffers.thread_counters[t].local_coll_e;
+                worker_buffers.thread_counters[t].local_coll_e = 0;
+                for (size_t i = 0; i < worker_buffers.new_electrons[t].x.size(); ++i) {
+                    x_e[N_e]    = worker_buffers.new_electrons[t].x[i];
+                    vx_e[N_e]   = worker_buffers.new_electrons[t].vx[i];
+                    vy_e[N_e]   = worker_buffers.new_electrons[t].vy[i];
+                    vz_e[N_e]   = worker_buffers.new_electrons[t].vz[i];
+                    N_e++;
+                }
+                for (size_t i = 0; i < worker_buffers.new_ions[t].x.size(); ++i) {
+                    x_i[N_i]    = worker_buffers.new_ions[t].x[i];
+                    vx_i[N_i]   = worker_buffers.new_ions[t].vx[i];
+                    vy_i[N_i]   = worker_buffers.new_ions[t].vy[i];
+                    vz_i[N_i]   = worker_buffers.new_ions[t].vz[i];
+                    N_i++;
+                }
             }
         }
     }
@@ -761,13 +760,16 @@ PIC_STEP void step8_collision_ions_body(int tid, int num_threads, int t) {
         }
     }
 
-    #pragma omp single
-    {
-        for (int t = 0; t < num_threads; ++t) {
-            N_i_coll += worker_buffers.thread_counters[t].local_coll_i;
-            worker_buffers.thread_counters[t].local_coll_i = 0;
+    if (global_N_coll_star_i > 0) {
+        #pragma omp single
+        {
+            for (int t = 0; t < num_threads; ++t) {
+                N_i_coll += worker_buffers.thread_counters[t].local_coll_i;
+                worker_buffers.thread_counters[t].local_coll_i = 0;
+            }
         }
     }
+
 }
 
 /*
@@ -852,11 +854,13 @@ PIC_STEP void do_one_cycle(void) {
             step8_collision_ions_body(tid, nthreads, t);
 
             // Krok 9: Diagnostyka czasoprzestrzenna XT oraz okresowe wypisywanie stanu
-            #pragma omp single
-            {
-                step9_collect_xt_data(t_index);
-                if ((t % 1000) == 0) {
-                    printf(" c = %8d  t = %8d  #e = %8d  #i = %8d\n", cycle, t, N_e, N_i);
+            if (__builtin_expect(measurement_mode || (t % 1000) == 0, 0)) {
+                #pragma omp single
+                {
+                    step9_collect_xt_data(t_index);
+                    if ((t % 1000) == 0) {
+                        printf(" c = %8d  t = %8d  #e = %8d  #i = %8d\n", cycle, t, N_e, N_i);
+                    }
                 }
             }
         }
