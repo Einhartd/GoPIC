@@ -53,8 +53,11 @@ Etapy:
 PIC_STEP void step1_compute_electron_density_body(int tid, int num_threads) {
     worker_buffers.e_density[tid].fill(0.0);
 
-    #pragma omp for schedule(static)
-    for (int k = 0; k < N_e; k++) {
+    int chunk = (N_e + num_threads - 1) / num_threads;
+    int k_start = std::min(tid * chunk, N_e);
+    int k_end   = std::min(k_start + chunk, N_e);
+
+    for (int k = k_start; k < k_end; k++) {
         __builtin_prefetch(&x_e[k+16], 0, 1);
 
         double c0 = x_e[k] * INV_DX;
@@ -64,6 +67,8 @@ PIC_STEP void step1_compute_electron_density_body(int tid, int num_threads) {
         worker_buffers.e_density[tid][p]   += c1;
         worker_buffers.e_density[tid][p+1] += c2;
     }
+
+    #pragma omp barrier
 
     // Zintegrowana redukcja prywatnych buforów, korekta brzegowa x2 oraz akumulacja cumul_e_density
     #pragma omp for schedule(static) nowait
@@ -120,8 +125,11 @@ PIC_STEP void step1_compute_ion_density_body(int tid, int num_threads, int t) {
     if ((t % N_SUB) == 0) {
         worker_buffers.i_density[tid].fill(0.0);
 
-        #pragma omp for schedule(static)
-        for (int k = 0; k < N_i; k++) {
+        int chunk = (N_i + num_threads - 1) / num_threads;
+        int k_start = std::min(tid * chunk, N_i);
+        int k_end   = std::min(k_start + chunk, N_i);
+
+        for (int k = k_start; k < k_end; k++) {
             __builtin_prefetch(&x_i[k+16], 0, 1);
 
             double c0 = x_i[k] * INV_DX;
@@ -131,6 +139,8 @@ PIC_STEP void step1_compute_ion_density_body(int tid, int num_threads, int t) {
             worker_buffers.i_density[tid][p]   += c1;
             worker_buffers.i_density[tid][p+1] += c2;
         }
+
+        #pragma omp barrier
 
         #pragma omp for schedule(static) nowait
         for (int p = 1; p < N_G - 1; p++) {
@@ -158,7 +168,7 @@ PIC_STEP void step1_compute_ion_density_body(int tid, int num_threads, int t) {
 
     } else {
         // Ważny niezmiennik fizyczny: cumul_i_density akumuluje się w KAŻDYM kroku czasowym
-        #pragma omp for schedule(static) nowait
+        #pragma omp for simd schedule(static) nowait
         for (int p = 0; p < N_G; p++) cumul_i_density[p] += i_density[p];
     }
 }
@@ -185,11 +195,7 @@ Wykonywane sekwencyjnie w pojedynczym wątku (N_G=400 jest zbyt małe na zysk z 
 @param current_time Aktualny fizyczny czas symulacji [s].
 */
 PIC_STEP void step2_solve_poisson(double current_time) {
-    xvector rho;
-    for (int p = 0; p < N_G; p++) {
-        rho[p] = E_CHARGE * (i_density[p] - e_density[p]);
-    }
-    solve_Poisson(rho, Time);
+    solve_Poisson(Time);
 }
 
 /*
@@ -219,8 +225,7 @@ PIC_STEP void step3_move_electrons_body(int tid, int num_threads, int t_index) {
             double c0 = x_e[k] * INV_DX;
             int p     = int(c0);
             double c2 = c0 - p;
-            double c1 = 1.0 - c2;
-            double e_x = c1 * efield[p] + c2 * efield[p+1];
+            double e_x = efield[p] + c2 * (efield[p+1] - efield[p]);
             double v   = vx_e[k] - e_x * FACTOR_E;
             vx_e[k]    = v;
             x_e[k]    += v * DT_E;
@@ -371,8 +376,7 @@ PIC_STEP void step4_move_ions_body(int tid, int num_threads, int t_index, int t)
             double c0 = x_i[k] * INV_DX;
             int p     = int(c0);
             double c2 = c0 - p;
-            double c1 = 1.0 - c2;
-            double e_x = c1 * efield[p] + c2 * efield[p+1];
+            double e_x = efield[p] + c2 * (efield[p+1] - efield[p]);
             double v   = vx_i[k] + e_x * FACTOR_I;
             vx_i[k]    = v;
             x_i[k]    += v * DT_I;
@@ -460,19 +464,24 @@ PIC_STEP void step5_check_boundaries_electrons_body(int tid, int num_threads) {
     worker_buffers.thread_counters[tid].local_abs_pow = 0;
     worker_buffers.thread_counters[tid].local_abs_gnd = 0;
 
+    int chunk = (N_e + num_threads - 1) / num_threads;
+    int k_start = std::min(tid * chunk, N_e);
+    int k_end = std::min(k_start + chunk, N_e);
+
     // Faza 1: Równoległe sprawdzanie i zbieranie indeksów pochłoniętych elektronów
-    #pragma omp for schedule(static)
-    for (int k = 0; k < N_e; k++) {
+    for (int k = k_start; k < k_end; k++) {
         __builtin_prefetch(&x_e[k+16], 0, 1);
 
-        if (x_e[k] < 0.0) {
+        if (__builtin_expect(x_e[k] < 0.0, 0)) {
             worker_buffers.absorbed_indices[tid].push_back(k);
             worker_buffers.thread_counters[tid].local_abs_pow++;
-        } else if (x_e[k] > L) {
+        } else if (__builtin_expect(x_e[k] > L, 0)) {
             worker_buffers.absorbed_indices[tid].push_back(k);
             worker_buffers.thread_counters[tid].local_abs_gnd++;
         }
     }
+
+    #pragma omp barrier
 
     // Faza 2: Błyskawiczna kompaktacja - tylko dla usuniętych cząstek
     #pragma omp single
@@ -535,11 +544,14 @@ PIC_STEP void step6_check_boundaries_ions_body(int tid, int num_threads, int t) 
     worker_buffers.local_ifed_pow[tid].fill(0);
     worker_buffers.local_ifed_gnd[tid].fill(0);
 
-    #pragma omp for schedule(static)
-    for (int k = 0; k < N_i; k++) {
+    int chunk = (N_i + num_threads - 1) / num_threads;
+    int k_start = std::min(tid * chunk, N_i);
+    int k_end = std::min(k_start + chunk, N_i);
+
+    for (int k = k_start; k < k_end; k++) {
         __builtin_prefetch(&x_i[k+16], 0, 1);
 
-        if (x_i[k] < 0.0) {
+        if (__builtin_expect(x_i[k] < 0.0, 0)) {
             worker_buffers.absorbed_indices[tid].push_back(k);
             worker_buffers.thread_counters[tid].local_abs_pow++;
             double v_sqr  = vx_i[k] * vx_i[k] + vy_i[k] * vy_i[k] + vz_i[k] * vz_i[k];
@@ -548,7 +560,7 @@ PIC_STEP void step6_check_boundaries_ions_body(int tid, int num_threads, int t) 
             if (energy_index < N_IFED) {
                 worker_buffers.local_ifed_pow[tid][energy_index]++;
             }
-        } else if (x_i[k] > L) {
+        } else if (__builtin_expect(x_i[k] > L, 0)) {
             worker_buffers.absorbed_indices[tid].push_back(k);
             worker_buffers.thread_counters[tid].local_abs_gnd++;
             double v_sqr  = vx_i[k] * vx_i[k] + vy_i[k] * vy_i[k] + vz_i[k] * vz_i[k];
@@ -560,6 +572,7 @@ PIC_STEP void step6_check_boundaries_ions_body(int tid, int num_threads, int t) 
         }
     }
 
+    #pragma omp barrier
     // Równoległa redukcja histogramu IFED (N_IFED = 200)
     #pragma omp for schedule(static) nowait
     for (int e = 0; e < N_IFED; ++e) {

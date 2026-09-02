@@ -35,10 +35,9 @@ Etapy:
  3. Eliminacja w przód algorytmu Thomasa (forward elimination).
  4. Podstawienie wsteczne (back substitution) i wyznaczenie potencjału w węzłach.
  5. Obliczenie natężenia pola elektrycznego wewnątrz i na brzegach komórek.
-@param rho1 Wektor gęstości ładunku przestrzennego na siatce [C/m^3].
 @param tt   Aktualny fizyczny czas symulacji [s] (do wyznaczenia napięcia RF).
 */
-inline void solve_Poisson (xvector rho1, double tt){
+inline void solve_Poisson (double tt){
 
     int i;
     
@@ -47,8 +46,9 @@ inline void solve_Poisson (xvector rho1, double tt){
     pot[N_G-1] = 0.0;                               // Potencjał na elektrodzie uziemionej (x = L)
     
     // 2. Rozwiązanie równania Poissona: Przygotowanie prawej strony układu równań
-    // f[i] = -DX^2 / EPSILON0 * rho[i] z uwzględnieniem warunków brzegowych
-    for(i=1; i<=N_G-2; i++) f_poisson[i] = ALPHA * rho1[i];
+    for (i = 1; i <= N_G-2; i++) {
+        f_poisson[i] = ALPHA_Q * (i_density[i] - e_density[i]);
+    }
     f_poisson[1] -= pot[0];
     f_poisson[N_G-2] -= pot[N_G-1];
 
@@ -68,6 +68,6 @@ inline void solve_Poisson (xvector rho1, double tt){
     // 5. Obliczanie natężenia pola elektrycznego E = -grad(pot)
     // Schemat różnic centralnych wewnątrz + korekta ładunku na granicach komórek
     for(i=1; i<=N_G-2; i++) efield[i] = (pot[i-1] - pot[i+1]) * S;      // Wnętrze siatki: E_i = (phi_{i-1} - phi_{i+1}) / (2*DX)
-    efield[0]     = (pot[0]     - pot[1])     * INV_DX - rho1[0]     * DX / (2.0 * EPSILON0);   // Elektroda zasilana
-    efield[N_G-1] = (pot[N_G-2] - pot[N_G-1]) * INV_DX + rho1[N_G-1] * DX / (2.0 * EPSILON0);   // Elektroda uziemiona
+    efield[0]     = (pot[0]     - pot[1])     * INV_DX - (i_density[0] - e_density[0]) * BETA_Q;   // Elektroda zasilana
+    efield[N_G-1] = (pot[N_G-2] - pot[N_G-1]) * INV_DX + (i_density[N_G-1] - e_density[N_G-1]) * BETA_Q;   // Elektroda uziemiona
 }

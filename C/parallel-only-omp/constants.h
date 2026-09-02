@@ -119,3 +119,5 @@ const double B = -2.0;                                       // Współczynnik g
 const double C =  1.0;                                       // Współczynnik naddiagonali
 const double S = 1.0 / (2.0 * DX);                           // Współczynnik różnicowy dla pola elektrycznego wewnątrz siatki
 const double ALPHA = -DX * DX / EPSILON0;                    // Współczynnik prawej strony równania Poissona
+const double ALPHA_Q = ALPHA * E_CHARGE;                    // -DX^2 * e / EPSILON0
+const double BETA_Q = E_CHARGE * DX / (2.0 * EPSILON0);     // Współczynnik brzegowy pola E
