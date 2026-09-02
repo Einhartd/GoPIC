@@ -612,31 +612,20 @@ PIC_STEP void step7_collisions_electrons_body(int tid, int num_threads) {
     worker_buffers.new_electrons[tid].clear();
     worker_buffers.new_ions[tid].clear();
 
-    // 1. Jeden wątek (single) losuje liczbę kandydatów z rozkładu dwumianowego
-    //    i buduje jedną wspólną losową listę indeksów (random_sample).
-    static int              global_N_coll_star_e = 0;
-    static std::vector<int> global_candidates_e;
+    int chunk = (N_e + num_threads - 1) / num_threads;
+    int k_start = std::min(tid * chunk, N_e);
+    int k_end = std::min(k_start + chunk, N_e);
+    int N_local = k_end - k_start;
 
-    #pragma omp single
-    {
-        std::binomial_distribution<int> binom_e(N_e, P_star_e);
-        global_N_coll_star_e = binom_e(MTgen);
-        if (global_N_coll_star_e > N_e) global_N_coll_star_e = N_e;
-        if (global_N_coll_star_e > 0) {
-            if ((int)global_candidates_e.size() < N_e)
-                global_candidates_e.resize(N_e);
-            random_sample(N_e, global_N_coll_star_e, global_candidates_e);
-        }
-    }
-
-    if (global_N_coll_star_e > 0) {
+    if (N_local > 0) {
         // Równomierny podział listy kandydatów pomiędzy wątki
-        int chunk    = (global_N_coll_star_e + num_threads - 1) / num_threads;
-        int i_start  = std::min(tid * chunk, global_N_coll_star_e);
-        int i_end    = std::min(i_start + chunk, global_N_coll_star_e);
+        std::binomial_distribution<int> binom_e(N_local, P_star_e);
+        int local_N_coll = binom_e(MTgen);
+        if (local_N_coll > N_local) local_N_coll = N_local;
 
-        for (int i = i_start; i < i_end; ++i) {
-            int ki = global_candidates_e[i];
+        for (int i = 0; i < local_N_coll; ++i) {
+            int ki = k_start + (int)(R01(MTgen) * N_local);
+            if (ki >= k_end) ki = k_end - 1;
 
             double v_sqr     = vx_e[ki]*vx_e[ki] + vy_e[ki]*vy_e[ki] + vz_e[ki]*vz_e[ki];
             double velocity  = sqrt(v_sqr);
@@ -656,28 +645,26 @@ PIC_STEP void step7_collisions_electrons_body(int tid, int num_threads) {
         }
     }
 
-    if (global_N_coll_star_e > 0){
-        // Seryjne przepisanie nowo utworzonych cząstek do globalnych tablic SoA oraz akumulacja liczników
-        #pragma omp barrier
-        #pragma omp single
-        {
-            for (int t = 0; t < num_threads; ++t) {
-                N_e_coll += worker_buffers.thread_counters[t].local_coll_e;
-                worker_buffers.thread_counters[t].local_coll_e = 0;
-                for (size_t i = 0; i < worker_buffers.new_electrons[t].x.size(); ++i) {
-                    x_e[N_e]    = worker_buffers.new_electrons[t].x[i];
-                    vx_e[N_e]   = worker_buffers.new_electrons[t].vx[i];
-                    vy_e[N_e]   = worker_buffers.new_electrons[t].vy[i];
-                    vz_e[N_e]   = worker_buffers.new_electrons[t].vz[i];
-                    N_e++;
-                }
-                for (size_t i = 0; i < worker_buffers.new_ions[t].x.size(); ++i) {
-                    x_i[N_i]    = worker_buffers.new_ions[t].x[i];
-                    vx_i[N_i]   = worker_buffers.new_ions[t].vx[i];
-                    vy_i[N_i]   = worker_buffers.new_ions[t].vy[i];
-                    vz_i[N_i]   = worker_buffers.new_ions[t].vz[i];
-                    N_i++;
-                }
+    // Seryjne przepisanie nowo utworzonych cząstek do globalnych tablic SoA oraz akumulacja liczników
+    #pragma omp barrier
+    #pragma omp single
+    {
+        for (int t = 0; t < num_threads; ++t) {
+            N_e_coll += worker_buffers.thread_counters[t].local_coll_e;
+            worker_buffers.thread_counters[t].local_coll_e = 0;
+            for (size_t i = 0; i < worker_buffers.new_electrons[t].x.size(); ++i) {
+                x_e[N_e]    = worker_buffers.new_electrons[t].x[i];
+                vx_e[N_e]   = worker_buffers.new_electrons[t].vx[i];
+                vy_e[N_e]   = worker_buffers.new_electrons[t].vy[i];
+                vz_e[N_e]   = worker_buffers.new_electrons[t].vz[i];
+                N_e++;
+            }
+            for (size_t i = 0; i < worker_buffers.new_ions[t].x.size(); ++i) {
+                x_i[N_i]    = worker_buffers.new_ions[t].x[i];
+                vx_i[N_i]   = worker_buffers.new_ions[t].vx[i];
+                vy_i[N_i]   = worker_buffers.new_ions[t].vy[i];
+                vz_i[N_i]   = worker_buffers.new_ions[t].vz[i];
+                N_i++;
             }
         }
     }
@@ -712,32 +699,23 @@ Etapy:
 PIC_STEP void step8_collision_ions_body(int tid, int num_threads, int t) {
     if ((t % N_SUB) != 0) return;
 
-    // Wspólna próbka kandydatów generowana jednokrotnie przez 1 wątek
-    static int              global_N_coll_star_i = 0;
-    static std::vector<int> global_candidates_i;
+    // Podział tablicy jonów na lokalne wycinki wątków
+    int chunk = (N_i + num_threads - 1) / num_threads;
+    int k_start = std::min(tid * chunk, N_i);
+    int k_end = std::min(k_start + chunk, N_i);
+    int N_local = k_end - k_start;
 
-    #pragma omp single
-    {
-        std::binomial_distribution<int> binom_i(N_i, P_star_i);
-        global_N_coll_star_i = binom_i(MTgen);
-        if (global_N_coll_star_i > N_i) global_N_coll_star_i = N_i;
-        if (global_N_coll_star_i > 0) {
-            if ((int)global_candidates_i.size() < N_i)
-                global_candidates_i.resize(N_i);
-            random_sample(N_i, global_N_coll_star_i, global_candidates_i);
-        }
-    }
-
-    if (global_N_coll_star_i > 0) {
-        int chunk    = (global_N_coll_star_i + num_threads - 1) / num_threads;
-        int i_start  = std::min(tid * chunk, global_N_coll_star_i);
-        int i_end    = std::min(i_start + chunk, global_N_coll_star_i);
+    if (N_local > 0) {
+        std::binomial_distribution<int> binom_i(N_local, P_star_i);
+        int local_N_coll = binom_i(MTgen);
+        if (local_N_coll > N_local) local_N_coll = N_local;
 
         double vx_a, vy_a, vz_a, gx, gy, gz, g_sqr, g, energy;
         int energy_index;
 
-        for (int i = i_start; i < i_end; ++i) {
-            int ki = global_candidates_i[i];
+        for (int i = 0; i < local_N_coll; ++i) {
+            int ki = k_start + (int)(R01(MTgen) * N_local);
+            if (ki >= k_end) ki = k_end - 1;
 
             // Prędkość termiczna neutralnego atomu tła losowana z rozkładu Maxwella-Boltzmanna
             vx_a = RMB(MTgen); vy_a = RMB(MTgen); vz_a = RMB(MTgen);
@@ -760,16 +738,13 @@ PIC_STEP void step8_collision_ions_body(int tid, int num_threads, int t) {
         }
     }
 
-    if (global_N_coll_star_i > 0) {
-        #pragma omp single
-        {
-            for (int t = 0; t < num_threads; ++t) {
-                N_i_coll += worker_buffers.thread_counters[t].local_coll_i;
-                worker_buffers.thread_counters[t].local_coll_i = 0;
-            }
+    #pragma omp single
+    {
+        for (int t = 0; t < num_threads; ++t) {
+            N_i_coll += worker_buffers.thread_counters[t].local_coll_i;
+            worker_buffers.thread_counters[t].local_coll_i = 0;
         }
     }
-
 }
 
 /*

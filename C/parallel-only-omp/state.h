@@ -207,26 +207,14 @@ struct WorkerBuffers {
     std::vector<std::array<double, N_G>> meanei;
 
     // Bufory dla filtracji granic i kompaktacji tablic cząstek (Kroki 5 i 6)
-    std::vector<int> thread_counts;
-    std::vector<int> thread_offsets;
-    std::vector<std::vector<int>> thread_local_indices;
     std::vector<std::vector<int>> absorbed_indices;
     std::vector<std::array<int, N_IFED>> local_ifed_pow;
     std::vector<std::array<int, N_IFED>> local_ifed_gnd;
-
-    // Wstępnie zaalokowane tablice tymczasowe dla ocalałych cząstek
-    std::vector<double> temp_x;
-    std::vector<double> temp_vx;
-    std::vector<double> temp_vy;
-    std::vector<double> temp_vz;
 
     // Prywatne bufory nowo narodzonych cząstek dla każdego wątku (Krok 7)
     std::vector<NewParticles> new_electrons;
     std::vector<NewParticles> new_ions;
 
-    // Prywatne bufory indeksów kandydatów dla metody Null-Collision (Kroki 7 i 8)
-    std::vector<std::vector<int>> candidates_e;
-    std::vector<std::vector<int>> candidates_i;
 
     /*
     Inicjalizacja i prealokacja wszystkich prywatnych buforów wątków.
@@ -251,9 +239,6 @@ struct WorkerBuffers {
         ui.resize(num_threads);
         meanei.resize(num_threads);
 
-        thread_counts.resize(num_threads, 0);
-        thread_offsets.resize(num_threads, 0);
-        thread_local_indices.resize(num_threads);
         absorbed_indices.resize(num_threads);
         local_ifed_pow.resize(num_threads);
         local_ifed_gnd.resize(num_threads);
@@ -265,27 +250,8 @@ struct WorkerBuffers {
             new_ions[t].reserve(2048);
         }
 
-        candidates_e.resize(num_threads);
-        candidates_i.resize(num_threads);
-
         for (int t = 0; t < num_threads; ++t) {
-            thread_local_indices[t].reserve(MAX_N_P / num_threads);
             absorbed_indices[t].reserve(2000);
-            candidates_e[t].resize(MAX_N_P);
-            candidates_i[t].resize(MAX_N_P);
-        }
-
-        temp_x.resize(MAX_N_P);
-        temp_vx.resize(MAX_N_P);
-        temp_vy.resize(MAX_N_P);
-        temp_vz.resize(MAX_N_P);
-
-        #pragma omp parallel for schedule(static)
-        for (int i = 0; i < MAX_N_P; i++) {
-            temp_x[i] = 0.0;
-            temp_vx[i] = 0.0;
-            temp_vy[i] = 0.0;
-            temp_vz[i] = 0.0;
         }
 
         #pragma omp parallel for schedule(static)

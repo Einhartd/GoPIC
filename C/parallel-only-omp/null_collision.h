@@ -26,39 +26,3 @@ inline void compute_null_collision_params(void) {
     printf(">> eduPIC: null-collision: nu*_e = %e, P*_e = %e\n", nu_star_e, P_star_e);
     printf(">> eduPIC: null-collision: nu*_i = %e, P*_i = %e\n", nu_star_i, P_star_i);
 }
-
-inline std::vector<int> persistent_sample_pool;
-inline std::vector<int> sample_swapped_indices;
-
-/*
-Losowanie unikalnych indeksów cząstek bez powtórzeń ze zbioru [0, n).
-Wykorzystuje częściowy algorytm tasowania Fishera-Yatesa o złożoności O(count).
-Tablica persistent_sample_pool jest inicjalizowana jednorazowo, a po wylosowaniu
-próbki zamiany są odwracane, eliminując kosztowne wywołanie std::iota o złożoności O(n).
-@param n      Całkowita liczba dostępnych cząstek w puli (N_e lub N_i).
-@param count  Liczba unikalnych indeksów cząstek do wylosowania (N_coll_star).
-@param buffer Bufor roboczy, do którego zapisywane są wylosowane indeksy.
-*/
-PIC_STEP void random_sample(int n, int count, std::vector<int> &buffer) {
-    if (persistent_sample_pool.size() < (size_t)MAX_N_P) {
-        persistent_sample_pool.resize(MAX_N_P);
-        std::iota(persistent_sample_pool.begin(), persistent_sample_pool.end(), 0);
-        sample_swapped_indices.resize(MAX_N_P);
-    }
-    if (buffer.size() < (size_t)count) {
-        buffer.resize(count);
-    }
-
-    // Częściowe tasowanie Fishera-Yatesa dla pierwszych 'count' elementów
-    for (int i = 0; i < count; i++) {
-        int j = i + (int)(R01(MTgen) * (n - i));
-        sample_swapped_indices[i] = j;
-        std::swap(persistent_sample_pool[i], persistent_sample_pool[j]);
-        buffer[i] = persistent_sample_pool[i];
-    }
-
-    // Natychmiastowe przywrócenie tablicy do stanu początkowego (odwrócenie zamian w odwrotnej kolejności)
-    for (int i = count - 1; i >= 0; i--) {
-        std::swap(persistent_sample_pool[i], persistent_sample_pool[sample_swapped_indices[i]]);
-    }
-}
