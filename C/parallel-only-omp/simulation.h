@@ -58,7 +58,6 @@ PIC_STEP void step1_compute_electron_density_body(int tid, int num_threads) {
     int k_end   = std::min(k_start + chunk, N_e);
 
     for (int k = k_start; k < k_end; k++) {
-        __builtin_prefetch(&x_e[k+16], 0, 1);
 
         double c0 = x_e[k] * INV_DX;
         int p     = int(c0);
@@ -130,7 +129,6 @@ PIC_STEP void step1_compute_ion_density_body(int tid, int num_threads, int t) {
         int k_end   = std::min(k_start + chunk, N_i);
 
         for (int k = k_start; k < k_end; k++) {
-            __builtin_prefetch(&x_i[k+16], 0, 1);
 
             double c0 = x_i[k] * INV_DX;
             int p     = int(c0);
@@ -219,8 +217,6 @@ PIC_STEP void step3_move_electrons_body(int tid, int num_threads, int t_index) {
 
         #pragma omp simd simdlen(8) aligned(x_e, vx_e: 64)
         for (int k = k_start; k < k_end; k++) {
-            __builtin_prefetch(&x_e[k+16], 0, 1);
-            __builtin_prefetch(&vx_e[k+16], 1, 1);
 
             double c0 = x_e[k] * INV_DX;
             int p     = int(c0);
@@ -370,8 +366,6 @@ PIC_STEP void step4_move_ions_body(int tid, int num_threads, int t_index, int t)
 
         #pragma omp simd simdlen(8) aligned(x_i, vx_i: 64)
         for (int k = k_start; k < k_end; k++) {
-            __builtin_prefetch(&x_i[k+16], 0, 1);
-            __builtin_prefetch(&vx_i[k+16], 1, 1);
 
             double c0 = x_i[k] * INV_DX;
             int p     = int(c0);
@@ -470,7 +464,6 @@ PIC_STEP void step5_check_boundaries_electrons_body(int tid, int num_threads) {
 
     // Faza 1: Równoległe sprawdzanie i zbieranie indeksów pochłoniętych elektronów
     for (int k = k_start; k < k_end; k++) {
-        __builtin_prefetch(&x_e[k+16], 0, 1);
 
         if (__builtin_expect(x_e[k] < 0.0, 0)) {
             worker_buffers.absorbed_indices[tid].push_back(k);
@@ -549,7 +542,6 @@ PIC_STEP void step6_check_boundaries_ions_body(int tid, int num_threads, int t) 
     int k_end = std::min(k_start + chunk, N_i);
 
     for (int k = k_start; k < k_end; k++) {
-        __builtin_prefetch(&x_i[k+16], 0, 1);
 
         if (__builtin_expect(x_i[k] < 0.0, 0)) {
             worker_buffers.absorbed_indices[tid].push_back(k);
