@@ -58,15 +58,16 @@ PIC_STEP void collision_electron (double xe, double *vxe, double *vye, double *v
     t1   = t0 +sigma[E_EXC][eindex];
     t2   = t1 +sigma[E_ION][eindex];
     rnd  = R01(MTgen);
+    double r_t2 = rnd * t2;
 
     double eta = TWO_PI * R01(MTgen);
     se = sin(eta);
     ce = cos(eta);
 
-    if (rnd < (t0 / t2)) {                              // Zderzenie sprężyste (izotropowe)
+    if (r_t2 < t0) {                                    // Zderzenie sprężyste (izotropowe)
         cc = 1.0 - 2.0 * R01(MTgen);                    // cos(chi)
         sc = sqrt(std::max(0.0, 1.0 - cc * cc));        // sin(chi)
-    } else if (rnd < (t1 / t2)) {                       // Wzbudzenie (niesprężyste, izotropowe)
+    } else if (r_t2 < t1) {                             // Wzbudzenie (niesprężyste, izotropowe)
         energy = HALF_E_MASS * g_sq;
         energy = fabs(energy - E_EXC_TH * EV_TO_J);
         g   = sqrt(energy * TWO_OVER_E_MASS);
@@ -120,65 +121,51 @@ Zoptymalizowana wersja algebraiczna (eliminacja funkcji trygonometrycznych).
 */
 PIC_STEP void collision_ion (double *vx_1, double *vy_1, double *vz_1,
                     double *vx_2, double *vy_2, double *vz_2, int e_index){
-    double g, gx, gy, gz, wx, wy, wz, rnd;
-    double st, ct, sp, cp, sc, cc, se, ce, t1, t2;
-    
     // -------------------------------------------------------------------------
-    // 1. Prędkość względna g oraz prędkość środka masy w
+    // 1. Wybór procesu: rozpraszanie izotropowe vs wsteczne (wymiana ładunku)
     // -------------------------------------------------------------------------
-    gx = (*vx_1) - (*vx_2);
-    gy = (*vy_1) - (*vy_2);
-    gz = (*vz_1) - (*vz_2);
+    double t1 = sigma[I_ISO][e_index];
+    double t2 = t1 + sigma[I_BACK][e_index];
+    double rnd = R01(MTgen);
+
+    if (rnd * t2 >= t1) {
+        // Wymiana ładunku (Charge Exchange, I_BACK) - ~80% zderzeń jonów:
+        // Szybki jon przejmuje elektron od neutralnego atomu argonu bez wymiany pędu jądrowego (chi = PI).
+        // Nowa prędkość jonu jest tożsama z prędkością termiczną atomu tła (vx_2, vy_2, vz_2).
+        *vx_1 = *vx_2;
+        *vy_1 = *vy_2;
+        *vz_1 = *vz_2;
+        return;
+    }
+
+    // -------------------------------------------------------------------------
+    // 2. Rozpraszanie sprężyste izotropowe (I_ISO) - ~20% zderzeń jonów
+    // -------------------------------------------------------------------------
+    double gx = (*vx_1) - (*vx_2);
+    double gy = (*vy_1) - (*vy_2);
+    double gz = (*vz_1) - (*vz_2);
     double g_perp_sq = gy * gy + gz * gz;
     double g_sq      = gx * gx + g_perp_sq;
-    g  = sqrt(g_sq);
+    double g         = sqrt(g_sq);
     double g_perp    = sqrt(g_perp_sq);
 
-    wx = 0.5 * ((*vx_1) + (*vx_2));
-    wy = 0.5 * ((*vy_1) + (*vy_2));
-    wz = 0.5 * ((*vz_1) + (*vz_2));
+    double wx = 0.5 * ((*vx_1) + (*vx_2));
+    double wy = 0.5 * ((*vy_1) + (*vy_2));
+    double wz = 0.5 * ((*vz_1) + (*vz_2));
     
-    // -------------------------------------------------------------------------
-    // 2. Kąty Eulera — algebra wektorowa
-    // -------------------------------------------------------------------------
-    if (g > 0.0) {
-        ct = gx / g;
-        st = g_perp / g;
-    } else {
-        ct = 1.0;
-        st = 0.0;
-    }
+    double ct = (g > 0.0) ? (gx / g) : 1.0;
+    double st = (g > 0.0) ? (g_perp / g) : 0.0;
+    double cp = (g_perp > 0.0) ? (gy / g_perp) : 1.0;
+    double sp = (g_perp > 0.0) ? (gz / g_perp) : 0.0;
 
-    if (g_perp > 0.0) {
-        cp = gy / g_perp;
-        sp = gz / g_perp;
-    } else {
-        cp = 1.0;
-        sp = 0.0;
-    }
-    
-    // -------------------------------------------------------------------------
-    // 3. Wybór procesu: rozpraszanie izotropowe vs wsteczne (wymiana ładunku)
-    // -------------------------------------------------------------------------
-    t1  =      sigma[I_ISO][e_index];
-    t2  = t1 + sigma[I_BACK][e_index];
-    rnd = R01(MTgen);
-
-    if (rnd < (t1 / t2)) {                        // Rozpraszanie izotropowe
-        cc = 1.0 - 2.0 * R01(MTgen);              // cos(chi)
-        sc = sqrt(std::max(0.0, 1.0 - cc * cc));  // sin(chi)
-    } else {                                      // Wymiana ładunku (chi = PI)
-        cc = -1.0;                                // cos(PI) = -1
-        sc = 0.0;                                 // sin(PI) = 0
-    }
+    double cc = 1.0 - 2.0 * R01(MTgen);              // cos(chi)
+    double sc = sqrt(std::max(0.0, 1.0 - cc * cc));  // sin(chi)
 
     double eta = TWO_PI * R01(MTgen);
-    se = sin(eta);
-    ce = cos(eta);
+    double se = sin(eta);
+    double ce = cos(eta);
     
-    // -------------------------------------------------------------------------
-    // 4. Transformacja prędkości i wyznaczenie nowej prędkości jonu
-    // -------------------------------------------------------------------------
+    // Transformacja wektora prędkości względnej
     gx = g * (ct * cc - st * sc * ce);
     gy = g * (st * cp * cc + ct * cp * sc * ce - sp * sc * se);
     gz = g * (st * sp * cc + ct * sp * sc * ce + cp * sc * se);
