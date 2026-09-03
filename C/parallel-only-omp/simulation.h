@@ -215,9 +215,36 @@ PIC_STEP void step3_move_electrons_body(int tid, int num_threads, int t_index) {
         int k_start = std::min(tid * chunk, N_e);
         int k_end   = std::min(k_start + chunk, N_e);
 
-        #pragma omp simd simdlen(8) aligned(x_e, vx_e: 64)
-        for (int k = k_start; k < k_end; k++) {
+        int k = k_start;
+        int k_unroll_end = k_start + ((k_end - k_start) / 4) * 4;
 
+        #pragma GCC ivdep
+        for (; k < k_unroll_end; k += 4) {
+            double x0 = x_e[k+0], x1 = x_e[k+1], x2 = x_e[k+2], x3 = x_e[k+3];
+            double v0 = vx_e[k+0], v1 = vx_e[k+1], v2 = vx_e[k+2], v3 = vx_e[k+3];
+
+            double c0_0 = x0 * INV_DX, c0_1 = x1 * INV_DX, c0_2 = x2 * INV_DX, c0_3 = x3 * INV_DX;
+            int p0 = int(c0_0), p1 = int(c0_1), p2 = int(c0_2), p3 = int(c0_3);
+            double c2_0 = c0_0 - p0, c2_1 = c0_1 - p1, c2_2 = c0_2 - p2, c2_3 = c0_3 - p3;
+
+            double ex0 = efield[p0] + c2_0 * (efield[p0+1] - efield[p0]);
+            double ex1 = efield[p1] + c2_1 * (efield[p1+1] - efield[p1]);
+            double ex2 = efield[p2] + c2_2 * (efield[p2+1] - efield[p2]);
+            double ex3 = efield[p3] + c2_3 * (efield[p3+1] - efield[p3]);
+
+            double vn0 = v0 - ex0 * FACTOR_E;
+            double vn1 = v1 - ex1 * FACTOR_E;
+            double vn2 = v2 - ex2 * FACTOR_E;
+            double vn3 = v3 - ex3 * FACTOR_E;
+
+            vx_e[k+0] = vn0; vx_e[k+1] = vn1; vx_e[k+2] = vn2; vx_e[k+3] = vn3;
+            x_e[k+0] = x0 + vn0 * DT_E;
+            x_e[k+1] = x1 + vn1 * DT_E;
+            x_e[k+2] = x2 + vn2 * DT_E;
+            x_e[k+3] = x3 + vn3 * DT_E;
+        }
+
+        for (; k < k_end; k++) {
             double c0 = x_e[k] * INV_DX;
             int p     = int(c0);
             double c2 = c0 - p;
@@ -364,9 +391,36 @@ PIC_STEP void step4_move_ions_body(int tid, int num_threads, int t_index, int t)
         int k_start = std::min(tid * chunk, N_i);
         int k_end   = std::min(k_start + chunk, N_i);
 
-        #pragma omp simd simdlen(8) aligned(x_i, vx_i: 64)
-        for (int k = k_start; k < k_end; k++) {
+        int k = k_start;
+        int k_unroll_end = k_start + ((k_end - k_start) / 4) * 4;
 
+        #pragma GCC ivdep
+        for (; k < k_unroll_end; k += 4) {
+            double x0 = x_i[k+0], x1 = x_i[k+1], x2 = x_i[k+2], x3 = x_i[k+3];
+            double v0 = vx_i[k+0], v1 = vx_i[k+1], v2 = vx_i[k+2], v3 = vx_i[k+3];
+
+            double c0_0 = x0 * INV_DX, c0_1 = x1 * INV_DX, c0_2 = x2 * INV_DX, c0_3 = x3 * INV_DX;
+            int p0 = int(c0_0), p1 = int(c0_1), p2 = int(c0_2), p3 = int(c0_3);
+            double c2_0 = c0_0 - p0, c2_1 = c0_1 - p1, c2_2 = c0_2 - p2, c2_3 = c0_3 - p3;
+
+            double ex0 = efield[p0] + c2_0 * (efield[p0+1] - efield[p0]);
+            double ex1 = efield[p1] + c2_1 * (efield[p1+1] - efield[p1]);
+            double ex2 = efield[p2] + c2_2 * (efield[p2+1] - efield[p2]);
+            double ex3 = efield[p3] + c2_3 * (efield[p3+1] - efield[p3]);
+
+            double vn0 = v0 + ex0 * FACTOR_I;
+            double vn1 = v1 + ex1 * FACTOR_I;
+            double vn2 = v2 + ex2 * FACTOR_I;
+            double vn3 = v3 + ex3 * FACTOR_I;
+
+            vx_i[k+0] = vn0; vx_i[k+1] = vn1; vx_i[k+2] = vn2; vx_i[k+3] = vn3;
+            x_i[k+0] = x0 + vn0 * DT_I;
+            x_i[k+1] = x1 + vn1 * DT_I;
+            x_i[k+2] = x2 + vn2 * DT_I;
+            x_i[k+3] = x3 + vn3 * DT_I;
+        }
+
+        for (; k < k_end; k++) {
             double c0 = x_i[k] * INV_DX;
             int p     = int(c0);
             double c2 = c0 - p;
@@ -547,8 +601,7 @@ PIC_STEP void step6_check_boundaries_ions_body(int tid, int num_threads, int t) 
             worker_buffers.absorbed_indices[tid].push_back(k);
             worker_buffers.thread_counters[tid].local_abs_pow++;
             double v_sqr  = vx_i[k] * vx_i[k] + vy_i[k] * vy_i[k] + vz_i[k] * vz_i[k];
-            double energy = 0.5 * AR_MASS * v_sqr / EV_TO_J;
-            int energy_index = (int)(energy / DE_IFED);
+            int energy_index = (int)(v_sqr * FACTOR_ENERGY_IFED);
             if (energy_index < N_IFED) {
                 worker_buffers.local_ifed_pow[tid][energy_index]++;
             }
@@ -556,8 +609,7 @@ PIC_STEP void step6_check_boundaries_ions_body(int tid, int num_threads, int t) 
             worker_buffers.absorbed_indices[tid].push_back(k);
             worker_buffers.thread_counters[tid].local_abs_gnd++;
             double v_sqr  = vx_i[k] * vx_i[k] + vy_i[k] * vy_i[k] + vz_i[k] * vz_i[k];
-            double energy = 0.5 * AR_MASS * v_sqr / EV_TO_J;
-            int energy_index = (int)(energy / DE_IFED);
+            int energy_index = (int)(v_sqr * FACTOR_ENERGY_IFED);
             if (energy_index < N_IFED) {
                 worker_buffers.local_ifed_gnd[tid][energy_index]++;
             }

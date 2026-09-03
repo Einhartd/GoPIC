@@ -105,6 +105,7 @@ constexpr double FACTOR_E           = DT_E / E_MASS * E_CHARGE;   // Współczyn
 constexpr int    N_IFED             = 200;                        // Liczba przedziałów energii dla IFED
 constexpr double DE_IFED            = 1.0;                        // Rozdzielczość energetyczna IFED [eV]
 constexpr double INV_DE_IFED        = 1.0 / DE_IFED;              // 1.0 [1/eV]
+constexpr double FACTOR_ENERGY_IFED = (0.5 * AR_MASS * INV_EV_TO_J) * INV_DE_IFED; // Konwersja v^2 -> indeks energii IFED (eliminuje 2x dzielenie)
 typedef int      ifed_vector[N_IFED];                             // Tablica rozkładu IFED (histogram)
 
 // =============================================================================
