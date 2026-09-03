@@ -657,8 +657,7 @@ PIC_STEP void step7_collisions_electrons_body(int tid, int num_threads) {
 
             double v_sqr     = vx_e[ki]*vx_e[ki] + vy_e[ki]*vy_e[ki] + vz_e[ki]*vz_e[ki];
             double velocity  = sqrt(v_sqr);
-            double energy    = 0.5 * E_MASS * v_sqr / EV_TO_J;
-            int energy_index = min(int(energy / DE_CS + 0.5), CS_RANGES - 1);
+            int energy_index = min(int(v_sqr * FACTOR_ENERGY_E + 0.5), CS_RANGES - 1);
 
             double real_nu  = sigma_tot_e[energy_index] * velocity;
             double p_accept = real_nu / nu_star_e;
@@ -680,14 +679,14 @@ PIC_STEP void step7_collisions_electrons_body(int tid, int num_threads) {
         for (int t = 0; t < num_threads; ++t) {
             N_e_coll += worker_buffers.thread_counters[t].local_coll_e;
             worker_buffers.thread_counters[t].local_coll_e = 0;
-            for (size_t i = 0; i < worker_buffers.new_electrons[t].x.size(); ++i) {
+            for (size_t i = 0; i < worker_buffers.new_electrons[t].size(); ++i) {
                 x_e[N_e]    = worker_buffers.new_electrons[t].x[i];
                 vx_e[N_e]   = worker_buffers.new_electrons[t].vx[i];
                 vy_e[N_e]   = worker_buffers.new_electrons[t].vy[i];
                 vz_e[N_e]   = worker_buffers.new_electrons[t].vz[i];
                 N_e++;
             }
-            for (size_t i = 0; i < worker_buffers.new_ions[t].x.size(); ++i) {
+            for (size_t i = 0; i < worker_buffers.new_ions[t].size(); ++i) {
                 x_i[N_i]    = worker_buffers.new_ions[t].x[i];
                 vx_i[N_i]   = worker_buffers.new_ions[t].vx[i];
                 vy_i[N_i]   = worker_buffers.new_ions[t].vy[i];
@@ -752,8 +751,7 @@ PIC_STEP void step8_collision_ions_body(int tid, int num_threads, int t) {
             gz = vz_i[ki] - vz_a;
             g_sqr = gx*gx + gy*gy + gz*gz;
             g = sqrt(g_sqr);
-            energy = 0.5 * MU_ARAR * g_sqr / EV_TO_J;
-            energy_index = min(int(energy / DE_CS + 0.5), CS_RANGES - 1);
+            energy_index = min(int(g_sqr * FACTOR_ENERGY_I + 0.5), CS_RANGES - 1);
 
             double real_nu = sigma_tot_i[energy_index] * g;
             double p_accept = real_nu / nu_star_i;

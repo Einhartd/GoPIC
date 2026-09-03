@@ -67,21 +67,21 @@ PIC_STEP void collision_electron (double xe, double *vxe, double *vye, double *v
         cc = 1.0 - 2.0 * R01(MTgen);                    // cos(chi)
         sc = sqrt(std::max(0.0, 1.0 - cc * cc));        // sin(chi)
     } else if (rnd < (t1 / t2)) {                       // Wzbudzenie (niesprężyste, izotropowe)
-        energy = 0.5 * E_MASS * g_sq;
+        energy = HALF_E_MASS * g_sq;
         energy = fabs(energy - E_EXC_TH * EV_TO_J);
-        g   = sqrt(2.0 * energy / E_MASS);
+        g   = sqrt(energy * TWO_OVER_E_MASS);
         cc  = 1.0 - 2.0 * R01(MTgen);                   // cos(chi)
         sc  = sqrt(std::max(0.0, 1.0 - cc * cc));       // sin(chi)
     } else {                                            // Jonizacja (niesprężysta)
-        energy = 0.5 * E_MASS * g_sq;
+        energy = HALF_E_MASS * g_sq;
         energy = fabs(energy - E_ION_TH * EV_TO_J);
 
         // Energia wybitego elektronu wtórnego (rozkład wg formy różniczkowej Opla)
-        e_ej = 10.0 * tan(R01(MTgen) * atan(energy / EV_TO_J / 20.0)) * EV_TO_J;
+        e_ej = 10.0 * tan(R01(MTgen) * atan(energy * OPAL_FACTOR)) * EV_TO_J;
         e_sc = fabs(energy - e_ej);
 
-        g    = sqrt(2.0 * e_sc / E_MASS);
-        g2   = sqrt(2.0 * e_ej / E_MASS);
+        g    = sqrt(e_sc * TWO_OVER_E_MASS);
+        g2   = sqrt(e_ej * TWO_OVER_E_MASS);
 
         cc   = sqrt(e_sc / energy);                     // cos(chi) dla elektronu rozproszonego
         sc   = sqrt(std::max(0.0, 1.0 - cc * cc));      // sin(chi)

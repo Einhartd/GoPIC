@@ -25,11 +25,11 @@ using namespace std;
 // =============================================================================
 
 // Zestaw tabel przekrojów czynnych dla wszystkich procesów
-inline cross_section    sigma[N_CS];
+alignas(64) inline cross_section    sigma[N_CS];
 // Całkowity makroskopowy przekrój czynny dla elektronów (sigma * n_gaz)         
-inline cross_section    sigma_tot_e;
+alignas(64) inline cross_section    sigma_tot_e;
 // Całkowity makroskopowy przekrój czynny dla jonów (sigma * n_gaz)
-inline cross_section    sigma_tot_i;
+alignas(64) inline cross_section    sigma_tot_i;
 
 // =============================================================================
 // Koordynaty i liczniki cząstek
@@ -142,42 +142,32 @@ struct alignas(64) AlignedThreadCounters {
 
 /*
 Bufor na nowo utworzone cząstki (elektrony i jony z procesów jonizacji).
-Wątki zapisują nowo powstałe cząstki do własnych lokalnych instancji,
-unikając konfliktów zapisu (data races).
+Statyczna tablica z bezpośrednim indeksem (zero alokacji sterty i zero rozgałęzień).
 */
-struct NewParticles {
-    std::vector<double> x;
-    std::vector<double> vx;
-    std::vector<double> vy;
-    std::vector<double> vz;
+struct alignas(64) NewParticles {
+    static constexpr size_t CAPACITY = 4096;
+    alignas(64) std::array<double, CAPACITY> x;
+    alignas(64) std::array<double, CAPACITY> vx;
+    alignas(64) std::array<double, CAPACITY> vy;
+    alignas(64) std::array<double, CAPACITY> vz;
+    int count = 0;
 
     /*
-    Dodanie nowej cząstki do bufora.
-    @param px  Pozycja 1D nowej cząstki [m].
-    @param pvx Składowa X prędkości [m/s].
-    @param pvy Składowa Y prędkości [m/s].
-    @param pvz Składowa Z prędkości [m/s].
+    Dodanie nowej cząstki do bufora w stałym czasie O(1).
     */
     void push(double px, double pvx, double pvy, double pvz) {
-        x.push_back(px);
-        vx.push_back(pvx);
-        vy.push_back(pvy);
-        vz.push_back(pvz);
+        if (__builtin_expect(count < (int)CAPACITY, 1)) {
+            x[count]  = px;
+            vx[count] = pvx;
+            vy[count] = pvy;
+            vz[count] = pvz;
+            count++;
+        }
     }
 
-    void reserve(size_t cap) {
-        x.reserve(cap);
-        vx.reserve(cap);
-        vy.reserve(cap);
-        vz.reserve(cap);
-    }
-
-    void clear() {
-        x.clear();
-        vx.clear();
-        vy.clear();
-        vz.clear();
-    }
+    void reserve(size_t) {}
+    void clear() { count = 0; }
+    size_t size() const { return (size_t)count; }
 };
 
 
