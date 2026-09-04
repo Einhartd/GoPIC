@@ -203,21 +203,21 @@ func (sim *SimulationState) Step3MoveElectrons(t_index int) {
 		// Zapisy pozycji X_e i prędkości Vx_e są rozłączne (brak konfliktów).
 		// Diagnostyki trafiają do prywatnej struktury WorkerEDiag[workerID].
 		wg.Go(func() {
-			diag := &sim.WorkerEDiag[workerID]
-			*diag = electronWorkerDiagnostics{}
+			if sim.Measurement_mode {
+				// SLOW-PATH: Zbieranie diagnostyk XT i EEPF
+				diag := &sim.WorkerEDiag[workerID]
+				*diag = electronWorkerDiagnostics{}
 
-			var c0, c1, c2, e_x, mean_v, v_sqr, energy, velocity, rate float64
-			var p, energy_index int
+				var c0, c1, c2, e_x, mean_v, v_sqr, energy, velocity, rate float64
+				var p, energy_index int
 
-			for k := s; k < e; k++ {
-				// Interpolacja pola elektrycznego do pozycji cząstki (CIC)
-				c0 = sim.X_e[k] * INV_DX
-				p = int(c0)
-				c1 = float64(p) + 1.0 - c0
-				c2 = c0 - float64(p)
-				e_x = c1*sim.Efield[p] + c2*sim.Efield[p+1]
+				for k := s; k < e; k++ {
+					c0 = sim.X_e[k] * INV_DX
+					p = min(max(int(c0), 0), N_G-2)
+					c1 = float64(p) + 1.0 - c0
+					c2 = c0 - float64(p)
+					e_x = c1*sim.Efield[p] + c2*sim.Efield[p+1]
 
-				if sim.Measurement_mode {
 					mean_v = sim.Vx_e[k] - 0.5*e_x*FACTOR_E
 					diag.counter_e[p] += c1
 					diag.counter_e[p+1] += c2
@@ -238,7 +238,6 @@ func (sim *SimulationState) Step3MoveElectrons(t_index int) {
 					diag.ioniz[p] += c1 * rate
 					diag.ioniz[p+1] += c2 * rate
 
-					// Zliczanie EEPF w centralnym obszarze [0.45*L, 0.55*L]
 					if (MIN_X < sim.X_e[k]) && (sim.X_e[k] < MAX_X) {
 						energy_index = int(energy * INV_DE_EEPF)
 						if energy_index < N_EEPF {
@@ -247,11 +246,78 @@ func (sim *SimulationState) Step3MoveElectrons(t_index int) {
 						diag.accuCenter += energy
 						diag.counterCenter++
 					}
+
+					sim.Vx_e[k] -= e_x * FACTOR_E
+					sim.X_e[k] += sim.Vx_e[k] * DT_E
+				}
+			} else {
+				// FAST-PATH: Czysty Leap-Frog (90%+ cykli symulacji)
+				// BCE: Wskazówka eliminacji sprawdzeń granic
+				if e > s {
+					_ = sim.X_e[e-1]
+					_ = sim.Vx_e[e-1]
 				}
 
-				// Integracja równań ruchu (schemat Leap-Frog)
-				sim.Vx_e[k] -= e_x * FACTOR_E
-				sim.X_e[k] += sim.Vx_e[k] * DT_E
+				k := s
+				// Główna pętla 4-krotnie rozwinięta (ILP)
+				for ; k <= e-4; k += 4 {
+					// 1. Cząstka 0
+					c0_0 := sim.X_e[k] * INV_DX
+					p0 := min(max(int(c0_0), 0), N_G-2)
+					c1_0 := float64(p0) + 1.0 - c0_0
+					c2_0 := c0_0 - float64(p0)
+					ex0 := c1_0*sim.Efield[p0] + c2_0*sim.Efield[p0+1]
+
+					// 2. Cząstka 1
+					c0_1 := sim.X_e[k+1] * INV_DX
+					p1 := min(max(int(c0_1), 0), N_G-2)
+					c1_1 := float64(p1) + 1.0 - c0_1
+					c2_1 := c0_1 - float64(p1)
+					ex1 := c1_1*sim.Efield[p1] + c2_1*sim.Efield[p1+1]
+
+					// 3. Cząstka 2
+					c0_2 := sim.X_e[k+2] * INV_DX
+					p2 := min(max(int(c0_2), 0), N_G-2)
+					c1_2 := float64(p2) + 1.0 - c0_2
+					c2_2 := c0_2 - float64(p2)
+					ex2 := c1_2*sim.Efield[p2] + c2_2*sim.Efield[p2+1]
+
+					// 4. Cząstka 3
+					c0_3 := sim.X_e[k+3] * INV_DX
+					p3 := min(max(int(c0_3), 0), N_G-2)
+					c1_3 := float64(p3) + 1.0 - c0_3
+					c2_3 := c0_3 - float64(p3)
+					ex3 := c1_3*sim.Efield[p3] + c2_3*sim.Efield[p3+1]
+
+					// Aktualizacja prędkości Leap-Frog (niezależne potoki FMA)
+					vx0 := sim.Vx_e[k] - ex0*FACTOR_E
+					vx1 := sim.Vx_e[k+1] - ex1*FACTOR_E
+					vx2 := sim.Vx_e[k+2] - ex2*FACTOR_E
+					vx3 := sim.Vx_e[k+3] - ex3*FACTOR_E
+
+					sim.Vx_e[k] = vx0
+					sim.Vx_e[k+1] = vx1
+					sim.Vx_e[k+2] = vx2
+					sim.Vx_e[k+3] = vx3
+
+					// Aktualizacja położeń
+					sim.X_e[k] += vx0 * DT_E
+					sim.X_e[k+1] += vx1 * DT_E
+					sim.X_e[k+2] += vx2 * DT_E
+					sim.X_e[k+3] += vx3 * DT_E
+				}
+
+				// Pętla resztkowa (tail loop) dla reszty z dzielenia przez 4
+				for ; k < e; k++ {
+					c0 := sim.X_e[k] * INV_DX
+					p := min(max(int(c0), 0), N_G-2)
+					c1 := float64(p) + 1.0 - c0
+					c2 := c0 - float64(p)
+					ex := c1*sim.Efield[p] + c2*sim.Efield[p+1]
+
+					sim.Vx_e[k] -= ex * FACTOR_E
+					sim.X_e[k] += sim.Vx_e[k] * DT_E
+				}
 			}
 		})
 	}
@@ -310,20 +376,21 @@ func (sim *SimulationState) Step4MoveIons(t_index, t int) {
 
 		// Start goroutine: popychanie jonów Leap-Frog i zbieranie diagnostyk jonowych
 		wg.Go(func() {
-			diag := &sim.WorkerIDiag[workerID]
-			*diag = ionWorkerDiagnostics{}
+			if sim.Measurement_mode {
+				// SLOW-PATH: Diagnostyki jonowe
+				diag := &sim.WorkerIDiag[workerID]
+				*diag = ionWorkerDiagnostics{}
 
-			var c0, c1, c2, e_x, mean_v, v_sqr, energy float64
-			var p int
+				var c0, c1, c2, e_x, mean_v, v_sqr, energy float64
+				var p int
 
-			for k := s; k < e; k++ {
-				c0 = sim.X_i[k] * INV_DX
-				p = int(c0)
-				c1 = float64(p) + 1.0 - c0
-				c2 = c0 - float64(p)
-				e_x = c1*sim.Efield[p] + c2*sim.Efield[p+1]
+				for k := s; k < e; k++ {
+					c0 = sim.X_i[k] * INV_DX
+					p = min(max(int(c0), 0), N_G-2)
+					c1 = float64(p) + 1.0 - c0
+					c2 = c0 - float64(p)
+					e_x = c1*sim.Efield[p] + c2*sim.Efield[p+1]
 
-				if sim.Measurement_mode {
 					mean_v = sim.Vx_i[k] + 0.5*e_x*FACTOR_I
 					diag.counter_i[p] += c1
 					diag.counter_i[p+1] += c2
@@ -333,11 +400,75 @@ func (sim *SimulationState) Step4MoveIons(t_index, t int) {
 					energy = 0.5 * AR_MASS * v_sqr * INV_EV_TO_J
 					diag.meanei[p] += c1 * energy
 					diag.meanei[p+1] += c2 * energy
+
+					// Jony mają ładunek dodatni (+e)
+					sim.Vx_i[k] += e_x * FACTOR_I
+					sim.X_i[k] += sim.Vx_i[k] * DT_I
+				}
+			} else {
+				// FAST-PATH: Czysty Leap-Frog jonów (4-way unrolling + BCE)
+				if e > s {
+					_ = sim.X_i[e-1]
+					_ = sim.Vx_i[e-1]
 				}
 
-				// Jony mają ładunek dodatni (+e)
-				sim.Vx_i[k] += e_x * FACTOR_I
-				sim.X_i[k] += sim.Vx_i[k] * DT_I
+				k := s
+				for ; k <= e-4; k += 4 {
+					// 1. Cząstka 0
+					c0_0 := sim.X_i[k] * INV_DX
+					p0 := min(max(int(c0_0), 0), N_G-2)
+					c1_0 := float64(p0) + 1.0 - c0_0
+					c2_0 := c0_0 - float64(p0)
+					ex0 := c1_0*sim.Efield[p0] + c2_0*sim.Efield[p0+1]
+
+					// 2. Cząstka 1
+					c0_1 := sim.X_i[k+1] * INV_DX
+					p1 := min(max(int(c0_1), 0), N_G-2)
+					c1_1 := float64(p1) + 1.0 - c0_1
+					c2_1 := c0_1 - float64(p1)
+					ex1 := c1_1*sim.Efield[p1] + c2_1*sim.Efield[p1+1]
+
+					// 3. Cząstka 2
+					c0_2 := sim.X_i[k+2] * INV_DX
+					p2 := min(max(int(c0_2), 0), N_G-2)
+					c1_2 := float64(p2) + 1.0 - c0_2
+					c2_2 := c0_2 - float64(p2)
+					ex2 := c1_2*sim.Efield[p2] + c2_2*sim.Efield[p2+1]
+
+					// 4. Cząstka 3
+					c0_3 := sim.X_i[k+3] * INV_DX
+					p3 := min(max(int(c0_3), 0), N_G-2)
+					c1_3 := float64(p3) + 1.0 - c0_3
+					c2_3 := c0_3 - float64(p3)
+					ex3 := c1_3*sim.Efield[p3] + c2_3*sim.Efield[p3+1]
+
+					vx0 := sim.Vx_i[k] + ex0*FACTOR_I
+					vx1 := sim.Vx_i[k+1] + ex1*FACTOR_I
+					vx2 := sim.Vx_i[k+2] + ex2*FACTOR_I
+					vx3 := sim.Vx_i[k+3] + ex3*FACTOR_I
+
+					sim.Vx_i[k] = vx0
+					sim.Vx_i[k+1] = vx1
+					sim.Vx_i[k+2] = vx2
+					sim.Vx_i[k+3] = vx3
+
+					sim.X_i[k] += vx0 * DT_I
+					sim.X_i[k+1] += vx1 * DT_I
+					sim.X_i[k+2] += vx2 * DT_I
+					sim.X_i[k+3] += vx3 * DT_I
+				}
+
+				// Pętla resztkowa dla pozostałych cząstek
+				for ; k < e; k++ {
+					c0 := sim.X_i[k] * INV_DX
+					p := min(max(int(c0), 0), N_G-2)
+					c1 := float64(p) + 1.0 - c0
+					c2 := c0 - float64(p)
+					ex := c1*sim.Efield[p] + c2*sim.Efield[p+1]
+
+					sim.Vx_i[k] += ex * FACTOR_I
+					sim.X_i[k] += sim.Vx_i[k] * DT_I
+				}
 			}
 		})
 	}
@@ -347,8 +478,8 @@ func (sim *SimulationState) Step4MoveIons(t_index, t int) {
 
 	// Redukcja diagnostyk jonowych do macierzy XT
 	if sim.Measurement_mode {
-		for w := 0; w < numWorkers; w++ {
-			for p := 0; p < N_G; p++ {
+		for w := range numWorkers {
+			for p := range N_G {
 				sim.Counter_i_xt[p][t_index] += sim.WorkerIDiag[w].counter_i[p]
 				sim.Ui_xt[p][t_index] += sim.WorkerIDiag[w].ui[p]
 				sim.Meanei_xt[p][t_index] += sim.WorkerIDiag[w].meanei[p]
@@ -371,12 +502,9 @@ func (sim *SimulationState) Step5CheckBoundariesElectrons() {
 
 	// FAZA 1 (Równoległa): Każda goroutine skanuje swój chunk elektronów i oznacza
 	// cząstki poza domeną w tablicy flag AbsorbedE[] (1 = zasilana, 2 = uziemiona).
-	for w := 0; w < numWorkers; w++ {
+	for w := range numWorkers {
 		start := w * chunkSize
-		end := (w + 1) * chunkSize
-		if end > sim.N_e {
-			end = sim.N_e
-		}
+		end := min((w+1)*chunkSize, sim.N_e)
 		if start >= end {
 			continue
 		}
@@ -405,7 +533,7 @@ func (sim *SimulationState) Step5CheckBoundariesElectrons() {
 	wg.Wait()
 
 	// Redukcja liczników absorpcji elektronów
-	for w := 0; w < numWorkers; w++ {
+	for w := range numWorkers {
 		sim.N_e_abs_pow += sim.WorkerEDiag[w].abs_pow
 		sim.N_e_abs_gnd += sim.WorkerEDiag[w].abs_gnd
 	}
@@ -496,10 +624,10 @@ func (sim *SimulationState) Step6CheckBoundariesIons(t int) {
 	wg.Wait()
 
 	// Redukcja liczników absorpcji oraz histogramów IFED
-	for w := 0; w < numWorkers; w++ {
+	for w := range numWorkers {
 		sim.N_i_abs_pow += sim.WorkerIDiag[w].abs_pow
 		sim.N_i_abs_gnd += sim.WorkerIDiag[w].abs_gnd
-		for eIdx := 0; eIdx < N_IFED; eIdx++ {
+		for eIdx := range N_IFED {
 			sim.Ifed_pow[eIdx] += sim.WorkerIDiag[w].ifed_pow[eIdx]
 			sim.Ifed_gnd[eIdx] += sim.WorkerIDiag[w].ifed_gnd[eIdx]
 		}

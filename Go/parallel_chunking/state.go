@@ -23,6 +23,7 @@ type electronWorkerDiagnostics struct {
 	counterCenter uint64
 	abs_pow       uint64
 	abs_gnd       uint64
+	_             [4]uint64 // 32-bajtowy padding
 }
 
 /*
@@ -37,6 +38,7 @@ type ionWorkerDiagnostics struct {
 	abs_gnd   uint64
 	ifed_pow  [N_IFED]int
 	ifed_gnd  [N_IFED]int
+	_         [6]uint64 // 48-bajtowy padding
 }
 
 /*
@@ -189,6 +191,13 @@ func NewSimulationState(seed int64, optNumWorkers ...int) *SimulationState {
 		workers[i] = rand.New(wSrc)
 	}
 
+	newElectrons := make([][]CreatedParticle, numWorkers)
+	newIons := make([][]CreatedParticle, numWorkers)
+	for i := range numWorkers {
+		newElectrons[i] = make([]CreatedParticle, 0, 4096)
+		newIons[i] = make([]CreatedParticle, 0, 4096)
+	}
+
 	return &SimulationState{
 		NumWorkers:         numWorkers,
 		WorkerEDensity:     make([]Xvector, numWorkers),
@@ -197,8 +206,8 @@ func NewSimulationState(seed int64, optNumWorkers ...int) *SimulationState {
 		WorkerIDiag:        make([]ionWorkerDiagnostics, numWorkers),
 		AbsorbedE:          make([]uint8, MAX_N_P),
 		AbsorbedI:          make([]uint8, MAX_N_P),
-		WorkerNewElectrons: make([][]CreatedParticle, numWorkers),
-		WorkerNewIons:      make([][]CreatedParticle, numWorkers),
+		WorkerNewElectrons: newElectrons,
+		WorkerNewIons:      newIons,
 		CandidatePool:      make([]int, MAX_N_P),
 		RngWorkers:         workers,
 		Rng:                rand.New(src),
