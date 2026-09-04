@@ -52,7 +52,8 @@ sbatch --export=ALL,USE_NULL_COLLISION=1 GoPIC/GoPIC_jobs/Go/gopic_chunking_job_
 - `OMP_THREADS=K` (C++) — liczba wątków OpenMP (domyślnie równa przydzielonym rdzeniom `$SLURM_CPUS_PER_TASK`).
 - `GOMAXPROCS=K` (Go) — liczba wątków systemowych runtime Go.
 - `NUM_WORKERS=K` (Go) — liczba gorutyn workerów symulacji (domyślnie równa `$GOMAXPROCS`).
-- `USE_NULL_COLLISION=1` — wybór wersji zoptymalizowanej Null-Collision (brak flagi = Standard MCC dla Go/Python).
+- `GOAMD64=v4|v3` (Go) — poziom zestawu instrukcji mikroarchitektury CPU (domyślnie `v4` dla pełnego AVX-512 na AMD Zen 4 EPYC 9004; opcjonalnie `v3` dla procesorów z AVX/AVX2 bez AVX-512).
+- `USE_NULL_COLLISION=1` — wybór wersji Null-Collision dla implementacji z wariantami (w `Go Chunking` Null-Collision jest już jedynym i domyślnym silnikiem).
 - `MEASUREMENT=m` (lub `MEASUREMENT_MODE=1`) — uruchomienie w trybie pomiarowym (`measurement_mode`), zbieranie diagnostyk $XT$, IFED, EEPF oraz generowanie raportu `info.txt`.
 - `N_CYCLES=N` — liczba cykli RF do wykonania (domyślnie 100 dla stat, 20/100 dla record).
 
@@ -62,27 +63,26 @@ sbatch --export=ALL,USE_NULL_COLLISION=1 GoPIC/GoPIC_jobs/Go/gopic_chunking_job_
 
 ### 2.1. Go Chunking
 
+W `Go Chunking` silnik **Null-Collision jest domyślnym i jedynym silnikiem zderzeń** (nie wymaga flagi `USE_NULL_COLLISION=1`), a kompilacja domyślnie generuje instrukcje **AVX-512 (`GOAMD64=v4`)**.
+
 #### Pomiary liczników sprzętowych (`perf stat` — 100 cykli):
 ```bash
-# Null-Collision na 2 rdzeniach / 2 workerach:
-sbatch --export=ALL,USE_NULL_COLLISION=1,GOMAXPROCS=2,NUM_WORKERS=2 GoPIC/GoPIC_jobs/Go/gopic_chunking_job_stat.sh
+# Go Chunking na 2 rdzeniach / 2 workerach (domyślnie GOAMD64=v4):
+sbatch --export=ALL,GOMAXPROCS=2,NUM_WORKERS=2 GoPIC/GoPIC_jobs/Go/gopic_chunking_job_stat.sh
 
-# Null-Collision na 8 rdzeniach / 8 workerach (pełny CCX):
-sbatch --export=ALL,USE_NULL_COLLISION=1 GoPIC/GoPIC_jobs/Go/gopic_chunking_job_stat.sh
-
-# Null-Collision z oversubscription (np. 16 lub 32 gorutyny na 8 rdzeniach):
-sbatch --export=ALL,USE_NULL_COLLISION=1,NUM_WORKERS=16 GoPIC/GoPIC_jobs/Go/gopic_chunking_job_stat.sh
-
-# Standard MCC:
+# Go Chunking na 8 rdzeniach / 8 workerach (pełny CCX):
 sbatch GoPIC/GoPIC_jobs/Go/gopic_chunking_job_stat.sh
+
+# Go Chunking z wymuszeniem starszego AVX2 (GOAMD64=v3 dla porównania):
+sbatch --export=ALL,GOAMD64=v3 GoPIC/GoPIC_jobs/Go/gopic_chunking_job_stat.sh
+
+# Go Chunking z oversubscription (np. 16 lub 32 gorutyny na 8 rdzeniach):
+sbatch --export=ALL,NUM_WORKERS=16 GoPIC/GoPIC_jobs/Go/gopic_chunking_job_stat.sh
 ```
 
 #### Profilowanie drzewa wywołań (`perf record`):
 ```bash
-# Null-Collision:
-sbatch --export=ALL,USE_NULL_COLLISION=1 GoPIC/GoPIC_jobs/Go/gopic_chunking_job_record.sh
-
-# Standard MCC:
+# Go Chunking (domyślnie 8 rdzeni CCX):
 sbatch GoPIC/GoPIC_jobs/Go/gopic_chunking_job_record.sh
 ```
 

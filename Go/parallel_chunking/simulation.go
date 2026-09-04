@@ -191,12 +191,9 @@ func (sim *SimulationState) Step3MoveElectrons(t_index int) {
 	// ZRÓWNOLEGLENIE: Popychanie N_e elektronów podzielone na ciągłe chunki.
 	chunkSize := (sim.N_e + numWorkers - 1) / numWorkers
 
-	for w := 0; w < numWorkers; w++ {
+	for w := range numWorkers {
 		start := w * chunkSize
-		end := (w + 1) * chunkSize
-		if end > sim.N_e {
-			end = sim.N_e
-		}
+		end := min((w+1)*chunkSize, sim.N_e)
 		if start >= end {
 			continue
 		}
@@ -229,12 +226,12 @@ func (sim *SimulationState) Step3MoveElectrons(t_index int) {
 					diag.ue[p+1] += c2 * mean_v
 
 					v_sqr = mean_v*mean_v + sim.Vy_e[k]*sim.Vy_e[k] + sim.Vz_e[k]*sim.Vz_e[k]
-					energy = 0.5 * E_MASS * v_sqr / EV_TO_J
+					energy = 0.5 * E_MASS * v_sqr * INV_EV_TO_J
 
 					diag.meanee[p] += c1 * energy
 					diag.meanee[p+1] += c2 * energy
 
-					energy_index = minInt(int(energy/DE_CS+0.5), CS_RANGES-1)
+					energy_index = minInt(int(v_sqr*FACTOR_ENERGY_E+0.5), CS_RANGES-1)
 					velocity = math.Sqrt(v_sqr)
 					rate = sim.Sigma[E_ION][energy_index] * velocity * DT_E * GAS_DENSITY
 
@@ -243,7 +240,7 @@ func (sim *SimulationState) Step3MoveElectrons(t_index int) {
 
 					// Zliczanie EEPF w centralnym obszarze [0.45*L, 0.55*L]
 					if (MIN_X < sim.X_e[k]) && (sim.X_e[k] < MAX_X) {
-						energy_index = int(energy / DE_EEPF)
+						energy_index = int(energy * INV_DE_EEPF)
 						if energy_index < N_EEPF {
 							diag.eepf[energy_index] += 1.0
 						}
@@ -264,14 +261,14 @@ func (sim *SimulationState) Step3MoveElectrons(t_index int) {
 
 	// Redukcja diagnostyk ze wszystkich workerów do macierzy XT i tablicy EEPF
 	if sim.Measurement_mode {
-		for w := 0; w < numWorkers; w++ {
-			for p := 0; p < N_G; p++ {
+		for w := range numWorkers {
+			for p := range N_G {
 				sim.Counter_e_xt[p][t_index] += sim.WorkerEDiag[w].counter_e[p]
 				sim.Ue_xt[p][t_index] += sim.WorkerEDiag[w].ue[p]
 				sim.Meanee_xt[p][t_index] += sim.WorkerEDiag[w].meanee[p]
 				sim.Ioniz_rate_xt[p][t_index] += sim.WorkerEDiag[w].ioniz[p]
 			}
-			for i := 0; i < N_EEPF; i++ {
+			for i := range N_EEPF {
 				sim.Eepf[i] += sim.WorkerEDiag[w].eepf[i]
 			}
 			sim.Mean_energy_accu_center += sim.WorkerEDiag[w].accuCenter
@@ -303,12 +300,9 @@ func (sim *SimulationState) Step4MoveIons(t_index, t int) {
 	// ZRÓWNOLEGLENIE: Popychanie N_i jonów w chunkach w krokach subcyclingu
 	chunkSize := (sim.N_i + numWorkers - 1) / numWorkers
 
-	for w := 0; w < numWorkers; w++ {
+	for w := range numWorkers {
 		start := w * chunkSize
-		end := (w + 1) * chunkSize
-		if end > sim.N_i {
-			end = sim.N_i
-		}
+		end := min((w+1)*chunkSize, sim.N_i)
 		if start >= end {
 			continue
 		}
@@ -336,7 +330,7 @@ func (sim *SimulationState) Step4MoveIons(t_index, t int) {
 					diag.ui[p] += c1 * mean_v
 					diag.ui[p+1] += c2 * mean_v
 					v_sqr = mean_v*mean_v + sim.Vy_i[k]*sim.Vy_i[k] + sim.Vz_i[k]*sim.Vz_i[k]
-					energy = 0.5 * AR_MASS * v_sqr / EV_TO_J
+					energy = 0.5 * AR_MASS * v_sqr * INV_EV_TO_J
 					diag.meanei[p] += c1 * energy
 					diag.meanei[p+1] += c2 * energy
 				}
@@ -471,7 +465,7 @@ func (sim *SimulationState) Step6CheckBoundariesIons(t int) {
 				diag.ifed_gnd[idx] = 0
 			}
 
-			var v_sqr, energy float64
+			var v_sqr float64
 			var energy_index int
 
 			for k := s; k < e; k++ {
@@ -479,8 +473,7 @@ func (sim *SimulationState) Step6CheckBoundariesIons(t int) {
 					sim.AbsorbedI[k] = 1
 					diag.abs_pow++
 					v_sqr = sim.Vx_i[k]*sim.Vx_i[k] + sim.Vy_i[k]*sim.Vy_i[k] + sim.Vz_i[k]*sim.Vz_i[k]
-					energy = 0.5 * AR_MASS * v_sqr / EV_TO_J
-					energy_index = int(energy / DE_IFED)
+					energy_index = int(v_sqr * FACTOR_ENERGY_IFED)
 					if energy_index < N_IFED {
 						diag.ifed_pow[energy_index]++
 					}
@@ -488,8 +481,7 @@ func (sim *SimulationState) Step6CheckBoundariesIons(t int) {
 					sim.AbsorbedI[k] = 2
 					diag.abs_gnd++
 					v_sqr = sim.Vx_i[k]*sim.Vx_i[k] + sim.Vy_i[k]*sim.Vy_i[k] + sim.Vz_i[k]*sim.Vz_i[k]
-					energy = 0.5 * AR_MASS * v_sqr / EV_TO_J
-					energy_index = int(energy / DE_IFED)
+					energy_index = int(v_sqr * FACTOR_ENERGY_IFED)
 					if energy_index < N_IFED {
 						diag.ifed_gnd[energy_index]++
 					}

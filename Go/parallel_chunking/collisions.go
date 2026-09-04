@@ -14,6 +14,7 @@ Etapy:
  4. Obliczenie strat energii dla procesów niesprężystych i kątów rozproszenia (chi, eta).
  5. W przypadku jonizacji: dodanie elektronu wtórnego i jonu Ar+ do lokalnych buforów workera.
  6. Transformacja kątowa prędkości elektronu pierwotnego po zderzeniu.
+
 @param xe       Pozycja 1D zderzającego się elektronu [m].
 @param vxe, vye, vze  Wskaźniki do składowych prędkości elektronu (modyfikowane in-place).
 @param eindex   Indeks przedziału energii w tabelach przekrojów czynnych.
@@ -64,7 +65,7 @@ func (sim *SimulationState) CollisionElectron(xe float64, vxe, vye, vze *float64
 	} else if rnd < (t1 / t2) { // Wzbudzenie (niesprężyste)
 		energy = 0.5 * E_MASS * g * g
 		energy = math.Abs(energy - E_EXC_TH*EV_TO_J)       // Odjęcie progu wzbudzenia (11.5 eV)
-		g = math.Sqrt(2.0 * energy / E_MASS)               // Prędkość względna po stracie energii
+		g = math.Sqrt(energy * TWO_OVER_E_MASS)            // Prędkość względna po stracie energii
 		chi = math.Acos(1.0 - 2.0*sim.WorkerR01(workerID)) // Rozpraszanie izotropowe
 		eta = TWO_PI * sim.WorkerR01(workerID)             // Kąt azymutalny
 	} else { // Jonizacja (niesprężysta)
@@ -72,11 +73,11 @@ func (sim *SimulationState) CollisionElectron(xe float64, vxe, vye, vze *float64
 		energy = math.Abs(energy - E_ION_TH*EV_TO_J) // Odjęcie progu jonizacji (15.8 eV)
 
 		// Energia wybitego elektronu wtórnego (rozkład wg formy różniczkowej Opla)
-		e_ej = 10.0 * math.Tan(sim.WorkerR01(workerID)*math.Atan(energy/EV_TO_J/20.0)) * EV_TO_J
-		
+		e_ej = 10.0 * math.Tan(sim.WorkerR01(workerID)*math.Atan(energy*OPAL_FACTOR)) * EV_TO_J
+
 		e_sc = math.Abs(energy - e_ej) // Pozostała energia elektronu rozproszonego
-		g = math.Sqrt(2.0 * e_sc / E_MASS)
-		g2 = math.Sqrt(2.0 * e_ej / E_MASS)
+		g = math.Sqrt(e_sc * TWO_OVER_E_MASS)
+		g2 = math.Sqrt(e_ej * TWO_OVER_E_MASS)
 		chi = math.Acos(math.Sqrt(e_sc / energy))
 		chi2 = math.Acos(math.Sqrt(e_ej / energy))
 		eta = TWO_PI * sim.WorkerR01(workerID)
@@ -130,6 +131,7 @@ Etapy:
  2. Wyznaczenie kątów Eulera (theta, phi) wektora prędkości względnej.
  3. Wybór typu zderzenia na podstawie przekrojów czynnych (izotropowe vs wsteczna wymiana ładunku).
  4. Transformacja kątowa i wyznaczenie nowej prędkości jonu w układzie laboratoryjnym.
+
 @param vx_1, vy_1, vz_1 Wskaźniki do składowych prędkości jonu (modyfikowane in-place).
 @param vx_2, vy_2, vz_2 Wskaźniki do składowych prędkości atomu tła (z rozkładu RMB).
 @param e_index          Indeks energii w układzie środka masy w tabelach przekrojów.

@@ -22,7 +22,6 @@ export OMP_AFFINITY_FORMAT=">> OpenMP Thread %0.2t/%0.2N -> Core: %A (Host: %H)"
 # -----------------------------------------------------------------------------
 
 N_CYCLES="${N_CYCLES_RECORD:-100}"
-USE_NC="${USE_NULL_COLLISION:-0}"
 MEASURE_FLAG="${MEASUREMENT_MODE:-${MEASUREMENT:-0}}"
 MEASURE_ARG=""
 if [ "${MEASURE_FLAG}" = "1" ] || [ "${MEASURE_FLAG}" = "true" ] || [ "${MEASURE_FLAG}" = "m" ] || [ "${MEASURE_FLAG}" = "M" ]; then
@@ -46,6 +45,7 @@ echo ">> Ścieżka repo: ${REPO_DIR} | Commit: $(git -C "${REPO_DIR}" rev-parse 
 lscpu > "${LOG_DIR}/hardware_topology.txt" 2>&1
 
 module purge && module load gcc
+echo ">> Wersja kompilatora C++: $(g++ --version | head -n 1)"
 
 BINARY="${BUILD_DIR}/edupic_omp_${SLURM_JOB_ID}"
 rm -f "${BINARY}"

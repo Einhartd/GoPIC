@@ -1,5 +1,3 @@
-//go:build nullcollision
-
 package gopic
 
 import (
@@ -66,7 +64,7 @@ func (sim *SimulationState) sampleBinomial(n int, p float64) int {
 	// Dla bardzo małych wartości n*p < 5.0 stosujemy dokładne losowanie Bernoulliego
 	if float64(n)*p < 5.0 {
 		count := 0
-		for i := 0; i < n; i++ {
+		for range n {
 			if sim.Rng.Float64() < p {
 				count++
 			}
@@ -97,10 +95,7 @@ Etapy:
  5. Scalenie (flush) buforów workerów do głównych tablic SoA stanu symulacji.
 */
 func (sim *SimulationState) Step7CollisionsElectrons() {
-	nCollStar := sim.sampleBinomial(sim.N_e, sim.PStarE)
-	if nCollStar > sim.N_e {
-		nCollStar = sim.N_e
-	}
+	nCollStar := min(sim.sampleBinomial(sim.N_e, sim.PStarE), sim.N_e)
 	if nCollStar == 0 {
 		return
 	}
@@ -109,7 +104,7 @@ func (sim *SimulationState) Step7CollisionsElectrons() {
 	candidates := sim.randomSample(sim.N_e, nCollStar)
 
 	numWorkers := len(sim.WorkerEDensity)
-	for w := 0; w < numWorkers; w++ {
+	for w := range numWorkers {
 		sim.WorkerNewElectrons[w] = sim.WorkerNewElectrons[w][:0]
 		sim.WorkerNewIons[w] = sim.WorkerNewIons[w][:0]
 	}
@@ -120,12 +115,9 @@ func (sim *SimulationState) Step7CollisionsElectrons() {
 
 	var wg sync.WaitGroup
 
-	for w := 0; w < numWorkers; w++ {
+	for w := range numWorkers {
 		start := w * chunkSize
-		end := (w + 1) * chunkSize
-		if end > totalCandidates {
-			end = totalCandidates
-		}
+		end := min((w+1)*chunkSize, totalCandidates)
 		if start >= end {
 			continue
 		}
@@ -140,16 +132,10 @@ func (sim *SimulationState) Step7CollisionsElectrons() {
 				k := candidates[i]
 				vSqr := sim.Vx_e[k]*sim.Vx_e[k] + sim.Vy_e[k]*sim.Vy_e[k] + sim.Vz_e[k]*sim.Vz_e[k]
 				velocity := math.Sqrt(vSqr)
-				energy := 0.5 * E_MASS * vSqr / EV_TO_J
-				eIdx := minInt(int(energy/DE_CS+0.5), CS_RANGES-1)
-				realNu := sim.SigmaTotE[eIdx] * velocity
-				pAccept := realNu / sim.NuStarE
-				if pAccept > 1.0 {
-					pAccept = 1.0
-				}
 
-				// Test akceptacji metody Null-Collision (P = nu(E) / nu*_max)
-				if sim.WorkerR01(workerID) < pAccept {
+				eIdx := minInt(int(vSqr*FACTOR_ENERGY_E+0.5), CS_RANGES-1)
+				realNu := sim.SigmaTotE[eIdx] * velocity
+				if sim.WorkerR01(workerID)*sim.NuStarE < realNu {
 					sim.CollisionElectron(sim.X_e[k], &sim.Vx_e[k], &sim.Vy_e[k], &sim.Vz_e[k], eIdx, workerID)
 					localColl++
 				}
@@ -166,7 +152,7 @@ func (sim *SimulationState) Step7CollisionsElectrons() {
 
 	// SCALENIE (FLUSH): Przepisanie nowych cząstek (wtórne e- i jony Ar+) z prywatnych
 	// buforów AoS do głównych tablic SoA stanu symulacji.
-	for w := 0; w < numWorkers; w++ {
+	for w := range numWorkers {
 		for _, p := range sim.WorkerNewElectrons[w] {
 			sim.X_e[sim.N_e] = p.X
 			sim.Vx_e[sim.N_e] = p.Vx
@@ -200,10 +186,7 @@ func (sim *SimulationState) Step8CollisionIons(t int) {
 		return
 	}
 
-	nCollStar := sim.sampleBinomial(sim.N_i, sim.PStarI)
-	if nCollStar > sim.N_i {
-		nCollStar = sim.N_i
-	}
+	nCollStar := min(sim.sampleBinomial(sim.N_i, sim.PStarI), sim.N_i)
 	if nCollStar == 0 {
 		return
 	}
@@ -220,10 +203,7 @@ func (sim *SimulationState) Step8CollisionIons(t int) {
 
 	for w := 0; w < numWorkers; w++ {
 		start := w * chunkSize
-		end := (w + 1) * chunkSize
-		if end > totalCandidates {
-			end = totalCandidates
-		}
+		end := min((w+1)*chunkSize, totalCandidates)
 		if start >= end {
 			continue
 		}
@@ -243,15 +223,10 @@ func (sim *SimulationState) Step8CollisionIons(t int) {
 				gz := sim.Vz_i[k] - vzA
 				gSqr := gx*gx + gy*gy + gz*gz
 				g := math.Sqrt(gSqr)
-				energy := 0.5 * MU_ARAR * gSqr / EV_TO_J
-				eIdx := minInt(int(energy/DE_CS+0.5), CS_RANGES-1)
-				realNu := sim.SigmaTotI[eIdx] * g
-				pAccept := realNu / sim.NuStarI
-				if pAccept > 1.0 {
-					pAccept = 1.0
-				}
 
-				if sim.WorkerR01(workerID) < pAccept {
+				eIdx := minInt(int(gSqr*FACTOR_ENERGY_I+0.5), CS_RANGES-1)
+				realNu := sim.SigmaTotI[eIdx] * g
+				if sim.WorkerR01(workerID)*sim.NuStarI < realNu {
 					sim.CollisionIon(&sim.Vx_i[k], &sim.Vy_i[k], &sim.Vz_i[k], &vxA, &vyA, &vzA, eIdx, workerID)
 					localColl++
 				}

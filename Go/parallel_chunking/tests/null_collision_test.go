@@ -16,11 +16,6 @@ func TestNullCollisionPrecomputation(t *testing.T) {
 
 	sim.InitNullCollision()
 
-	// Jeśli kompilacja nie ma tagu nullcollision, InitNullCollision() jest pusta, a NuStarE wynosi 0.
-	if sim.NuStarE == 0.0 {
-		t.Skip("Pomiń: Null-collision nie jest aktywne w tym buildu (uruchom z flagą -tags nullcollision)")
-	}
-
 	// 1. Sprawdzamy, czy maksymalne częstości są dodatnie
 	if sim.NuStarE <= 0.0 {
 		t.Errorf("Oczekiwano NuStarE > 0, otrzymano %e", sim.NuStarE)

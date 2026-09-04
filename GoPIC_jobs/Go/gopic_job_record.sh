@@ -10,6 +10,8 @@
 set -euo pipefail
 
 export GOMAXPROCS=1
+export GOAMD64="${GOAMD64:-v4}"
+
 N_CYCLES="${N_CYCLES_RECORD:-20}"
 USE_NC="${USE_NULL_COLLISION:-0}"
 MEASURE_FLAG="${MEASUREMENT_MODE:-${MEASUREMENT:-0}}"
@@ -19,7 +21,9 @@ if [ "${MEASURE_FLAG}" = "1" ] || [ "${MEASURE_FLAG}" = "true" ] || [ "${MEASURE
 fi
 
 REPO_DIR="$HOME/GoPIC"
-SRC_DIR="${REPO_DIR}/Go/sequential"
+SRC_DIR="${REPO_DIR}/Go/native_version"
+[ ! -d "${SRC_DIR}" ] && SRC_DIR="${REPO_DIR}/Go/sequential"
+
 BUILD_DIR="$HOME/GoPIC_build/Go"
 LOG_DIR="$(pwd)/saved_logs_Go/logs_job_${SLURM_JOB_ID}_RECORD"
 DATA_DIR="${LOG_DIR}/edupic_data"
@@ -33,16 +37,18 @@ echo ">> Ścieżka repo: ${REPO_DIR} | Commit: $(git -C "${REPO_DIR}" rev-parse 
 lscpu > "${LOG_DIR}/hardware_topology.txt" 2>&1
 
 module load go || true
+echo ">> Wersja kompilatora Go: $(go version 2>&1 || echo 'Brak go w module/PATH')"
+echo ">> Docelowa architektura: GOAMD64=${GOAMD64}"
 
 BINARY="${BUILD_DIR}/edupic_seq_${SLURM_JOB_ID}"
 rm -f "${BINARY}"
 
 cd "${SRC_DIR}"
 if [ "${USE_NC}" = "1" ] || [ "${USE_NC}" = "true" ]; then
-    echo ">> Kompilacja: Go Sequential (Null-Collision)..."
+    echo ">> Kompilacja: Go Sequential (Null-Collision, GOAMD64=${GOAMD64}, debug symbols zachowane)..."
     go build -tags nullcollision -o "${BINARY}" ./cmd/pic
 else
-    echo ">> Kompilacja: Go Sequential (Standard MCC)..."
+    echo ">> Kompilacja: Go Sequential (Standard MCC, GOAMD64=${GOAMD64}, debug symbols zachowane)..."
     go build -o "${BINARY}" ./cmd/pic
 fi
 

@@ -15,6 +15,7 @@ Etapy:
  3. Eliminacja w przód algorytmu Thomasa (forward elimination).
  4. Podstawienie wsteczne (back substitution) i wyznaczenie potencjału w węzłach.
  5. Obliczenie natężenia pola elektrycznego wewnątrz i na brzegach komórek.
+
 @param rho1 Wskaźnik do wektora gęstości ładunku przestrzennego na siatce [C/m^3].
 @param tt   Aktualny fizyczny czas symulacji [s] (do wyznaczenia napięcia RF).
 */
@@ -50,6 +51,6 @@ func (sim *SimulationState) SolvePoisson(rho1 *Xvector, tt float64) {
 	for i := 1; i <= N_G-2; i++ {
 		sim.Efield[i] = (sim.Pot[i-1] - sim.Pot[i+1]) * S // Różnice centralne wewnątrz domeny
 	}
-	sim.Efield[0] = (sim.Pot[0]-sim.Pot[1])*INV_DX - (*rho1)[0]*DX/(2.0*EPSILON0)                 // Elektroda zasilana
-	sim.Efield[N_G-1] = (sim.Pot[N_G-2]-sim.Pot[N_G-1])*INV_DX + (*rho1)[N_G-1]*DX/(2.0*EPSILON0) // Elektroda uziemiona
+	sim.Efield[0] = (sim.Pot[0]-sim.Pot[1])*INV_DX - (*rho1)[0]*BETA
+	sim.Efield[N_G-1] = (sim.Pot[N_G-2]-sim.Pot[N_G-1])*INV_DX + (*rho1)[N_G-1]*BETA
 }

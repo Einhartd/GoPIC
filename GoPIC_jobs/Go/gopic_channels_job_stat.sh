@@ -10,10 +10,11 @@
 set -euo pipefail
 
 # -----------------------------------------------------------------------------
-# Konfiguracja Go (GOMAXPROCS) i liczby workerów
+# Konfiguracja Go (GOMAXPROCS), liczby workerów i architektury mikroprocesora
 # -----------------------------------------------------------------------------
 export GOMAXPROCS=${GOMAXPROCS:-${SLURM_CPUS_PER_TASK}}
 NUM_WORKERS="${NUM_WORKERS:-$GOMAXPROCS}"
+export GOAMD64="${GOAMD64:-v4}"
 # -----------------------------------------------------------------------------
 N_CYCLES="${N_CYCLES:-100}"
 USE_NC="${USE_NULL_COLLISION:-0}"
@@ -37,17 +38,19 @@ echo ">> Ścieżka repo: ${REPO_DIR} | Commit: $(git -C "${REPO_DIR}" rev-parse 
 lscpu > "${LOG_DIR}/hardware_topology.txt" 2>&1
 
 module load go || true
+echo ">> Wersja kompilatora Go: $(go version 2>&1 || echo 'Brak go w module/PATH')"
+echo ">> Docelowa architektura: GOAMD64=${GOAMD64}"
 
 BINARY="${BUILD_DIR}/edupic_chan_${SLURM_JOB_ID}"
 rm -f "${BINARY}"
 
 cd "${SRC_DIR}"
 if [ "${USE_NC}" = "1" ] || [ "${USE_NC}" = "true" ]; then
-    echo ">> Kompilacja: Go Channels (Null-Collision)..."
-    go build -tags nullcollision -o "${BINARY}" ./cmd/pic
+    echo ">> Kompilacja: Go Channels (Null-Collision, GOAMD64=${GOAMD64})..."
+    go build -ldflags="-s -w" -tags nullcollision -o "${BINARY}" ./cmd/pic
 else
-    echo ">> Kompilacja: Go Channels (Standard MCC)..."
-    go build -o "${BINARY}" ./cmd/pic
+    echo ">> Kompilacja: Go Channels (Standard MCC, GOAMD64=${GOAMD64})..."
+    go build -ldflags="-s -w" -o "${BINARY}" ./cmd/pic
 fi
 
 if [ ! -f "${BINARY}" ]; then
@@ -60,6 +63,7 @@ cp "${REPO_DIR}/golden_record/picdata.bin" ./picdata.bin
 
 echo ">> Uruchamianie pomiaru perf stat..."
 perf stat \
+    -e task-clock,context-switches,cpu-migrations \
     -e cycles:u,instructions:u \
     -e L1-dcache-loads:u,L1-dcache-load-misses:u \
     -e branch-loads:u,branch-misses:u \
