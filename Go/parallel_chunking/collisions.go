@@ -60,8 +60,7 @@ func (sim *SimulationState) CollisionElectron(xe float64, vxe, vye, vze *float64
 	r_t2 := rnd * t2
 
 	eta := TWO_PI * sim.WorkerR01(workerID)
-	se := math.Sin(eta)
-	ce := math.Cos(eta)
+	se, ce := math.Sincos(eta)
 
 	var sc, cc float64
 
@@ -180,8 +179,7 @@ func (sim *SimulationState) CollisionIon(vx_1, vy_1, vz_1, vx_2, vy_2, vz_2 *flo
 	sc := math.Sqrt(max(0.0, 1.0-cc*cc))
 
 	eta := TWO_PI * sim.WorkerR01(workerID)
-	se := math.Sin(eta)
-	ce := math.Cos(eta)
+	se, ce := math.Sincos(eta)
 
 	// Transformacja wektora prędkości względnej
 	gx = g * (ct*cc - st*sc*ce)

@@ -97,6 +97,7 @@ type SimulationState struct {
 	Efield, Pot                      Xvector // Rozkład pola elektrycznego i potencjału
 	E_density, I_density             Xvector // Chwilowe gęstości elektronów i jonów
 	Cumul_e_density, Cumul_i_density Xvector // Skumulowane gęstości uśredniane w czasie
+	ThomasW                          Xvector // Prekomputowany wektor współczynników algorytmu Thomasa (solver Poissona)
 
 	// Liczniki cząstek pochłoniętych na elektrodach
 	N_e_abs_pow uint64 // Licznik elektronów zaabsorbowanych na elektrodzie zasilanej
@@ -198,6 +199,13 @@ func NewSimulationState(seed int64, optNumWorkers ...int) *SimulationState {
 		newIons[i] = make([]CreatedParticle, 0, 4096)
 	}
 
+	// Prekomputacja współczynników ThomasW dla solvera Poissona (eliminacja dzieleń)
+	var thomasW Xvector
+	thomasW[1] = C / B
+	for i := 2; i <= N_G-2; i++ {
+		thomasW[i] = C / (B - A*thomasW[i-1])
+	}
+
 	return &SimulationState{
 		NumWorkers:         numWorkers,
 		WorkerEDensity:     make([]Xvector, numWorkers),
@@ -212,6 +220,7 @@ func NewSimulationState(seed int64, optNumWorkers ...int) *SimulationState {
 		RngWorkers:         workers,
 		Rng:                rand.New(src),
 		MtSrc:              src,
+		ThomasW:            thomasW,
 	}
 }
 

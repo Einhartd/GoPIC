@@ -20,7 +20,7 @@ Etapy:
 @param tt   Aktualny fizyczny czas symulacji [s] (do wyznaczenia napięcia RF).
 */
 func (sim *SimulationState) SolvePoisson(rho1 *Xvector, tt float64) {
-	var g, w, f Xvector
+	var g, f Xvector
 
 	// 1. Warunki brzegowe Dirichleta dla potencjału na elektrodach
 	sim.Pot[0] = VOLTAGE * math.Cos(OMEGA*tt) // Potencjał na elektrodzie zasilanej RF (x = 0)
@@ -33,18 +33,16 @@ func (sim *SimulationState) SolvePoisson(rho1 *Xvector, tt float64) {
 	f[1] -= sim.Pot[0]
 	f[N_G-2] -= sim.Pot[N_G-1]
 
-	// 3. Algorytm Thomasa — Faza 1: Eliminacja w przód
-	w[1] = C / B
-	g[1] = f[1] / B
+	// 3. Algorytm Thomasa — Faza 1: Eliminacja w przód (prekomputowane ThomasW eliminuje wszystkie dzielenia DIVSD)
+	g[1] = f[1] * sim.ThomasW[1]
 	for i := 2; i <= N_G-2; i++ {
-		w[i] = C / (B - A*w[i-1])
-		g[i] = (f[i] - A*g[i-1]) / (B - A*w[i-1])
+		g[i] = (f[i] - g[i-1]) * sim.ThomasW[i]
 	}
 
 	// 4. Algorytm Thomasa — Faza 2: Podstawienie wsteczne
 	sim.Pot[N_G-2] = g[N_G-2]
 	for i := N_G - 3; i > 0; i-- {
-		sim.Pot[i] = g[i] - w[i]*sim.Pot[i+1] // Potencjał w wewnętrznych punktach siatki
+		sim.Pot[i] = g[i] - sim.ThomasW[i]*sim.Pot[i+1] // Potencjał w wewnętrznych punktach siatki
 	}
 
 	// 5. Obliczanie natężenia pola elektrycznego E = -grad(phi)

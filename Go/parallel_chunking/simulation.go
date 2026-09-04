@@ -58,18 +58,18 @@ func (sim *SimulationState) Step1ComputeElectronDensity() {
 		// Każdy worker operuje wyłącznie na swoim prywatnym buforze WorkerEDensity[workerID],
 		// co eliminuje wyścigi danych (Data Races) i potrzebę stosowania blokad (Mutex).
 		wg.Go(func() {
+			density := &sim.WorkerEDensity[workerID]
 			// 1. Zerowanie prywatnego bufora gęstości danego workera
 			for p := range N_G {
-				sim.WorkerEDensity[workerID][p] = 0.0
+				density[p] = 0.0
 			}
 			// 2. Depozycja wagowa ładunku cząstek do siatki (schemat liniowy CIC)
-			var c0 float64
-			var p int
 			for k := s; k < e; k++ {
-				c0 = sim.X_e[k] * INV_DX
-				p = int(c0)
-				sim.WorkerEDensity[workerID][p] += (float64(p) + 1.0 - c0) * FACTOR_W
-				sim.WorkerEDensity[workerID][p+1] += (c0 - float64(p)) * FACTOR_W
+				c0 := sim.X_e[k] * INV_DX
+				p := min(max(int(c0), 0), N_G-2)
+				d := c0 - float64(p)
+				density[p] += (1.0 - d) * FACTOR_W
+				density[p+1] += d * FACTOR_W
 			}
 		})
 	}
@@ -122,16 +122,16 @@ func (sim *SimulationState) Step1ComputeIonDensity(t int) {
 
 			// Start goroutine: lokalna depozycja CIC jonów do bufora WorkerIDensity[workerID]
 			wg.Go(func() {
+				density := &sim.WorkerIDensity[workerID]
 				for p := range N_G {
-					sim.WorkerIDensity[workerID][p] = 0.0
+					density[p] = 0.0
 				}
-				var c0 float64
-				var p int
 				for k := s; k < e; k++ {
-					c0 = sim.X_i[k] * INV_DX
-					p = int(c0)
-					sim.WorkerIDensity[workerID][p] += (float64(p) + 1.0 - c0) * FACTOR_W
-					sim.WorkerIDensity[workerID][p+1] += (c0 - float64(p)) * FACTOR_W
+					c0 := sim.X_i[k] * INV_DX
+					p := min(max(int(c0), 0), N_G-2)
+					d := c0 - float64(p)
+					density[p] += (1.0 - d) * FACTOR_W
+					density[p+1] += d * FACTOR_W
 				}
 			})
 		}
