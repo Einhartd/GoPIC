@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"testing"
@@ -83,26 +84,32 @@ func TestRegressionGoldenRun(t *testing.T) {
 		os.Remove(filepath.Join(parentDir, fname))
 	}
 
+	binName := "regression_runner"
+	if runtime.GOOS == "windows" {
+		binName += ".exe"
+	}
+	binPath := filepath.Join(parentDir, binName)
+
 	// 1. Zbudowanie regression_runner
-	cmdBuild := exec.Command("go", "build", "-o", "regression_runner", "cmd/regression/main.go")
+	cmdBuild := exec.Command("go", "build", "-o", binPath, "cmd/regression/main.go")
 	cmdBuild.Dir = parentDir
 	if err := cmdBuild.Run(); err != nil {
 		t.Fatalf("Blad budowania regression_runner: %v", err)
 	}
-	defer os.Remove(filepath.Join(parentDir, "regression_runner"))
+	defer os.Remove(binPath)
 
-	// 2. Inicjalizacja: `./regression_runner 0`
-	cmdInit := exec.Command("./regression_runner", "0")
+	// 2. Inicjalizacja: `regression_runner 0`
+	cmdInit := exec.Command(binPath, "0")
 	cmdInit.Dir = parentDir
 	if err := cmdInit.Run(); err != nil {
-		t.Fatalf("Blad uruchomienia `./regression_runner 0`: %v", err)
+		t.Fatalf("Blad uruchomienia `%s 0`: %v", binPath, err)
 	}
 
-	// 3. Kontynuacja: `./regression_runner 5`
-	cmdRun := exec.Command("./regression_runner", "5")
+	// 3. Kontynuacja: `regression_runner 5`
+	cmdRun := exec.Command(binPath, "5")
 	cmdRun.Dir = parentDir
 	if err := cmdRun.Run(); err != nil {
-		t.Fatalf("Blad uruchomienia `./regression_runner 5`: %v", err)
+		t.Fatalf("Blad uruchomienia `%s 5`: %v", binPath, err)
 	}
 
 	generatedConv := filepath.Join(parentDir, "conv.dat")

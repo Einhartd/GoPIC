@@ -23,6 +23,7 @@ type electronWorkerDiagnostics struct {
 	counterCenter uint64
 	abs_pow       uint64
 	abs_gnd       uint64
+	_             [4]uint64 // 32-bajtowy padding zapobiegający False Sharing linii cache L1 (64B)
 }
 
 /*
@@ -37,6 +38,7 @@ type ionWorkerDiagnostics struct {
 	abs_gnd   uint64
 	ifed_pow  [N_IFED]int
 	ifed_gnd  [N_IFED]int
+	_         [6]uint64 // 48-bajtowy padding zapobiegający False Sharing linii cache L1 (64B)
 }
 
 /*
@@ -95,6 +97,7 @@ type SimulationState struct {
 	Efield, Pot                      Xvector // Rozkład pola elektrycznego i potencjału
 	E_density, I_density             Xvector // Chwilowe gęstości elektronów i jonów
 	Cumul_e_density, Cumul_i_density Xvector // Skumulowane gęstości uśredniane w czasie
+	ThomasW                          Xvector // Prekomputowany wektor współczynników algorytmu Thomasa (solver Poissona)
 
 	// Liczniki cząstek pochłoniętych na elektrodach
 	N_e_abs_pow uint64 // Licznik elektronów zaabsorbowanych na elektrodzie zasilanej
@@ -199,6 +202,20 @@ func NewSimulationState(seed int64, optNumWorkers ...int) *SimulationState {
 		workers[i] = rand.New(wSrc)
 	}
 
+	newElectrons := make([][]CreatedParticle, numWorkers)
+	newIons := make([][]CreatedParticle, numWorkers)
+	for i := range numWorkers {
+		newElectrons[i] = make([]CreatedParticle, 0, 4096)
+		newIons[i] = make([]CreatedParticle, 0, 4096)
+	}
+
+	// Prekomputacja współczynników ThomasW dla solvera Poissona (eliminacja dzieleń)
+	var thomasW Xvector
+	thomasW[1] = C / B
+	for i := 2; i <= N_G-2; i++ {
+		thomasW[i] = C / (B - A*thomasW[i-1])
+	}
+
 	sim := &SimulationState{
 		NumWorkers:         numWorkers,
 		WorkerEDensity:     make([]Xvector, numWorkers),
@@ -207,9 +224,10 @@ func NewSimulationState(seed int64, optNumWorkers ...int) *SimulationState {
 		WorkerIDiag:        make([]ionWorkerDiagnostics, numWorkers),
 		AbsorbedE:          make([]uint8, MAX_N_P),
 		AbsorbedI:          make([]uint8, MAX_N_P),
-		WorkerNewElectrons: make([][]CreatedParticle, numWorkers),
-		WorkerNewIons:      make([][]CreatedParticle, numWorkers),
+		WorkerNewElectrons: newElectrons,
+		WorkerNewIons:      newIons,
 		CandidatePool:      make([]int, MAX_N_P),
+		ThomasW:            thomasW,
 
 		WorkerCmdChan:  make([]chan WorkerCommand, numWorkers),
 		WorkerDoneChan: make(chan int, numWorkers),

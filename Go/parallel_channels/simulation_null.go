@@ -1,5 +1,3 @@
-//go:build nullcollision
-
 package gopic
 
 import (

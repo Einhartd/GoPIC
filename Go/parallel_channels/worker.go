@@ -36,19 +36,19 @@ func (sim *SimulationState) startWorker(workerID int) {
 			start := workerID * chunkSize
 			end := min((workerID+1)*chunkSize, sim.N_e)
 
+			densityE := &sim.WorkerEDensity[workerID]
 			// Zerowanie prywatnego bufora węzłów siatki dla danego workera
 			for i := range N_G {
-				sim.WorkerEDensity[workerID][i] = 0.0
+				densityE[i] = 0.0
 			}
 
 			if start < end {
-				var c0 float64
-				var p int
 				for k := start; k < end; k++ {
-					c0 = sim.X_e[k] * INV_DX
-					p = int(c0)
-					sim.WorkerEDensity[workerID][p] += (float64(p) + 1.0 - c0) * FACTOR_W
-					sim.WorkerEDensity[workerID][p+1] += (c0 - float64(p)) * FACTOR_W
+					c0 := sim.X_e[k] * INV_DX
+					p := min(max(int(c0), 0), N_G-2)
+					d := c0 - float64(p)
+					densityE[p] += (1.0 - d) * FACTOR_W
+					densityE[p+1] += d * FACTOR_W
 				}
 			}
 			sim.WorkerDoneChan <- workerID
@@ -60,18 +60,18 @@ func (sim *SimulationState) startWorker(workerID int) {
 			start := workerID * chunkSize
 			end := min((workerID+1)*chunkSize, sim.N_i)
 
+			densityI := &sim.WorkerIDensity[workerID]
 			for i := range N_G {
-				sim.WorkerIDensity[workerID][i] = 0.0
+				densityI[i] = 0.0
 			}
 
 			if start < end {
-				var c0 float64
-				var p int
 				for k := start; k < end; k++ {
-					c0 = sim.X_i[k] * INV_DX
-					p = int(c0)
-					sim.WorkerIDensity[workerID][p] += (float64(p) + 1.0 - c0) * FACTOR_W
-					sim.WorkerIDensity[workerID][p+1] += (c0 - float64(p)) * FACTOR_W
+					c0 := sim.X_i[k] * INV_DX
+					p := min(max(int(c0), 0), N_G-2)
+					d := c0 - float64(p)
+					densityI[p] += (1.0 - d) * FACTOR_W
+					densityI[p+1] += d * FACTOR_W
 				}
 			}
 			sim.WorkerDoneChan <- workerID
@@ -83,22 +83,21 @@ func (sim *SimulationState) startWorker(workerID int) {
 			start := workerID * chunkSize
 			end := min((workerID+1)*chunkSize, sim.N_e)
 
-			diag := &sim.WorkerEDiag[workerID]
-			*diag = electronWorkerDiagnostics{}
+			if sim.Measurement_mode {
+				diag := &sim.WorkerEDiag[workerID]
+				*diag = electronWorkerDiagnostics{}
 
-			if start < end {
-				var c0, c1, c2, e_x, mean_v, v_sqr, energy, velocity, rate float64
-				var p, energy_index int
+				if start < end {
+					var c0, c1, c2, e_x, mean_v, v_sqr, energy, velocity, rate float64
+					var p, energy_index int
 
-				for k := start; k < end; k++ {
-					// Interpolacja liniowa pola E (CIC)
-					c0 = sim.X_e[k] * INV_DX
-					p = int(c0)
-					c1 = float64(p) + 1.0 - c0
-					c2 = c0 - float64(p)
-					e_x = c1*sim.Efield[p] + c2*sim.Efield[p+1]
+					for k := start; k < end; k++ {
+						c0 = sim.X_e[k] * INV_DX
+						p = min(max(int(c0), 0), N_G-2)
+						c1 = float64(p) + 1.0 - c0
+						c2 = c0 - float64(p)
+						e_x = c1*sim.Efield[p] + c2*sim.Efield[p+1]
 
-					if sim.Measurement_mode {
 						mean_v = sim.Vx_e[k] - 0.5*e_x*FACTOR_E
 						diag.counter_e[p] += c1
 						diag.counter_e[p+1] += c2
@@ -107,12 +106,12 @@ func (sim *SimulationState) startWorker(workerID int) {
 						diag.ue[p+1] += c2 * mean_v
 
 						v_sqr = mean_v*mean_v + sim.Vy_e[k]*sim.Vy_e[k] + sim.Vz_e[k]*sim.Vz_e[k]
-						energy = 0.5 * E_MASS * v_sqr / EV_TO_J
+						energy = 0.5 * E_MASS * v_sqr * INV_EV_TO_J
 
 						diag.meanee[p] += c1 * energy
 						diag.meanee[p+1] += c2 * energy
 
-						energy_index = minInt(int(energy/DE_CS+0.5), CS_RANGES-1)
+						energy_index = minInt(int(v_sqr*FACTOR_ENERGY_E+0.5), CS_RANGES-1)
 						velocity = math.Sqrt(v_sqr)
 						rate = sim.Sigma[E_ION][energy_index] * velocity * DT_E * GAS_DENSITY
 
@@ -121,17 +120,70 @@ func (sim *SimulationState) startWorker(workerID int) {
 
 						// Zliczanie EEPF w centrum wyładowania
 						if (MIN_X < sim.X_e[k]) && (sim.X_e[k] < MAX_X) {
-							energy_index = int(energy / DE_EEPF)
+							energy_index = int(energy * INV_DE_EEPF)
 							if energy_index < N_EEPF {
 								diag.eepf[energy_index] += 1.0
 							}
 							diag.accuCenter += energy
 							diag.counterCenter++
 						}
-					}
 
-					// Integracja ruchu Leap-Frog
-					sim.Vx_e[k] -= e_x * FACTOR_E
+						// Integracja ruchu Leap-Frog
+						sim.Vx_e[k] -= e_x * FACTOR_E
+						sim.X_e[k] += sim.Vx_e[k] * DT_E
+					}
+				}
+			} else {
+				if end > start {
+					_ = sim.X_e[end-1]
+					_ = sim.Vx_e[end-1]
+				}
+
+				k := start
+				for ; k <= end-4; k += 4 {
+					c0_0 := sim.X_e[k] * INV_DX
+					p0 := min(max(int(c0_0), 0), N_G-2)
+					d0 := c0_0 - float64(p0)
+					ex0 := sim.Efield[p0] + d0*(sim.Efield[p0+1]-sim.Efield[p0])
+
+					c0_1 := sim.X_e[k+1] * INV_DX
+					p1 := min(max(int(c0_1), 0), N_G-2)
+					d1 := c0_1 - float64(p1)
+					ex1 := sim.Efield[p1] + d1*(sim.Efield[p1+1]-sim.Efield[p1])
+
+					c0_2 := sim.X_e[k+2] * INV_DX
+					p2 := min(max(int(c0_2), 0), N_G-2)
+					d2 := c0_2 - float64(p2)
+					ex2 := sim.Efield[p2] + d2*(sim.Efield[p2+1]-sim.Efield[p2])
+
+					c0_3 := sim.X_e[k+3] * INV_DX
+					p3 := min(max(int(c0_3), 0), N_G-2)
+					d3 := c0_3 - float64(p3)
+					ex3 := sim.Efield[p3] + d3*(sim.Efield[p3+1]-sim.Efield[p3])
+
+					vx0 := sim.Vx_e[k] - ex0*FACTOR_E
+					vx1 := sim.Vx_e[k+1] - ex1*FACTOR_E
+					vx2 := sim.Vx_e[k+2] - ex2*FACTOR_E
+					vx3 := sim.Vx_e[k+3] - ex3*FACTOR_E
+
+					sim.Vx_e[k] = vx0
+					sim.Vx_e[k+1] = vx1
+					sim.Vx_e[k+2] = vx2
+					sim.Vx_e[k+3] = vx3
+
+					sim.X_e[k] += vx0 * DT_E
+					sim.X_e[k+1] += vx1 * DT_E
+					sim.X_e[k+2] += vx2 * DT_E
+					sim.X_e[k+3] += vx3 * DT_E
+				}
+
+				for ; k < end; k++ {
+					c0 := sim.X_e[k] * INV_DX
+					p := min(max(int(c0), 0), N_G-2)
+					d := c0 - float64(p)
+					ex := sim.Efield[p] + d*(sim.Efield[p+1]-sim.Efield[p])
+
+					sim.Vx_e[k] -= ex * FACTOR_E
 					sim.X_e[k] += sim.Vx_e[k] * DT_E
 				}
 			}
@@ -144,33 +196,86 @@ func (sim *SimulationState) startWorker(workerID int) {
 			start := workerID * chunkSize
 			end := min((workerID+1)*chunkSize, sim.N_i)
 
-			diag := &sim.WorkerIDiag[workerID]
-			*diag = ionWorkerDiagnostics{}
+			if sim.Measurement_mode {
+				diag := &sim.WorkerIDiag[workerID]
+				*diag = ionWorkerDiagnostics{}
 
-			if start < end {
-				var c0, c1, c2, e_x, mean_v, v_sqr, energy float64
-				var p int
+				if start < end {
+					var c0, c1, c2, e_x, mean_v, v_sqr, energy float64
+					var p int
 
-				for k := start; k < end; k++ {
-					c0 = sim.X_i[k] * INV_DX
-					p = int(c0)
-					c1 = float64(p) + 1.0 - c0
-					c2 = c0 - float64(p)
-					e_x = c1*sim.Efield[p] + c2*sim.Efield[p+1]
+					for k := start; k < end; k++ {
+						c0 = sim.X_i[k] * INV_DX
+						p = min(max(int(c0), 0), N_G-2)
+						c1 = float64(p) + 1.0 - c0
+						c2 = c0 - float64(p)
+						e_x = c1*sim.Efield[p] + c2*sim.Efield[p+1]
 
-					if sim.Measurement_mode {
 						mean_v = sim.Vx_i[k] + 0.5*e_x*FACTOR_I
 						diag.counter_i[p] += c1
 						diag.counter_i[p+1] += c2
 						diag.ui[p] += c1 * mean_v
 						diag.ui[p+1] += c2 * mean_v
 						v_sqr = mean_v*mean_v + sim.Vy_i[k]*sim.Vy_i[k] + sim.Vz_i[k]*sim.Vz_i[k]
-						energy = 0.5 * AR_MASS * v_sqr / EV_TO_J
+						energy = 0.5 * AR_MASS * v_sqr * INV_EV_TO_J
 						diag.meanei[p] += c1 * energy
 						diag.meanei[p+1] += c2 * energy
-					}
 
-					sim.Vx_i[k] += e_x * FACTOR_I
+						sim.Vx_i[k] += e_x * FACTOR_I
+						sim.X_i[k] += sim.Vx_i[k] * DT_I
+					}
+				}
+			} else {
+				if end > start {
+					_ = sim.X_i[end-1]
+					_ = sim.Vx_i[end-1]
+				}
+
+				k := start
+				for ; k <= end-4; k += 4 {
+					c0_0 := sim.X_i[k] * INV_DX
+					p0 := min(max(int(c0_0), 0), N_G-2)
+					d0 := c0_0 - float64(p0)
+					ex0 := sim.Efield[p0] + d0*(sim.Efield[p0+1]-sim.Efield[p0])
+
+					c0_1 := sim.X_i[k+1] * INV_DX
+					p1 := min(max(int(c0_1), 0), N_G-2)
+					d1 := c0_1 - float64(p1)
+					ex1 := sim.Efield[p1] + d1*(sim.Efield[p1+1]-sim.Efield[p1])
+
+					c0_2 := sim.X_i[k+2] * INV_DX
+					p2 := min(max(int(c0_2), 0), N_G-2)
+					d2 := c0_2 - float64(p2)
+					ex2 := sim.Efield[p2] + d2*(sim.Efield[p2+1]-sim.Efield[p2])
+
+					c0_3 := sim.X_i[k+3] * INV_DX
+					p3 := min(max(int(c0_3), 0), N_G-2)
+					d3 := c0_3 - float64(p3)
+					ex3 := sim.Efield[p3] + d3*(sim.Efield[p3+1]-sim.Efield[p3])
+
+					vx0 := sim.Vx_i[k] + ex0*FACTOR_I
+					vx1 := sim.Vx_i[k+1] + ex1*FACTOR_I
+					vx2 := sim.Vx_i[k+2] + ex2*FACTOR_I
+					vx3 := sim.Vx_i[k+3] + ex3*FACTOR_I
+
+					sim.Vx_i[k] = vx0
+					sim.Vx_i[k+1] = vx1
+					sim.Vx_i[k+2] = vx2
+					sim.Vx_i[k+3] = vx3
+
+					sim.X_i[k] += vx0 * DT_I
+					sim.X_i[k+1] += vx1 * DT_I
+					sim.X_i[k+2] += vx2 * DT_I
+					sim.X_i[k+3] += vx3 * DT_I
+				}
+
+				for ; k < end; k++ {
+					c0 := sim.X_i[k] * INV_DX
+					p := min(max(int(c0), 0), N_G-2)
+					d := c0 - float64(p)
+					ex := sim.Efield[p] + d*(sim.Efield[p+1]-sim.Efield[p])
+
+					sim.Vx_i[k] += ex * FACTOR_I
 					sim.X_i[k] += sim.Vx_i[k] * DT_I
 				}
 			}
@@ -218,7 +323,7 @@ func (sim *SimulationState) startWorker(workerID int) {
 			}
 
 			if start < end {
-				var v_sqr, energy float64
+				var v_sqr float64
 				var energy_index int
 
 				for k := start; k < end; k++ {
@@ -226,8 +331,7 @@ func (sim *SimulationState) startWorker(workerID int) {
 						sim.AbsorbedI[k] = 1
 						diag.abs_pow++
 						v_sqr = sim.Vx_i[k]*sim.Vx_i[k] + sim.Vy_i[k]*sim.Vy_i[k] + sim.Vz_i[k]*sim.Vz_i[k]
-						energy = 0.5 * AR_MASS * v_sqr / EV_TO_J
-						energy_index = int(energy / DE_IFED)
+						energy_index = int(v_sqr * FACTOR_ENERGY_IFED)
 						if energy_index < N_IFED {
 							diag.ifed_pow[energy_index]++
 						}
@@ -235,8 +339,7 @@ func (sim *SimulationState) startWorker(workerID int) {
 						sim.AbsorbedI[k] = 2
 						diag.abs_gnd++
 						v_sqr = sim.Vx_i[k]*sim.Vx_i[k] + sim.Vy_i[k]*sim.Vy_i[k] + sim.Vz_i[k]*sim.Vz_i[k]
-						energy = 0.5 * AR_MASS * v_sqr / EV_TO_J
-						energy_index = int(energy / DE_IFED)
+						energy_index = int(v_sqr * FACTOR_ENERGY_IFED)
 						if energy_index < N_IFED {
 							diag.ifed_gnd[energy_index]++
 						}
@@ -256,7 +359,6 @@ func (sim *SimulationState) startWorker(workerID int) {
 			var localEColl uint64
 
 			if len(sim.CandidatesE) > 0 {
-				// Wariant Null-Collision
 				totalCandidates := len(sim.CandidatesE)
 				chunkSize := (totalCandidates + numWorkers - 1) / numWorkers
 				start := workerID * chunkSize
@@ -267,37 +369,11 @@ func (sim *SimulationState) startWorker(workerID int) {
 						k := sim.CandidatesE[i]
 						vSqr := sim.Vx_e[k]*sim.Vx_e[k] + sim.Vy_e[k]*sim.Vy_e[k] + sim.Vz_e[k]*sim.Vz_e[k]
 						velocity := math.Sqrt(vSqr)
-						energy := 0.5 * E_MASS * vSqr / EV_TO_J
-						eIdx := minInt(int(energy/DE_CS+0.5), CS_RANGES-1)
+						eIdx := minInt(int(vSqr*FACTOR_ENERGY_E+0.5), CS_RANGES-1)
 						realNu := sim.SigmaTotE[eIdx] * velocity
-						pAccept := realNu / sim.NuStarE
-						if pAccept > 1.0 {
-							pAccept = 1.0
-						}
 
-						if sim.WorkerR01(workerID) < pAccept {
+						if sim.WorkerR01(workerID)*sim.NuStarE < realNu {
 							sim.CollisionElectron(sim.X_e[k], &sim.Vx_e[k], &sim.Vy_e[k], &sim.Vz_e[k], eIdx, workerID)
-							localEColl++
-						}
-					}
-				}
-			} else {
-				// Wariant bezpośredniego próbkowania (Standard)
-				chunkSize := (sim.N_e + numWorkers - 1) / numWorkers
-				start := workerID * chunkSize
-				end := min((workerID+1)*chunkSize, sim.N_e)
-
-				if start < end {
-					for k := start; k < end; k++ {
-						v_sqr := sim.Vx_e[k]*sim.Vx_e[k] + sim.Vy_e[k]*sim.Vy_e[k] + sim.Vz_e[k]*sim.Vz_e[k]
-						velocity := math.Sqrt(v_sqr)
-						energy := 0.5 * E_MASS * v_sqr / EV_TO_J
-						energy_index := minInt(int(energy/DE_CS+0.5), CS_RANGES-1)
-						nu := sim.SigmaTotE[energy_index] * velocity
-						p_coll := 1 - math.Exp(-nu*DT_E)
-
-						if sim.WorkerR01(workerID) < p_coll {
-							sim.CollisionElectron(sim.X_e[k], &sim.Vx_e[k], &sim.Vy_e[k], &sim.Vz_e[k], energy_index, workerID)
 							localEColl++
 						}
 					}
@@ -316,7 +392,6 @@ func (sim *SimulationState) startWorker(workerID int) {
 			var localIColl uint64
 
 			if len(sim.CandidatesI) > 0 {
-				// Wariant Null-Collision
 				totalCandidates := len(sim.CandidatesI)
 				chunkSize := (totalCandidates + numWorkers - 1) / numWorkers
 				start := workerID * chunkSize
@@ -333,43 +408,11 @@ func (sim *SimulationState) startWorker(workerID int) {
 						gz := sim.Vz_i[k] - vzA
 						gSqr := gx*gx + gy*gy + gz*gz
 						g := math.Sqrt(gSqr)
-						energy := 0.5 * MU_ARAR * gSqr / EV_TO_J
-						eIdx := minInt(int(energy/DE_CS+0.5), CS_RANGES-1)
+						eIdx := minInt(int(gSqr*FACTOR_ENERGY_I+0.5), CS_RANGES-1)
 						realNu := sim.SigmaTotI[eIdx] * g
-						pAccept := realNu / sim.NuStarI
-						if pAccept > 1.0 {
-							pAccept = 1.0
-						}
 
-						if sim.WorkerR01(workerID) < pAccept {
+						if sim.WorkerR01(workerID)*sim.NuStarI < realNu {
 							sim.CollisionIon(&sim.Vx_i[k], &sim.Vy_i[k], &sim.Vz_i[k], &vxA, &vyA, &vzA, eIdx, workerID)
-							localIColl++
-						}
-					}
-				}
-			} else {
-				// Wariant bezpośredniego próbkowania (Standard)
-				chunkSize := (sim.N_i + numWorkers - 1) / numWorkers
-				start := workerID * chunkSize
-				end := min((workerID+1)*chunkSize, sim.N_i)
-
-				if start < end {
-					for k := start; k < end; k++ {
-						vx_a := sim.WorkerRMB(workerID)
-						vy_a := sim.WorkerRMB(workerID)
-						vz_a := sim.WorkerRMB(workerID)
-						gx := sim.Vx_i[k] - vx_a
-						gy := sim.Vy_i[k] - vy_a
-						gz := sim.Vz_i[k] - vz_a
-						g_sqr := gx*gx + gy*gy + gz*gz
-						g := math.Sqrt(g_sqr)
-						energy := 0.5 * MU_ARAR * g_sqr / EV_TO_J
-						energy_index := minInt(int(energy/DE_CS+0.5), CS_RANGES-1)
-						nu := sim.SigmaTotI[energy_index] * g
-						p_coll := 1 - math.Exp(-nu*DT_I)
-
-						if sim.WorkerR01(workerID) < p_coll {
-							sim.CollisionIon(&sim.Vx_i[k], &sim.Vy_i[k], &sim.Vz_i[k], &vx_a, &vy_a, &vz_a, energy_index, workerID)
 							localIColl++
 						}
 					}

@@ -95,6 +95,30 @@ const (
 	C     float64 = 1.0
 	S     float64 = 1.0 / (2.0 * DX)
 	ALPHA float64 = -DX * DX / EPSILON0
+
+	// Odwrotności stałych fizycznych
+	INV_EV_TO_J     float64 = 1.0 / EV_TO_J
+	INV_E_MASS      float64 = 1.0 / E_MASS
+	TWO_OVER_E_MASS float64 = 2.0 / E_MASS
+	HALF_E_MASS     float64 = 0.5 * E_MASS
+	INV_AR_MASS     float64 = 1.0 / AR_MASS
+	HALF_AR_MASS    float64 = 0.5 * AR_MASS
+
+	// Odwrotności kroków czasoprzestrzennych
+	INV_DT_E float64 = 1.0 / DT_E
+	INV_DT_I float64 = 1.0 / DT_I
+
+	// Współczynniki konwersji energii do indeksów dyskretyzacji
+	INV_DE_CS       float64 = 1.0 / DE_CS
+	FACTOR_ENERGY_E float64 = (0.5 * E_MASS * INV_EV_TO_J) * INV_DE_CS
+	FACTOR_ENERGY_I float64 = (0.5 * MU_ARAR * INV_EV_TO_J) * INV_DE_CS
+	OPAL_FACTOR     float64 = (1.0 / EV_TO_J) / 20.0
+
+	// Diagnostyki (EEPF, IFED) i Poisson
+	INV_DE_EEPF        float64 = 1.0 / DE_EEPF
+	INV_DE_IFED        float64 = 1.0 / DE_IFED
+	FACTOR_ENERGY_IFED float64 = (0.5 * AR_MASS * INV_EV_TO_J) * INV_DE_IFED
+	BETA               float64 = DX / (2.0 * EPSILON0)
 )
 
 // =============================================================================

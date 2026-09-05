@@ -260,5 +260,6 @@ FlameGraph/
 flamegraphs_output/
 plots/
 analysis_output/
-assembly_analysis/
+/assembly_analysis/
+!docs/assembly_analysis/
 local_runs/
