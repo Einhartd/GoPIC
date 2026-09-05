@@ -1,0 +1,53 @@
+﻿Total: 6.71s
+ROUTINE ======================== main.simdLeapFrog in C:\Users\E14\Documents\GitHub\GoPIC\docs\go_simd\generate_profiles.go
+         0      6.70s (flat, cum) 99.85% of Total
+         .      6.70s     18:func simdLeapFrog(x, vx []float64, efield []float64, n int) {
+         .          .     19:	vNegFactor := simd.BroadcastFloat64s(-FACTOR_E)
+         .          .     20:	vDt := simd.BroadcastFloat64s(DT_E)
+         .          .     21:	var exArr [4]float64
+         .          .     22:
+         .          .     23:	k := 0
+ROUTINE ======================== main.simdLeapFrog@simd256 in C:\Users\E14\Documents\GitHub\GoPIC\docs\go_simd\generate_profiles.go
+     3.64s      6.70s (flat, cum) 99.85% of Total
+         .          .     18:func simdLeapFrog(x, vx []float64, efield []float64, n int) {
+         .          .     19:	vNegFactor := simd.BroadcastFloat64s(-FACTOR_E)
+         .          .     20:	vDt := simd.BroadcastFloat64s(DT_E)
+         .          .     21:	var exArr [4]float64
+         .          .     22:
+         .          .     23:	k := 0
+      20ms       20ms     24:	for ; k <= n-4; k += 4 {
+     2.51s      2.51s     25:		c0_0 := x[k] * INV_DX
+     200ms      200ms     26:		p0 := min(max(int(c0_0), 0), N_G-2)
+     210ms      210ms     27:		c1_0 := float64(p0) + 1.0 - c0_0
+      50ms       50ms     28:		c2_0 := c0_0 - float64(p0)
+     110ms      110ms     29:		exArr[0] = c1_0*efield[p0] + c2_0*efield[p0+1]
+         .          .     30:
+      70ms       70ms     31:		c0_1 := x[k+1] * INV_DX
+      10ms       10ms     32:		p1 := min(max(int(c0_1), 0), N_G-2)
+         .          .     33:		c1_1 := float64(p1) + 1.0 - c0_1
+      10ms       10ms     34:		c2_1 := c0_1 - float64(p1)
+     120ms      120ms     35:		exArr[1] = c1_1*efield[p1] + c2_1*efield[p1+1]
+         .          .     36:
+      10ms       10ms     37:		c0_2 := x[k+2] * INV_DX
+      20ms       20ms     38:		p2 := min(max(int(c0_2), 0), N_G-2)
+         .          .     39:		c1_2 := float64(p2) + 1.0 - c0_2
+      20ms       20ms     40:		c2_2 := c0_2 - float64(p2)
+     130ms      130ms     41:		exArr[2] = c1_2*efield[p2] + c2_2*efield[p2+1]
+         .          .     42:
+         .          .     43:		c0_3 := x[k+3] * INV_DX
+      10ms       10ms     44:		p3 := min(max(int(c0_3), 0), N_G-2)
+      10ms       10ms     45:		c1_3 := float64(p3) + 1.0 - c0_3
+         .          .     46:		c2_3 := c0_3 - float64(p3)
+      50ms       50ms     47:		exArr[3] = c1_3*efield[p3] + c2_3*efield[p3+1]
+         .          .     48:
+         .          .     49:		vEx := simd.LoadFloat64s(exArr[:4])
+      10ms      2.96s     50:		vVx := simd.LoadFloat64s(vx[k : k+4])
+         .          .     51:		vX := simd.LoadFloat64s(x[k : k+4])
+         .          .     52:
+      70ms       80ms     53:		vVxNew := vEx.MulAdd(vNegFactor, vVx)
+         .      100ms     54:		vXNew := vVxNew.MulAdd(vDt, vX)
+         .          .     55:
+         .          .     56:		vVxNew.Store(vx[k : k+4])
+         .          .     57:		vXNew.Store(x[k : k+4])
+         .          .     58:	}
+         .          .     59:}

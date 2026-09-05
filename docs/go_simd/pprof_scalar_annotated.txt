@@ -1,0 +1,45 @@
+﻿Total: 2.21s
+ROUTINE ======================== main.scalarLeapFrog in C:\Users\E14\Documents\GitHub\GoPIC\docs\go_simd\generate_profiles.go
+     2.21s      2.21s (flat, cum)   100% of Total
+         .          .     62:func scalarLeapFrog(x, vx []float64, efield []float64, n int) {
+         .          .     63:	k := 0
+      50ms       50ms     64:	for ; k <= n-4; k += 4 {
+         .          .     65:		c0_0 := x[k] * INV_DX
+      30ms       30ms     66:		p0 := min(max(int(c0_0), 0), N_G-2)
+      30ms       30ms     67:		d0 := c0_0 - float64(p0)
+     150ms      150ms     68:		ex0 := efield[p0] + d0*(efield[p0+1]-efield[p0])
+         .          .     69:
+     120ms      120ms     70:		c0_1 := x[k+1] * INV_DX
+      40ms       40ms     71:		p1 := min(max(int(c0_1), 0), N_G-2)
+     100ms      100ms     72:		d1 := c0_1 - float64(p1)
+     100ms      100ms     73:		ex1 := efield[p1] + d1*(efield[p1+1]-efield[p1])
+         .          .     74:
+      90ms       90ms     75:		c0_2 := x[k+2] * INV_DX
+      30ms       30ms     76:		p2 := min(max(int(c0_2), 0), N_G-2)
+      20ms       20ms     77:		d2 := c0_2 - float64(p2)
+     140ms      140ms     78:		ex2 := efield[p2] + d2*(efield[p2+1]-efield[p2])
+         .          .     79:
+     100ms      100ms     80:		c0_3 := x[k+3] * INV_DX
+      50ms       50ms     81:		p3 := min(max(int(c0_3), 0), N_G-2)
+      90ms       90ms     82:		d3 := c0_3 - float64(p3)
+     140ms      140ms     83:		ex3 := efield[p3] + d3*(efield[p3+1]-efield[p3])
+         .          .     84:
+      70ms       70ms     85:		vx0 := vx[k] - ex0*FACTOR_E
+      60ms       60ms     86:		vx1 := vx[k+1] - ex1*FACTOR_E
+      60ms       60ms     87:		vx2 := vx[k+2] - ex2*FACTOR_E
+     190ms      190ms     88:		vx3 := vx[k+3] - ex3*FACTOR_E
+         .          .     89:
+      10ms       10ms     90:		vx[k] = vx0
+      50ms       50ms     91:		vx[k+1] = vx1
+         .          .     92:		vx[k+2] = vx2
+      80ms       80ms     93:		vx[k+3] = vx3
+         .          .     94:
+      60ms       60ms     95:		x[k] += vx0 * DT_E
+      10ms       10ms     96:		x[k+1] += vx1 * DT_E
+      50ms       50ms     97:		x[k+2] += vx2 * DT_E
+     290ms      290ms     98:		x[k+3] += vx3 * DT_E
+         .          .     99:	}
+         .          .    100:}
+         .          .    101:
+         .          .    102:func main() {
+         .          .    103:	n := 100000

@@ -1,0 +1,10 @@
+﻿File: profile_runner.exe
+Build ID: C:\Users\E14\AppData\Local\Temp\go-build3318315094\b001\exe\generate_profiles.exe2026-09-05 10:19:24.8704895 +0200 CEST
+Type: cpu
+Time: 2026-09-05 10:19:32 CEST
+Duration: 2.26s, Total samples = 2.21s (97.59%)
+Showing nodes accounting for 2.21s, 100% of 2.21s total
+      flat  flat%   sum%        cum   cum%
+     2.21s   100%   100%      2.21s   100%  main.scalarLeapFrog
+         0     0%   100%      2.21s   100%  main.main
+         0     0%   100%      2.21s   100%  runtime.main

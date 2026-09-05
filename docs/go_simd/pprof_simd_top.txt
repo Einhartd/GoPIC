@@ -1,0 +1,15 @@
+﻿File: profile_runner.exe
+Build ID: C:\Users\E14\AppData\Local\Temp\go-build3318315094\b001\exe\generate_profiles.exe2026-09-05 10:19:24.8704895 +0200 CEST
+Type: cpu
+Time: 2026-09-05 10:19:25 CEST
+Duration: 6.88s, Total samples = 6710ms (97.50%)
+Showing nodes accounting for 6700ms, 99.85% of 6710ms total
+Dropped 22 nodes (cum <= 33.55ms)
+      flat  flat%   sum%        cum   cum%
+    3640ms 54.25% 54.25%     6700ms 99.85%  main.simdLeapFrog@simd256
+    2950ms 43.96% 98.21%     2950ms 43.96%  simd/archsimd.LoadFloat64x4 (inline)
+     110ms  1.64% 99.85%      110ms  1.64%  simd/internal/bridge.Float64x4.MulAdd (inline)
+         0     0% 99.85%     6700ms 99.85%  main.main
+         0     0% 99.85%     6700ms 99.85%  main.simdLeapFrog
+         0     0% 99.85%     6700ms 99.85%  runtime.main
+         0     0% 99.85%     2950ms 43.96%  simd/internal/bridge.LoadFloat64x4 (inline)
