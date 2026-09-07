@@ -147,6 +147,8 @@ type SimulationState struct {
 
 	// Niezależne generatory pseudolosowe dla każdego workera
 	RngWorkers []*rand.Rand
+	// Źródła Mersenne Twister workerów do serializacji stanu
+	MtSrcWorkers []*mt19937.MT19937
 	// Główny generator pseudolosowy
 	Rng *rand.Rand
 	// Źródło Mersenne Twister do serializacji stanu
@@ -166,12 +168,6 @@ type SimulationState struct {
 	WorkerCmdChan []chan WorkerCommand
 	// WorkerDoneChan: wspólny buforowany kanał, którym workery sygnalizują ukończenie kroku
 	WorkerDoneChan chan int
-
-	CandidatesE []int // Wycinek indeksów kandydatów elektronowych dla Null-Collision
-	CandidatesI []int // Wycinek indeksów kandydatów jonowych dla Null-Collision
-
-	// Wstępnie zaalokowana pula indeksów do bezalokacyjnego losowania kandydatów
-	CandidatePool []int
 }
 
 /*
@@ -195,10 +191,12 @@ func NewSimulationState(seed int64, optNumWorkers ...int) *SimulationState {
 	}
 
 	workers := make([]*rand.Rand, numWorkers)
+	wSrcs := make([]*mt19937.MT19937, numWorkers)
 
 	for i := range numWorkers {
 		wSrc := mt19937.New()
 		wSrc.Seed(seed + int64(i)*10007 + 1)
+		wSrcs[i] = wSrc
 		workers[i] = rand.New(wSrc)
 	}
 
@@ -230,15 +228,15 @@ func NewSimulationState(seed int64, optNumWorkers ...int) *SimulationState {
 		WorkerDeadIons:      deadIons,
 		WorkerNewElectrons:  newElectrons,
 		WorkerNewIons:       newIons,
-		CandidatePool:       make([]int, MAX_N_P),
 		ThomasW:             thomasW,
 
 		WorkerCmdChan:  make([]chan WorkerCommand, numWorkers),
 		WorkerDoneChan: make(chan int, numWorkers),
 
-		RngWorkers: workers,
-		Rng:        rand.New(src),
-		MtSrc:      src,
+		RngWorkers:   workers,
+		MtSrcWorkers: wSrcs,
+		Rng:          rand.New(src),
+		MtSrc:        src,
 	}
 
 	for i := range numWorkers {

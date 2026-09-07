@@ -67,9 +67,10 @@ func (sim *SimulationState) Step1ComputeElectronDensity() {
 			for k := s; k < e; k++ {
 				c0 := sim.X_e[k] * INV_DX
 				p := min(max(int(c0), 0), N_G-2)
-				d := c0 - float64(p)
-				density[p] += (1.0 - d) * FACTOR_W
-				density[p+1] += d * FACTOR_W
+				c2 := (c0 - float64(p)) * FACTOR_W
+				c1 := FACTOR_W - c2
+				density[p] += c1
+				density[p+1] += c2
 			}
 		})
 	}
@@ -129,9 +130,10 @@ func (sim *SimulationState) Step1ComputeIonDensity(t int) {
 				for k := s; k < e; k++ {
 					c0 := sim.X_i[k] * INV_DX
 					p := min(max(int(c0), 0), N_G-2)
-					d := c0 - float64(p)
-					density[p] += (1.0 - d) * FACTOR_W
-					density[p+1] += d * FACTOR_W
+					c2 := (c0 - float64(p)) * FACTOR_W
+					c1 := FACTOR_W - c2
+					density[p] += c1
+					density[p+1] += c2
 				}
 			})
 		}

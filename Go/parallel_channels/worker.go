@@ -46,9 +46,10 @@ func (sim *SimulationState) startWorker(workerID int) {
 				for k := start; k < end; k++ {
 					c0 := sim.X_e[k] * INV_DX
 					p := min(max(int(c0), 0), N_G-2)
-					d := c0 - float64(p)
-					densityE[p] += (1.0 - d) * FACTOR_W
-					densityE[p+1] += d * FACTOR_W
+					c2 := (c0 - float64(p)) * FACTOR_W
+					c1 := FACTOR_W - c2
+					densityE[p] += c1
+					densityE[p+1] += c2
 				}
 			}
 			sim.WorkerDoneChan <- workerID
@@ -69,9 +70,10 @@ func (sim *SimulationState) startWorker(workerID int) {
 				for k := start; k < end; k++ {
 					c0 := sim.X_i[k] * INV_DX
 					p := min(max(int(c0), 0), N_G-2)
-					d := c0 - float64(p)
-					densityI[p] += (1.0 - d) * FACTOR_W
-					densityI[p+1] += d * FACTOR_W
+					c2 := (c0 - float64(p)) * FACTOR_W
+					c1 := FACTOR_W - c2
+					densityI[p] += c1
+					densityI[p+1] += c2
 				}
 			}
 			sim.WorkerDoneChan <- workerID
@@ -356,26 +358,31 @@ func (sim *SimulationState) startWorker(workerID int) {
 			sim.WorkerNewElectrons[workerID] = sim.WorkerNewElectrons[workerID][:0]
 			sim.WorkerNewIons[workerID] = sim.WorkerNewIons[workerID][:0]
 
+			chunkSize := (sim.N_e + numWorkers - 1) / numWorkers
+			start := workerID * chunkSize
+			end := min((workerID+1)*chunkSize, sim.N_e)
+			nLocal := end - start
+
 			var localEColl uint64
+			if nLocal > 0 {
+				localNColl := sim.workerSampleBinomial(workerID, nLocal, sim.PStarE)
+				if localNColl > nLocal {
+					localNColl = nLocal
+				}
 
-			if len(sim.CandidatesE) > 0 {
-				totalCandidates := len(sim.CandidatesE)
-				chunkSize := (totalCandidates + numWorkers - 1) / numWorkers
-				start := workerID * chunkSize
-				end := min((workerID+1)*chunkSize, totalCandidates)
+				for i := 0; i < localNColl; i++ {
+					ki := start + int(sim.WorkerR01(workerID)*float64(nLocal))
+					if ki >= end {
+						ki = end - 1
+					}
+					vSqr := sim.Vx_e[ki]*sim.Vx_e[ki] + sim.Vy_e[ki]*sim.Vy_e[ki] + sim.Vz_e[ki]*sim.Vz_e[ki]
+					velocity := math.Sqrt(vSqr)
+					eIdx := minInt(int(vSqr*FACTOR_ENERGY_E+0.5), CS_RANGES-1)
+					realNu := sim.SigmaTotE[eIdx] * velocity
 
-				if start < end {
-					for i := start; i < end; i++ {
-						k := sim.CandidatesE[i]
-						vSqr := sim.Vx_e[k]*sim.Vx_e[k] + sim.Vy_e[k]*sim.Vy_e[k] + sim.Vz_e[k]*sim.Vz_e[k]
-						velocity := math.Sqrt(vSqr)
-						eIdx := minInt(int(vSqr*FACTOR_ENERGY_E+0.5), CS_RANGES-1)
-						realNu := sim.SigmaTotE[eIdx] * velocity
-
-						if sim.WorkerR01(workerID)*sim.NuStarE < realNu {
-							sim.CollisionElectron(sim.X_e[k], &sim.Vx_e[k], &sim.Vy_e[k], &sim.Vz_e[k], eIdx, workerID)
-							localEColl++
-						}
+					if sim.WorkerR01(workerID)*sim.NuStarE < realNu {
+						sim.CollisionElectron(sim.X_e[ki], &sim.Vx_e[ki], &sim.Vy_e[ki], &sim.Vz_e[ki], eIdx, workerID)
+						localEColl++
 					}
 				}
 			}
@@ -389,32 +396,37 @@ func (sim *SimulationState) startWorker(workerID int) {
 			// KROK 8: Zderzenia jonów MCC w chunku
 			sim.WorkerNewIons[workerID] = sim.WorkerNewIons[workerID][:0]
 
+			chunkSize := (sim.N_i + numWorkers - 1) / numWorkers
+			start := workerID * chunkSize
+			end := min((workerID+1)*chunkSize, sim.N_i)
+			nLocal := end - start
+
 			var localIColl uint64
+			if nLocal > 0 {
+				localNColl := sim.workerSampleBinomial(workerID, nLocal, sim.PStarI)
+				if localNColl > nLocal {
+					localNColl = nLocal
+				}
 
-			if len(sim.CandidatesI) > 0 {
-				totalCandidates := len(sim.CandidatesI)
-				chunkSize := (totalCandidates + numWorkers - 1) / numWorkers
-				start := workerID * chunkSize
-				end := min((workerID+1)*chunkSize, totalCandidates)
+				for i := 0; i < localNColl; i++ {
+					ki := start + int(sim.WorkerR01(workerID)*float64(nLocal))
+					if ki >= end {
+						ki = end - 1
+					}
+					vxA := sim.WorkerRMB(workerID)
+					vyA := sim.WorkerRMB(workerID)
+					vzA := sim.WorkerRMB(workerID)
+					gx := sim.Vx_i[ki] - vxA
+					gy := sim.Vy_i[ki] - vyA
+					gz := sim.Vz_i[ki] - vzA
+					gSqr := gx*gx + gy*gy + gz*gz
+					g := math.Sqrt(gSqr)
+					eIdx := minInt(int(gSqr*FACTOR_ENERGY_I+0.5), CS_RANGES-1)
+					realNu := sim.SigmaTotI[eIdx] * g
 
-				if start < end {
-					for i := start; i < end; i++ {
-						k := sim.CandidatesI[i]
-						vxA := sim.WorkerRMB(workerID)
-						vyA := sim.WorkerRMB(workerID)
-						vzA := sim.WorkerRMB(workerID)
-						gx := sim.Vx_i[k] - vxA
-						gy := sim.Vy_i[k] - vyA
-						gz := sim.Vz_i[k] - vzA
-						gSqr := gx*gx + gy*gy + gz*gz
-						g := math.Sqrt(gSqr)
-						eIdx := minInt(int(gSqr*FACTOR_ENERGY_I+0.5), CS_RANGES-1)
-						realNu := sim.SigmaTotI[eIdx] * g
-
-						if sim.WorkerR01(workerID)*sim.NuStarI < realNu {
-							sim.CollisionIon(&sim.Vx_i[k], &sim.Vy_i[k], &sim.Vz_i[k], &vxA, &vyA, &vzA, eIdx, workerID)
-							localIColl++
-						}
+					if sim.WorkerR01(workerID)*sim.NuStarI < realNu {
+						sim.CollisionIon(&sim.Vx_i[ki], &sim.Vy_i[ki], &sim.Vz_i[ki], &vxA, &vyA, &vzA, eIdx, workerID)
+						localIColl++
 					}
 				}
 			}

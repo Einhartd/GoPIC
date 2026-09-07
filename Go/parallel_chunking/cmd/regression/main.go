@@ -132,6 +132,25 @@ func saveRNGState(sim *gopic.SimulationState) {
 			panic(err)
 		}
 	}
+
+	// Zapis stanu każdego workera
+	err = binary.Write(f, binary.LittleEndian, int64(len(sim.MtSrcWorkers)))
+	if err != nil {
+		panic(err)
+	}
+	for _, wSrc := range sim.MtSrcWorkers {
+		wShadow := (*mt19937Shadow)(unsafe.Pointer(wSrc))
+		err = binary.Write(f, binary.LittleEndian, int64(wShadow.Index))
+		if err != nil {
+			panic(err)
+		}
+		for _, val := range wShadow.State {
+			err = binary.Write(f, binary.LittleEndian, val)
+			if err != nil {
+				panic(err)
+			}
+		}
+	}
 }
 
 /*
@@ -162,6 +181,26 @@ func loadRNGState(sim *gopic.SimulationState) {
 			panic(err)
 		}
 		shadow.State[i] = val
+	}
+
+	// Wczytanie stanu workerów jeśli dostępny w pliku
+	var numW int64
+	if err = binary.Read(f, binary.LittleEndian, &numW); err == nil {
+		for i := 0; i < int(numW) && i < len(sim.MtSrcWorkers); i++ {
+			wShadow := (*mt19937Shadow)(unsafe.Pointer(sim.MtSrcWorkers[i]))
+			var wIndex int64
+			if err = binary.Read(f, binary.LittleEndian, &wIndex); err != nil {
+				break
+			}
+			wShadow.Index = int(wIndex)
+			for j := 0; j < len(wShadow.State); j++ {
+				var val uint64
+				if err = binary.Read(f, binary.LittleEndian, &val); err != nil {
+					break
+				}
+				wShadow.State[j] = val
+			}
+		}
 	}
 }
 

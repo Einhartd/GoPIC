@@ -150,6 +150,8 @@ type SimulationState struct {
 
 	// Niezależne generatory pseudolosowe dla każdego workera
 	RngWorkers []*rand.Rand
+	// Źródła Mersenne Twister workerów do serializacji stanu
+	MtSrcWorkers []*mt19937.MT19937
 	// Główny generator pseudolosowy
 	Rng *rand.Rand
 	// Źródło Mersenne Twister do serializacji stanu
@@ -160,9 +162,6 @@ type SimulationState struct {
 	PStarE  float64 // Maksymalne prawdopodobieństwo zderzenia elektronu P*_e
 	NuStarI float64 // Maksymalna częstość zderzeń dla jonów nu*_i
 	PStarI  float64 // Maksymalne prawdopodobieństwo zderzenia jonu P*_i
-
-	// Wstępnie zaalokowana pula indeksów do bezalokacyjnego losowania kandydatów
-	CandidatePool []int
 }
 
 /*
@@ -186,9 +185,11 @@ func NewSimulationState(seed int64, optNumWorkers ...int) *SimulationState {
 	}
 
 	workers := make([]*rand.Rand, numWorkers)
+	wSrcs := make([]*mt19937.MT19937, numWorkers)
 	for i := 0; i < numWorkers; i++ {
 		wSrc := mt19937.New()
 		wSrc.Seed(seed + int64(i)*10007 + 1)
+		wSrcs[i] = wSrc
 		workers[i] = rand.New(wSrc)
 	}
 
@@ -220,8 +221,8 @@ func NewSimulationState(seed int64, optNumWorkers ...int) *SimulationState {
 		WorkerDeadIons:      deadIons,
 		WorkerNewElectrons:  newElectrons,
 		WorkerNewIons:       newIons,
-		CandidatePool:       make([]int, MAX_N_P),
 		RngWorkers:          workers,
+		MtSrcWorkers:        wSrcs,
 		Rng:                 rand.New(src),
 		MtSrc:               src,
 		ThomasW:             thomasW,
