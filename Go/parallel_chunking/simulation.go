@@ -465,23 +465,26 @@ func (sim *SimulationState) Step4MoveIons(t_index, t int) {
 }
 
 /*
-KROK 5: Sprawdzanie granic dla elektronów (Dwufazowe: Równoległe oznaczanie + Seryjna kompaktacja).
+KROK 5: Sprawdzanie granic dla elektronów (Dwufazowe: Równoległe oznaczanie + Seryjna kompaktacja O(dead)).
 Etapy:
- 1. Faza 1 (Równoległa): Podział N_e na chunki, oznaczanie cząstek w tablicy AbsorbedE[] i zliczanie absorpcji.
+ 1. Faza 1 (Równoległa): Podział N_e na chunki, zbieranie indeksów martwych cząstek w WorkerDeadElectrons i zliczanie absorpcji.
  2. Redukcja liczników absorpcji na elektrodzie zasilanej i uziemionej.
- 3. Faza 2 (Seryjna): Kompaktacja tablic SoA in-place metodą swap-with-last.
+ 3. Faza 2 (Seryjna): Błyskawiczna kompaktacja O(dead) in-place metodą two-pointer swap-with-last.
 */
 func (sim *SimulationState) Step5CheckBoundariesElectrons() {
 	numWorkers := sim.NumWorkers
 	chunkSize := (sim.N_e + numWorkers - 1) / numWorkers
 	var wg sync.WaitGroup
 
-	// FAZA 1 (Równoległa): Każda goroutine skanuje swój chunk elektronów i oznacza
-	// cząstki poza domeną w tablicy flag AbsorbedE[] (1 = zasilana, 2 = uziemiona).
+	// FAZA 1 (Równoległa): Każda goroutine skanuje swój chunk elektronów i zbiera
+	// indeksy cząstek poza domeną do prywatnego bufora WorkerDeadElectrons[w].
 	for w := range numWorkers {
 		start := w * chunkSize
 		end := min((w+1)*chunkSize, sim.N_e)
 		if start >= end {
+			sim.WorkerEDiag[w].abs_pow = 0
+			sim.WorkerEDiag[w].abs_gnd = 0
+			sim.WorkerDeadElectrons[w] = sim.WorkerDeadElectrons[w][:0]
 			continue
 		}
 
@@ -490,45 +493,53 @@ func (sim *SimulationState) Step5CheckBoundariesElectrons() {
 			diag := &sim.WorkerEDiag[workerID]
 			diag.abs_pow = 0
 			diag.abs_gnd = 0
+			dead := sim.WorkerDeadElectrons[workerID][:0]
 
 			for k := s; k < e; k++ {
 				if sim.X_e[k] < 0 {
-					sim.AbsorbedE[k] = 1
+					dead = append(dead, k)
 					diag.abs_pow++
 				} else if sim.X_e[k] > L {
-					sim.AbsorbedE[k] = 2
+					dead = append(dead, k)
 					diag.abs_gnd++
-				} else {
-					sim.AbsorbedE[k] = 0
 				}
 			}
+			sim.WorkerDeadElectrons[workerID] = dead
 		})
 	}
 
-	// Bariera synchronizacyjna: wszystkie flagi absorpcji muszą być zapisane przed kompaktacją
+	// Bariera synchronizacyjna: wszystkie goroutines muszą zakończyć sprawdzanie
 	wg.Wait()
 
 	// Redukcja liczników absorpcji elektronów
+	var totalAbs int
 	for w := range numWorkers {
-		sim.N_e_abs_pow += sim.WorkerEDiag[w].abs_pow
-		sim.N_e_abs_gnd += sim.WorkerEDiag[w].abs_gnd
+		p := sim.WorkerEDiag[w].abs_pow
+		g := sim.WorkerEDiag[w].abs_gnd
+		sim.N_e_abs_pow += p
+		sim.N_e_abs_gnd += g
+		totalAbs += int(p + g)
 	}
 
-	// FAZA 2 (Sekwencyjna): Kompaktacja tablic elektronów in-place (swap-with-last).
-	// Wykonywana jednowątkowo, ponieważ in-place nadpisuje skrajne elementy tablic SoA
-	// i dekrementuje N_e bez konieczności kosztownej reallokacji pamięci.
-	k := 0
-	for k < sim.N_e {
-		if sim.AbsorbedE[k] != 0 {
-			sim.N_e--
-			sim.X_e[k] = sim.X_e[sim.N_e]
-			sim.Vx_e[k] = sim.Vx_e[sim.N_e]
-			sim.Vy_e[k] = sim.Vy_e[sim.N_e]
-			sim.Vz_e[k] = sim.Vz_e[sim.N_e]
-			sim.AbsorbedE[k] = sim.AbsorbedE[sim.N_e]
-		} else {
-			k++
+	// FAZA 2 (Sekwencyjna): Błyskawiczna kompaktacja O(dead) in-place (two-pointer swap-with-last).
+	// Wykonywana w czasie O(dead) zamiast O(N). Gdy totalAbs == 0, wychodzi w 0 ns.
+	if totalAbs > 0 {
+		lastValid := sim.N_e - 1
+		for w := range numWorkers {
+			for _, deadIdx := range sim.WorkerDeadElectrons[w] {
+				for lastValid > deadIdx && (sim.X_e[lastValid] < 0 || sim.X_e[lastValid] > L) {
+					lastValid--
+				}
+				if lastValid > deadIdx {
+					sim.X_e[deadIdx] = sim.X_e[lastValid]
+					sim.Vx_e[deadIdx] = sim.Vx_e[lastValid]
+					sim.Vy_e[deadIdx] = sim.Vy_e[lastValid]
+					sim.Vz_e[deadIdx] = sim.Vz_e[lastValid]
+					lastValid--
+				}
+			}
 		}
+		sim.N_e -= totalAbs
 	}
 }
 
@@ -536,9 +547,9 @@ func (sim *SimulationState) Step5CheckBoundariesElectrons() {
 KROK 6: Sprawdzanie granic dla jonów (Subcycling co N_SUB kroków).
 Etapy:
  1. Sprawdzenie warunku subcyclingu (t % N_SUB == 0).
- 2. Faza 1 (Równoległa): Oznaczanie jonów poza domeną i próbkowanie histogramu energii uderzenia IFED.
+ 2. Faza 1 (Równoległa): Zbieranie martwych jonów do WorkerDeadIons i próbkowanie histogramu IFED.
  3. Redukcja liczników absorpcji oraz histogramów IFED do tablicy globalnej.
- 4. Faza 2 (Seryjna): Kompaktacja tablicy jonów swap-with-last.
+ 4. Faza 2 (Seryjna): Błyskawiczna kompaktacja O(dead) in-place metodą two-pointer swap-with-last.
 
 @param t Indeks bieżącego podkroku czasowego w cyklu RF (0 .. N_T-1).
 */
@@ -556,6 +567,13 @@ func (sim *SimulationState) Step6CheckBoundariesIons(t int) {
 		start := w * chunkSize
 		end := min((w+1)*chunkSize, sim.N_i)
 		if start >= end {
+			sim.WorkerIDiag[w].abs_pow = 0
+			sim.WorkerIDiag[w].abs_gnd = 0
+			for idx := range N_IFED {
+				sim.WorkerIDiag[w].ifed_pow[idx] = 0
+				sim.WorkerIDiag[w].ifed_gnd[idx] = 0
+			}
+			sim.WorkerDeadIons[w] = sim.WorkerDeadIons[w][:0]
 			continue
 		}
 
@@ -568,13 +586,14 @@ func (sim *SimulationState) Step6CheckBoundariesIons(t int) {
 				diag.ifed_pow[idx] = 0
 				diag.ifed_gnd[idx] = 0
 			}
+			dead := sim.WorkerDeadIons[workerID][:0]
 
 			var v_sqr float64
 			var energy_index int
 
 			for k := s; k < e; k++ {
 				if sim.X_i[k] < 0 {
-					sim.AbsorbedI[k] = 1
+					dead = append(dead, k)
 					diag.abs_pow++
 					v_sqr = sim.Vx_i[k]*sim.Vx_i[k] + sim.Vy_i[k]*sim.Vy_i[k] + sim.Vz_i[k]*sim.Vz_i[k]
 					energy_index = int(v_sqr * FACTOR_ENERGY_IFED)
@@ -582,17 +601,16 @@ func (sim *SimulationState) Step6CheckBoundariesIons(t int) {
 						diag.ifed_pow[energy_index]++
 					}
 				} else if sim.X_i[k] > L {
-					sim.AbsorbedI[k] = 2
+					dead = append(dead, k)
 					diag.abs_gnd++
 					v_sqr = sim.Vx_i[k]*sim.Vx_i[k] + sim.Vy_i[k]*sim.Vy_i[k] + sim.Vz_i[k]*sim.Vz_i[k]
 					energy_index = int(v_sqr * FACTOR_ENERGY_IFED)
 					if energy_index < N_IFED {
 						diag.ifed_gnd[energy_index]++
 					}
-				} else {
-					sim.AbsorbedI[k] = 0
 				}
 			}
+			sim.WorkerDeadIons[workerID] = dead
 		})
 	}
 
@@ -600,28 +618,38 @@ func (sim *SimulationState) Step6CheckBoundariesIons(t int) {
 	wg.Wait()
 
 	// Redukcja liczników absorpcji oraz histogramów IFED
+	var totalAbs int
 	for w := range numWorkers {
-		sim.N_i_abs_pow += sim.WorkerIDiag[w].abs_pow
-		sim.N_i_abs_gnd += sim.WorkerIDiag[w].abs_gnd
+		p := sim.WorkerIDiag[w].abs_pow
+		g := sim.WorkerIDiag[w].abs_gnd
+		sim.N_i_abs_pow += p
+		sim.N_i_abs_gnd += g
+		totalAbs += int(p + g)
+
 		for eIdx := range N_IFED {
 			sim.Ifed_pow[eIdx] += sim.WorkerIDiag[w].ifed_pow[eIdx]
 			sim.Ifed_gnd[eIdx] += sim.WorkerIDiag[w].ifed_gnd[eIdx]
 		}
 	}
 
-	// FAZA 2 (Sekwencyjna): Kompaktacja tablicy jonów in-place (swap-with-last)
-	k := 0
-	for k < sim.N_i {
-		if sim.AbsorbedI[k] != 0 {
-			sim.N_i--
-			sim.X_i[k] = sim.X_i[sim.N_i]
-			sim.Vx_i[k] = sim.Vx_i[sim.N_i]
-			sim.Vy_i[k] = sim.Vy_i[sim.N_i]
-			sim.Vz_i[k] = sim.Vz_i[sim.N_i]
-			sim.AbsorbedI[k] = sim.AbsorbedI[sim.N_i]
-		} else {
-			k++
+	// FAZA 2 (Sekwencyjna): Błyskawiczna kompaktacja O(dead) in-place (two-pointer swap-with-last)
+	if totalAbs > 0 {
+		lastValid := sim.N_i - 1
+		for w := range numWorkers {
+			for _, deadIdx := range sim.WorkerDeadIons[w] {
+				for lastValid > deadIdx && (sim.X_i[lastValid] < 0 || sim.X_i[lastValid] > L) {
+					lastValid--
+				}
+				if lastValid > deadIdx {
+					sim.X_i[deadIdx] = sim.X_i[lastValid]
+					sim.Vx_i[deadIdx] = sim.Vx_i[lastValid]
+					sim.Vy_i[deadIdx] = sim.Vy_i[lastValid]
+					sim.Vz_i[deadIdx] = sim.Vz_i[lastValid]
+					lastValid--
+				}
+			}
 		}
+		sim.N_i -= totalAbs
 	}
 }
 

@@ -74,9 +74,9 @@ type SimulationState struct {
 	WorkerEDiag []electronWorkerDiagnostics
 	WorkerIDiag []ionWorkerDiagnostics
 
-	// Tablice flag absorpcji na elektrodach dla dwufazowej filtracji granic (Krok 5 i Krok 6)
-	AbsorbedE []uint8
-	AbsorbedI []uint8
+	// Prywatne bufory indeksów pochłoniętych cząstek dla workerów (Krok 5 i Krok 6)
+	WorkerDeadElectrons [][]int
+	WorkerDeadIons      [][]int
 
 	// Prywatne bufory na nowo utworzone cząstki w procesach jonizacji MCC
 	WorkerNewElectrons [][]CreatedParticle
@@ -204,9 +204,13 @@ func NewSimulationState(seed int64, optNumWorkers ...int) *SimulationState {
 
 	newElectrons := make([][]CreatedParticle, numWorkers)
 	newIons := make([][]CreatedParticle, numWorkers)
+	deadElectrons := make([][]int, numWorkers)
+	deadIons := make([][]int, numWorkers)
 	for i := range numWorkers {
 		newElectrons[i] = make([]CreatedParticle, 0, 4096)
 		newIons[i] = make([]CreatedParticle, 0, 4096)
+		deadElectrons[i] = make([]int, 0, 1024)
+		deadIons[i] = make([]int, 0, 1024)
 	}
 
 	// Prekomputacja współczynników ThomasW dla solvera Poissona (eliminacja dzieleń)
@@ -217,17 +221,17 @@ func NewSimulationState(seed int64, optNumWorkers ...int) *SimulationState {
 	}
 
 	sim := &SimulationState{
-		NumWorkers:         numWorkers,
-		WorkerEDensity:     make([]Xvector, numWorkers),
-		WorkerIDensity:     make([]Xvector, numWorkers),
-		WorkerEDiag:        make([]electronWorkerDiagnostics, numWorkers),
-		WorkerIDiag:        make([]ionWorkerDiagnostics, numWorkers),
-		AbsorbedE:          make([]uint8, MAX_N_P),
-		AbsorbedI:          make([]uint8, MAX_N_P),
-		WorkerNewElectrons: newElectrons,
-		WorkerNewIons:      newIons,
-		CandidatePool:      make([]int, MAX_N_P),
-		ThomasW:            thomasW,
+		NumWorkers:          numWorkers,
+		WorkerEDensity:      make([]Xvector, numWorkers),
+		WorkerIDensity:      make([]Xvector, numWorkers),
+		WorkerEDiag:         make([]electronWorkerDiagnostics, numWorkers),
+		WorkerIDiag:         make([]ionWorkerDiagnostics, numWorkers),
+		WorkerDeadElectrons: deadElectrons,
+		WorkerDeadIons:      deadIons,
+		WorkerNewElectrons:  newElectrons,
+		WorkerNewIons:       newIons,
+		CandidatePool:       make([]int, MAX_N_P),
+		ThomasW:             thomasW,
 
 		WorkerCmdChan:  make([]chan WorkerCommand, numWorkers),
 		WorkerDoneChan: make(chan int, numWorkers),

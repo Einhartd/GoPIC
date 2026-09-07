@@ -15,7 +15,7 @@ Obsługiwane rozkazy:
   - CmdComputeIDensity: Równoległa depozycja CIC ładunku jonów w buforze WorkerIDensity.
   - CmdMoveElectrons: Popychanie elektronów (Leap-Frog) i zbieranie diagnostyk do WorkerEDiag.
   - CmdMoveIons: Popychanie jonów (Leap-Frog) i zbieranie diagnostyk do WorkerIDiag.
-  - CmdCheckBoundariesE: Oznaczanie elektronów poza domeną w tablicy flag AbsorbedE.
+  - CmdCheckBoundariesE: Zbieranie indeksów elektronów poza domeną do WorkerDeadElectrons.
   - CmdCheckBoundariesI: Oznaczanie jonów poza domeną i próbkowanie histogramu IFED.
   - CmdCollisionsE: Zderzenia elektronów MCC (Null-Collision lub bezpośrednie) z buforowaniem cząstek AoS.
   - CmdCollisionsI: Zderzenia jonów MCC z atomami tła wylosowanymi z rozkładu RMB.
@@ -283,7 +283,7 @@ func (sim *SimulationState) startWorker(workerID int) {
 
 		case CmdCheckBoundariesE:
 
-			// KROK 5: Oznaczanie granic dla elektronów w chunku
+			// KROK 5: Zbieranie indeksów martwych elektronów w chunku
 			chunkSize := (sim.N_e + numWorkers - 1) / numWorkers
 			start := workerID * chunkSize
 			end := min((workerID+1)*chunkSize, sim.N_e)
@@ -291,25 +291,25 @@ func (sim *SimulationState) startWorker(workerID int) {
 			diag := &sim.WorkerEDiag[workerID]
 			diag.abs_pow = 0
 			diag.abs_gnd = 0
+			dead := sim.WorkerDeadElectrons[workerID][:0]
 
 			if start < end {
 				for k := start; k < end; k++ {
 					if sim.X_e[k] < 0 {
-						sim.AbsorbedE[k] = 1
+						dead = append(dead, k)
 						diag.abs_pow++
 					} else if sim.X_e[k] > L {
-						sim.AbsorbedE[k] = 2
+						dead = append(dead, k)
 						diag.abs_gnd++
-					} else {
-						sim.AbsorbedE[k] = 0
 					}
 				}
 			}
+			sim.WorkerDeadElectrons[workerID] = dead
 			sim.WorkerDoneChan <- workerID
 
 		case CmdCheckBoundariesI:
 
-			// KROK 6: Oznaczanie granic dla jonów i próbkowanie IFED
+			// KROK 6: Zbieranie indeksów martwych jonów i próbkowanie IFED
 			chunkSize := (sim.N_i + numWorkers - 1) / numWorkers
 			start := workerID * chunkSize
 			end := min((workerID+1)*chunkSize, sim.N_i)
@@ -321,6 +321,7 @@ func (sim *SimulationState) startWorker(workerID int) {
 				diag.ifed_pow[idx] = 0
 				diag.ifed_gnd[idx] = 0
 			}
+			dead := sim.WorkerDeadIons[workerID][:0]
 
 			if start < end {
 				var v_sqr float64
@@ -328,7 +329,7 @@ func (sim *SimulationState) startWorker(workerID int) {
 
 				for k := start; k < end; k++ {
 					if sim.X_i[k] < 0 {
-						sim.AbsorbedI[k] = 1
+						dead = append(dead, k)
 						diag.abs_pow++
 						v_sqr = sim.Vx_i[k]*sim.Vx_i[k] + sim.Vy_i[k]*sim.Vy_i[k] + sim.Vz_i[k]*sim.Vz_i[k]
 						energy_index = int(v_sqr * FACTOR_ENERGY_IFED)
@@ -336,18 +337,17 @@ func (sim *SimulationState) startWorker(workerID int) {
 							diag.ifed_pow[energy_index]++
 						}
 					} else if sim.X_i[k] > L {
-						sim.AbsorbedI[k] = 2
+						dead = append(dead, k)
 						diag.abs_gnd++
 						v_sqr = sim.Vx_i[k]*sim.Vx_i[k] + sim.Vy_i[k]*sim.Vy_i[k] + sim.Vz_i[k]*sim.Vz_i[k]
 						energy_index = int(v_sqr * FACTOR_ENERGY_IFED)
 						if energy_index < N_IFED {
 							diag.ifed_gnd[energy_index]++
 						}
-					} else {
-						sim.AbsorbedI[k] = 0
 					}
 				}
 			}
+			sim.WorkerDeadIons[workerID] = dead
 			sim.WorkerDoneChan <- workerID
 
 		case CmdCollisionsE:
