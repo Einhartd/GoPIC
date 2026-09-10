@@ -277,7 +277,9 @@ inline void do_one_cycle (void){
         
         if ((t % 1000) == 0){
             printf(" c = %8d  t = %8d  #e = %8d  #i = %8d\n", cycle,t,N_e,N_i);
+            fflush(stdout);
         } 
     }
     fprintf(datafile,"%8d  %8d  %8d\n",cycle,N_e,N_i);
+    fflush(datafile);
 }
