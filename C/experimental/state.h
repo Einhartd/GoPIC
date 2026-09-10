@@ -3,6 +3,16 @@
 #include <random>
 #include <cstdio>
 #include <algorithm>
+
+// Makro określające sposób inlinowania funkcji pojedynczego kroku PIC.
+// W trybie profilowania (PROFILE_RECORD) wyłączamy inlining (__attribute__((noinline))),
+// aby każda funkcja kroku była wyraźnie widoczna w raportach narzędzia perf.
+#ifdef PROFILE_RECORD
+    #define PIC_STEP inline __attribute__((noinline))
+#else
+    #define PIC_STEP inline
+#endif
+
 using namespace std;
 
 inline cross_section    sigma[N_CS];                                 // set of cross section arrays

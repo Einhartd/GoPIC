@@ -3,7 +3,7 @@
 #include "constants.h"
 #include <cmath>
 
-inline void solve_Poisson (xvector rho1, double tt){
+PIC_STEP void solve_Poisson (xvector rho1, double tt){
     const double A =  1.0;
     const double B = -2.0;
     const double C =  1.0;

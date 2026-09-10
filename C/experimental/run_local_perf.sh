@@ -8,7 +8,7 @@ SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 cd "$SCRIPT_DIR"
 
 echo "=== 1. Budowanie programu eduPIC z symbolami do profilowania ==="
-g++ -std=c++17 -O3 -Wall -fno-math-errno -fno-omit-frame-pointer -g eduPIC.cc -o eduPIC -lm
+g++ -std=c++17 -O3 -Wall -fno-math-errno -fno-omit-frame-pointer -g -DPROFILE_RECORD eduPIC.cc -o eduPIC -lm
 
 echo "=== 2. Przygotowanie stanu Golden Record ==="
 cp ../../golden_record/picdata.bin ./picdata.bin

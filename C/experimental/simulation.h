@@ -17,7 +17,7 @@ inline void init(int nseed){
     N_i = nseed;    // initial number of ions
 }
 
-inline void step1_compute_electron_density(double factor_w){
+PIC_STEP void step1_compute_electron_density(double factor_w){
     int k, p;
     double c0;
 
@@ -35,7 +35,7 @@ inline void step1_compute_electron_density(double factor_w){
     for(p=0; p<N_G; p++) cumul_e_density[p] += e_density[p];
 }
 
-inline void step1_compute_ion_density(int t, double factor_w){    
+PIC_STEP void step1_compute_ion_density(int t, double factor_w){    
     int k, p;
     double c0;
 
@@ -53,7 +53,7 @@ inline void step1_compute_ion_density(int t, double factor_w){
     for(p=0; p<N_G; p++) cumul_i_density[p] += i_density[p];
 }
 
-inline void step2_solve_poisson(double current_time){
+PIC_STEP void step2_solve_poisson(double current_time){
     xvector rho;
     // step 2: solve Poisson equation
     for(int p=0; p<N_G; p++){
@@ -62,7 +62,7 @@ inline void step2_solve_poisson(double current_time){
     solve_Poisson(rho, current_time);                       // compute potential and electric field
 }
 
-inline void step3_move_electrons(int t_index, double factor_e, double min_x, double max_x){
+PIC_STEP void step3_move_electrons(int t_index, double factor_e, double min_x, double max_x){
     int k, p, energy_index;
     double c0, c1, c2, e_x, mean_v, v_sqr, energy, velocity, rate;
 
@@ -105,7 +105,7 @@ inline void step3_move_electrons(int t_index, double factor_e, double min_x, dou
     }
 }
 
-inline void step4_move_ions(int t_index, int t, double factor_i){
+PIC_STEP void step4_move_ions(int t_index, int t, double factor_i){
     if ((t % N_SUB) != 0) return;
 
     int k, p;
@@ -137,7 +137,7 @@ inline void step4_move_ions(int t_index, int t, double factor_i){
     }
 }
 
-inline void step5_check_boundaries_electrons(){
+PIC_STEP void step5_check_boundaries_electrons(){
     int k = 0;
     bool out;
     while(k < N_e) {    // check boundaries for all electrons in every time step
@@ -154,7 +154,7 @@ inline void step5_check_boundaries_electrons(){
     }
 }
 
-inline void step6_check_boundaries_ions(int t){
+PIC_STEP void step6_check_boundaries_ions(int t){
     if ((t % N_SUB) != 0) return;
 
     int k = 0;
@@ -190,7 +190,7 @@ inline void step6_check_boundaries_ions(int t){
     }
 }
 
-inline void step7_collisions_electrons(){
+PIC_STEP void step7_collisions_electrons(){
     int k, energy_index;
     double v_sqr, velocity, energy, nu, p_coll;
 
@@ -208,7 +208,7 @@ inline void step7_collisions_electrons(){
     }
 }
 
-inline void step8_collision_ions(int t){
+PIC_STEP void step8_collision_ions(int t){
     if ((t % N_SUB) != 0) return;
 
     int k, energy_index;
@@ -234,7 +234,7 @@ inline void step8_collision_ions(int t){
     }
 }
 
-inline void step9_collect_xt_data(int t_index){
+PIC_STEP void step9_collect_xt_data(int t_index){
     if(!measurement_mode) return;
 
     for (int p = 0; p < N_G; p++){
@@ -245,7 +245,7 @@ inline void step9_collect_xt_data(int t_index){
     }
 }
 
-inline void do_one_cycle (void){
+PIC_STEP void do_one_cycle (void){
     const double DV       = ELECTRODE_AREA * DX;
     const double FACTOR_W = WEIGHT / DV;
     const double FACTOR_E = DT_E / E_MASS * E_CHARGE;
@@ -277,9 +277,7 @@ inline void do_one_cycle (void){
         
         if ((t % 1000) == 0){
             printf(" c = %8d  t = %8d  #e = %8d  #i = %8d\n", cycle,t,N_e,N_i);
-            fflush(stdout);
         } 
     }
     fprintf(datafile,"%8d  %8d  %8d\n",cycle,N_e,N_i);
-    fflush(datafile);
 }
