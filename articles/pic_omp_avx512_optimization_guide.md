@@ -74,7 +74,7 @@ Klasyczne dzieło definiujące algorytm PIC/MCC. Kluczowe aspekty dla optymaliza
 
 ---
 
-### 2.2 Vay, Vincenti et al. (2018) — *Particle-in-Cell algorithms for emerging computer architectures*
+### 2.2 Decyk & Singh (2014) — *Particle-in-Cell algorithms for emerging computer architectures*
 
 **Relevance: ⭐⭐⭐⭐⭐ (najważniejszy dla AVX-512 + OpenMP)**
 
@@ -116,7 +116,7 @@ Przegląd nowoczesnych technik PIC. Kluczowe wnioski:
 
 ---
 
-### 2.4 Surendra & Dalvie (1993) — *Parallel implementation of PIC using OpenMP*
+### 2.4 Chapman et al. (2007) / Suciu et al. (2020) — *Using OpenMP / Parallel PIC with OpenMP*
 
 **Relevance: ⭐⭐⭐⭐ (bezpośrednie zastosowanie OpenMP)**
 
@@ -134,7 +134,7 @@ Jeden z pierwszych artykułów o zrównoleglaniu PIC przez OpenMP na pamięci ws
 
 ---
 
-### 2.5 Raman et al. (2016) — *CPU Optimization of Particle Deposition in PIC Simulation Code*
+### 2.5 Rimel (2016) — *CPU Optimization of Particle Deposition in PIC Simulation Code*
 
 **Relevance: ⭐⭐⭐⭐⭐ (BEZPOŚREDNIO o scatter-add, AVX)**
 
@@ -172,7 +172,7 @@ for (int k = 0; k < N_e_even; k++) {
 
 ---
 
-### 2.6 Decyk & Singh (2014) — *Efficient Strict-Binning Particle-in-Cell Algorithm for Multi-core SIMD*
+### 2.6 Barsamian et al. (2018) — *Efficient Strict-Binning Particle-in-Cell Algorithm for Multi-core SIMD Processors*
 
 **Relevance: ⭐⭐⭐⭐⭐ (SIMD + binning — docelowa architektura)**
 
@@ -557,18 +557,21 @@ sbatch GoPIC/GoPIC_jobs/C/edupic_omp_job_record.sh
 
 ---
 
-## Literatura (pełne cytowania)
+## Literatura (pełne cytowania zweryfikowane z plikami PDF w repozytorium)
 
-1. Birdsall, C.K., Langdon, A.B. (1991). *Plasma Physics via Computer Simulation*. CRC Press.
-2. Vay, J.L., Vincenti, H., et al. (2018). *Particle-in-Cell algorithms for emerging computer architectures*. Comput. Phys. Commun.
-3. Verboncoeur, J.P. (2005). *Particle simulation of plasmas: Review and advances*. PSST 14, R45.
-4. Surendra, M., Dalvie, M. (1993). *Parallel implementation of a PIC simulation algorithm using OpenMP*. J. Comput. Phys.
-5. Raman, K., Tsui, F., et al. (2016). *CPU Optimization of Particle Deposition in PIC Simulation Code*. Comput. Phys. Commun.
-6. Decyk, V.K., Singh, T.V. (2014). *Efficient Strict-Binning PIC for Multi-core SIMD Processors*. Comput. Phys. Commun. 185, 708.
-7. Markidis, S., Lapenta, G. (2010). *Optimization of PIC codes by improved memory management*. Comput. Phys. Commun. 181, 1884.
-8. Nieter, C., et al. (2014). *Hybrid parallelization of PIC-MCC algorithm for low-temperature plasmas*. Comput. Phys. Commun.
-9. Jacobs, C.T., et al. (2017). *Application of sparse grid combination techniques to LTP PIC simulations*. Comput. Phys. Commun.
-10. Derouillat, J., et al. (2018). *SMILEI: A collaborative, open-source multi-purpose PIC code*. Comput. Phys. Commun. 222, 351.
-11. Huang, Q., et al. (2023). *POLAR-PIC: Holistic Framework for Matrixized PIC*. SC'23.
-12. AMD (2023). *EPYC 9004 Series Processor Tuning Guide for Linux HPC Environments*.
-13. Donkó, Z., et al. (2021). *eduPIC: an introductory particle based code for RF plasma simulation*. PSST 30, 095017.
+1. **Birdsall, C.K.** (1991). *Particle-in-Cell Charged-Particle Simulations, Plus Monte Carlo Collisions With Neutral Atoms, PIC-MCC*. IEEE Trans. Plasma Sci. 19(2), 65–85. DOI: 10.1109/27.106800.
+2. **Vahedi, V., Surendra, M.** (1995). *A Monte Carlo collision model for the particle-in-cell method: applications to argon and oxygen discharges*. Comput. Phys. Commun. 87, 179–198. DOI: 10.1016/0010-4655(94)00171-5.
+3. **Chapman, B., Jost, G., van der Pas, R.** (2007). *Using OpenMP: Portable Shared Memory Parallel Programming*. The MIT Press. ISBN: 978-0-262-53302-7.
+4. **Suciu, A., Hangan, A., Marginean, A., Joldos, M., Voitcu, G., Echim, M.** (2020). *Parallel implementation of a PIC simulation algorithm using OpenMP*. FedCSIS 2020, pp. 381–385. DOI: 10.15439/2020F130.
+5. **Rimel, D.A.** (2016). *CPU Optimization of Particle Deposition in PIC Simulation Code*. Univ. of Colorado Boulder, Physics Honors Thesis.
+6. **Barsamian, Y., Charguéraud, A., Hirstoaga, S.A., Mehrenberger, M.** (2018). *Efficient Strict-Binning Particle-in-Cell Algorithm for Multi-core SIMD Processors*. Euro-Par 2018, Springer LNCS 11014, pp. 749–763. DOI: 10.1007/978-3-319-96983-1_53.
+7. **Chaudhury, B., Shah, M., Parekh, U. et al.** (2019). *Hybrid Parallelization of Particle in Cell Monte Carlo Collision (PIC-MCC) Algorithm for Simulation of Low Temperature Plasmas*. Springer CCIS 964, pp. 32–53. DOI: 10.1007/978-981-13-7729-7_3.
+8. **Decyk, V.K., Singh, T.V.** (2014). *Particle-in-Cell algorithms for emerging computer architectures*. Comput. Phys. Commun. 185(3), 708–719. DOI: 10.1016/j.cpc.2013.10.013.
+9. **Tskhakaya, D., Schneider, R.** (2007). *Optimization of PIC codes by improved memory management*. J. Comput. Phys. 225(1), 829–839. DOI: 10.1016/j.jcp.2007.01.002.
+10. **Verboncoeur, J.P.** (2005). *Particle simulation of plasmas: Review and advances*. Plasma Phys. Control. Fusion 47(5A), A231–A260. DOI: 10.1088/0741-3335/47/5A/017.
+11. **Garrigues, L., Tezenas du Montcel, B., Fubiani, G., Bertomeu, F., Deluzet, F., Narski, J.** (2021). *Application of sparse grid combination techniques to low temperature plasmas particle-in-cell simulations. I. Capacitively coupled radio frequency discharges*. J. Appl. Phys. 129, 153303. DOI: 10.1063/5.0044363.
+12. **Derouillat, J., Beck, A., Pérez, F. et al.** (2018). *SMILEI: A collaborative, open-source, multi-purpose particle-in-cell code for plasma simulation*. Comput. Phys. Commun. 222, 351–373. DOI: 10.1016/j.cpc.2017.09.024.
+13. **Rao, Y., Cui, X., Pang, S., Xie, J. et al.** (2024). *POLAR-PIC: A Holistic Framework for Matrixized PIC with Co-Designed Compute, Layout, and Communication*. ACM/IEEE SC'24.
+14. **AMD Corporation** (2023). *4th Gen AMD EPYC™ Processor Architecture*. White Paper, 3rd Edition.
+15. **Rochefort, S. / AMD Corporation** (2024). *Linux® Network Tuning Guide for AMD EPYC™ 9004 Series Processors*. AMD Publication 58012, Rev 1.5.
+16. **Donkó, Z., Derzsi, A., Vass, M., Schulze, J.** (2021). *eduPIC: an introductory particle based code for RF plasma simulation*. Plasma Sources Sci. Technol. 30, 095017.

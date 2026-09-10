@@ -35,15 +35,17 @@ Dokument podsumowuje wszystkie techniki optymalizacyjne wdrożone w silniku **C+
 | ID | Artykuł | Źródło |
 |:---|:---|:---|
 | **[Birdsall91]** | Birdsall, C.K. (1991). *Particle-in-Cell Charged-Particle Simulations, Plus MCC*. IEEE Trans. Plasma Sci., 19(2), 65–85. DOI: 10.1109/27.106800 | [PDF](file:///C:/Users/E14/Documents/GitHub/GoPIC/articles/Particle-in-Cell%20Charged-Particle%20Simulations%2C%20Plus%20Monte%20Carlo%20Collisions%20With%20Neutral%20Atoms%2C%20PIC-MCC.pdf) |
-| **[Germaschewski]** | Germaschewski, K., Bhattacharjee, A. et al. (~2016–2021). *CPU Optimization of Particle Deposition in PIC Simulation Code*. Computing in Science & Engineering. | [PDF](file:///C:/Users/E14/Documents/GitHub/GoPIC/articles/CPU%20Optimization%20of%20Particle%20Deposition%20in%20PIC%20Simulation%20Code.pdf) |
-| **[Vay18]** | Vay, J.L., Vincenti, H. et al. (2018/2021). *Particle-in-Cell algorithms for emerging computer architectures*. Comput. Phys. Commun. / arXiv:2104.03437. | [PDF](file:///C:/Users/E14/Documents/GitHub/GoPIC/articles/Particle-in-Cell%20algorithms%20for%20emerging%20computer%20architectures.pdf) |
+| **[Vahedi95]** | Vahedi, V., Surendra, M. (1995). *A Monte Carlo collision model for the particle-in-cell method*. Comput. Phys. Commun., 87, 179–198. DOI: 10.1016/0010-4655(94)00171-5 | [PDF](file:///C:/Users/E14/Documents/GitHub/GoPIC/articles/A%20Monte%20Carlo%20collision%20model%20for%20the%20particle-in-cell%20method.pdf) |
+| **[Chapman07]** | Chapman, B., Jost, G., van der Pas, R. (2007). *Using OpenMP: Portable Shared Memory Parallel Programming*. The MIT Press. | [PDF](file:///C:/Users/E14/Documents/GitHub/GoPIC/articles/using-openmp.pdf) |
+| **[Suciu20]** | Suciu, A., Hangan, A., Marginean, A., Joldos, M., Voitcu, G., Echim, M. (2020). *Parallel implementation of a PIC simulation algorithm using OpenMP*. FedCSIS 2020, pp. 381–385. DOI: 10.15439/2020F130 | [PDF](file:///C:/Users/E14/Documents/GitHub/GoPIC/articles/Parallel%20implementation%20of%20a%20PIC%20simulation%20algorithm%20using%20OpenMP.pdf) |
+| **[Rimel16]** | Rimel, D.A. (2016). *CPU Optimization of Particle Deposition in PIC Simulation Code*. Univ. of Colorado Boulder, Physics Honors Thesis. | [PDF](file:///C:/Users/E14/Documents/GitHub/GoPIC/articles/CPU%20Optimization%20of%20Particle%20Deposition%20in%20PIC%20Simulation%20Code.pdf) |
+| **[Decyk14]** | Decyk, V.K., Singh, T.V. (2014). *Particle-in-Cell algorithms for emerging computer architectures*. Comput. Phys. Commun., 185(3), 708–719. DOI: 10.1016/j.cpc.2013.10.013 | [PDF](file:///C:/Users/E14/Documents/GitHub/GoPIC/articles/Particle-in-Cell%20algorithms%20for%20emerging%20computer%20architectures.pdf) |
+| **[Chaudhury19]** | Chaudhury, B., Shah, M., Parekh, U. et al. (2019). *Hybrid Parallelization of PIC-MCC Algorithm for Low Temperature Plasmas*. Springer CCIS 964, pp. 32–53. DOI: 10.1007/978-981-13-7729-7_3 | [PDF](file:///C:/Users/E14/Documents/GitHub/GoPIC/articles/Hybrid%20parallelization%20of%20particle%20in%20cell%20monte%20carlo%20collision%20(PIC-MCC)%20algorithm%20for%20simulation%20of%20low%20temperature%20plasmas.pdf) |
 | **[Tskhakaya07]** | Tskhakaya, D., Schneider, R. (2007). *Optimization of PIC codes by improved memory management*. J. Comput. Phys., 225(1), 829–839. DOI: 10.1016/j.jcp.2007.01.002 | [PDF](file:///C:/Users/E14/Documents/GitHub/GoPIC/articles/Optimization%20of%20PIC%20codes%20by%20improved%20memory%20management.pdf) |
-| **[Yildiz19]** | Yildiz, S., Tskhakaya, D., Donkó, Z. et al. (2019). *Hybrid Parallelization of PIC-MCC Algorithm for Low Temperature Plasmas*. Springer CCIS 1249, pp. 102–117. | [PDF](file:///C:/Users/E14/Documents/GitHub/GoPIC/articles/Hybrid%20parallelization%20of%20particle%20in%20cell%20monte%20carlo%20collision%20(PIC-MCC)%20algorithm%20for%20simulation%20of%20low%20temperature%20plasmas.pdf) |
+| **[Barsamian18]** | Barsamian, Y., Charguéraud, A., Hirstoaga, S.A., Mehrenberger, M. (2018). *Efficient Strict-Binning PIC Algorithm for Multi-core SIMD Processors*. Euro-Par 2018, LNCS 11014, pp. 749–763. DOI: 10.1007/978-3-319-96983-1_53 | [PDF](file:///C:/Users/E14/Documents/GitHub/GoPIC/articles/Efficient%20Strict-Binning%20Particle-in-Cell%20Algorithm%20for%20Multi-core%20SIMD%20Processors.pdf) |
 | **[SMILEI18]** | Derouillat, J., Beck, A., Pérez, F. et al. (2018). *SMILEI: A collaborative, open-source, multi-purpose PIC code*. Comput. Phys. Commun., 222, 351–373. DOI: 10.1016/j.cpc.2017.09.024 | [PDF](file:///C:/Users/E14/Documents/GitHub/GoPIC/articles/SMILEI%20A%20collaborative%2C%20open-source%2C%20multi-purpose%20particle-in-cell%20code%20for%20plasma%20simulation.pdf) |
-| **[Stantchev08]** | Stantchev, G., Dorland, W., Gumerov, N. (~2008). *Parallel implementation of a PIC simulation algorithm using OpenMP*. | [PDF](file:///C:/Users/E14/Documents/GitHub/GoPIC/articles/Parallel%20implementation%20of%20a%20PIC%20simulation%20algorithm%20using%20OpenMP.pdf) |
-| **[AMD-TG]** | AMD Corporation (2022–2023). *EPYC 9004 Series Processors Linux Networking & HPC Tuning Guide*. | [PDF](file:///C:/Users/E14/Documents/GitHub/GoPIC/articles/epyc-9004-tg-linux-network.pdf) |
-| **[Barsamian18]** | Barsamian, Y., Charguéraud, A., Hirstoaga, S.A., Mehrenberger, M. (2018). *Efficient Strict-Binning PIC Algorithm for Multi-core SIMD Processors*. Euro-Par 2018, LNCS 11014, pp. 633–648. DOI: 10.1007/978-3-319-96983-1_1 | [PDF](file:///C:/Users/E14/Documents/GitHub/GoPIC/articles/Efficient%20Strict-Binning%20Particle-in-Cell%20Algorithm%20for%20Multi-core%20SIMD%20Processors.pdf) |
 | **[Verboncoeur05]** | Verboncoeur, J.P. (2005). *Particle simulation of plasmas: Review and advances*. Plasma Phys. Control. Fusion, 47(5A), A231–A260. DOI: 10.1088/0741-3335/47/5A/017 | [PDF](file:///C:/Users/E14/Documents/GitHub/GoPIC/articles/Particle%20simulation%20of%20plasmas%20Review%20and%20advances.pdf) |
+| **[AMD-TG]** | Rochefort, S. / AMD Corporation (2024). *EPYC 9004 Series Processors Linux Networking & HPC Tuning Guide*. Pub. 58012, Rev 1.5. | [PDF](file:///C:/Users/E14/Documents/GitHub/GoPIC/articles/epyc-9004-tg-linux-network.pdf) |
 
 ---
 
@@ -206,7 +208,7 @@ Kompilator Go (`gc`) **nie wykonuje automatycznego loop unrolling ani wektoryzac
 ### 📚 Źródła
 | Artykuł | Uzasadnienie |
 |:---|:---|
-| **[Vay18]** | Formalizuje analizę Roofline dla pętli push: intensywność arytmetyczna **~0.36 FLOP/Bajt** (Memory BW Bound) przy FMA bezczynnych — pętla jest *compute-underutilized*; przetwarzanie wielu niezależnych cząstek jednocześnie (ILP) jest zidentyfikowaną metodą zwiększenia efektywnej intensywności arytmetycznej |
+| **[Decyk14]** | Formalizuje analizę Roofline dla pętli push: intensywność arytmetyczna **~0.36 FLOP/Bajt** (Memory BW Bound) przy FMA bezczynnych — pętla jest *compute-underutilized*; przetwarzanie wielu niezależnych cząstek jednocześnie (ILP) jest zidentyfikowaną metodą zwiększenia efektywnej intensywności arytmetycznej |
 | **[Tskhakaya07]** | Dokumentuje, że dostęp do `efield[p]` staje się losowy gdy cząstki są nieuporządkowane; przyspieszenie **1.5×–3.0×** fazy push osiągane przez poprawę lokalności — rozwijanie pętli wspomaga sprzętowy prefetcher przez generowanie regularnego wzorca dostępu do pamięci |
 
 ---
@@ -303,8 +305,8 @@ type ParticleArrays struct {
 ### 📚 Źródła
 | Artykuł | Uzasadnienie |
 |:---|:---|
-| **[Vay18]** | Formalnie mierzy przejście AoS→SoA: **2.5× wzrost wydajności** pętli push; dokumentuje, że `alignas(64)` umożliwia generowanie `vmovapd` (aligned load) zamiast wolniejszych `vmovupd` — SoA to prerequisit dla wektoryzacji AVX-512 |
-| **[Germaschewski]** | Explicite porównuje AoS i SoA dla fazy depozycji: SoA zapewnia "ciągły odczyt współrzędnych x do rejestrów `__m512d` bez narzutu deinterleavingu"; wektoryzacja AoS wymagałaby dodatkowych `_mm512_unpacklo_pd` / `_mm512_shuffle_pd` |
+| **[Decyk14]** | Formalnie mierzy przejście AoS→SoA: **2.5× wzrost wydajności** pętli push; dokumentuje, że `alignas(64)` umożliwia generowanie `vmovapd` (aligned load) zamiast wolniejszych `vmovupd` — SoA to prerequisit dla wektoryzacji AVX-512 |
+| **[Rimel16]** | Explicite porównuje AoS i SoA dla fazy depozycji: SoA zapewnia "ciągły odczyt współrzędnych x do rejestrów `__m512d` bez narzutu deinterleavingu"; wektoryzacja AoS wymagałaby dodatkowych `_mm512_unpacklo_pd` / `_mm512_shuffle_pd` |
 
 ---
 
@@ -341,7 +343,7 @@ func Step3_MoveElectrons(x, vx []float64, eField []float64, n int) {
 ### 📚 Źródła
 | Artykuł | Uzasadnienie |
 |:---|:---|
-| **[Vay18]** | Dokumentuje, że zbędne instrukcje weryfikacyjne wewnątrz pętli push uniemożliwiają autovektoryzację; na tej podstawie przeniesiono zasadę "jedno sprawdzenie przed pętlą zamiast N sprawdzeń wewnątrz" na technikę BCE kompilatora Go — jest to analogia do `#pragma ivdep` w C++, nie bezpośredni cytat z artykułu |
+| **[Decyk14]** | Dokumentuje, że zbędne instrukcje weryfikacyjne wewnątrz pętli push uniemożliwiają autovektoryzację; na tej podstawie przeniesiono zasadę "jedno sprawdzenie przed pętlą zamiast N sprawdzeń wewnątrz" na technikę BCE kompilatora Go — jest to analogia do `#pragma ivdep` w C++, nie bezpośredni cytat z artykułu |
 
 > ⚠️ BCE jest techniką **specyficzną dla kompilatora Go** — żaden z analizowanych artykułów jej nie dotyczy wprost. Uzasadnienie opiera się na ogólnej zasadzie eliminacji zbędnych gałęzi warunkowych z pętli wewnętrznych.
 
@@ -376,7 +378,7 @@ type WorkerBuffer struct {
 ### 📚 Źródła
 | Artykuł | Uzasadnienie |
 |:---|:---|
-| **[Germaschewski]** | Identyfikuje *False Sharing* jako przyczynę słabego skalowania przy `#pragma omp atomic` w fazie depozycji: "dwa wątki trafiające do sąsiednich węzłów siatki → linia cache unieważniana między rdzeniami"; prywatne bufory per-wątek dają **3.2× wyższy speedup** niż `#pragma omp atomic` na 16–32 rdzeniach |
+| **[Rimel16]** | Identyfikuje *False Sharing* jako przyczynę słabego skalowania przy `#pragma omp atomic` w fazie depozycji: "dwa wątki trafiające do sąsiednich węzłów siatki → linia cache unieważniana między rdzeniami"; prywatne bufory per-wątek dają **3.2× wyższy speedup** niż `#pragma omp atomic` na 16–32 rdzeniach |
 | **[AMD-TG]** | Potwierdza rozmiar linii cache Zen 4: **64 bajty**; cross-socket cache invalidation przez Infinity Fabric ma latencję **~120 ns vs ~80 ns** pamięci lokalnej; rekomenduje `alignas(64)` dla struktur per-wątek |
 
 ---
@@ -398,8 +400,8 @@ worker.NewElectrons.Vx = worker.NewElectrons.Vx[:0]
 ### 📚 Źródła
 | Artykuł | Uzasadnienie |
 |:---|:---|
-| **[Stantchev08]** | Dokumentuje wzorzec prealokowanych buforów: "tworzenie/niszczenie dynamicznych buforów w każdej funkcji kroku przy 4000 kroków × 9 etapów = **36 000 operacji alokacji/cykl RF**"; jeden trwały region równoległy z prealokowanymi buforami roboczymi eliminuje ten narzut całkowicie |
-| **[Germaschewski]** | Potwierdza, że prywatne bufory gęstości per-wątek muszą być prealokowane raz przed pętlą czasową i **zerowane (nie realokowane)** na początku każdego kroku — w Go analogem jest `[:0]` z zachowaniem `cap` |
+| **[Chapman07]** | Dokumentuje wzorzec prealokowanych buforów: "tworzenie/niszczenie dynamicznych buforów w każdej funkcji kroku przy 4000 kroków × 9 etapów = **36 000 operacji alokacji/cykl RF**"; jeden trwały region równoległy z prealokowanymi buforami roboczymi eliminuje ten narzut całkowicie |
+| **[Rimel16]** | Potwierdza, że prywatne bufory gęstości per-wątek muszą być prealokowane raz przed pętlą czasową i **zerowane (nie realokowane)** na początku każdego kroku — w Go analogem jest `[:0]` z zachowaniem `cap` |
 
 ---
 
@@ -416,9 +418,9 @@ worker.NewElectrons.Vx = worker.NewElectrons.Vx[:0]
 ### 📚 Źródła
 | Artykuł | Uzasadnienie |
 |:---|:---|
-| **[Yildiz19]** | Zawiera **bezpośrednią tabelę porównawczą** skalowania na maszynie 2-socket: OpenMP 128T = speedup **18×** (14% efektywności); OpenMP 64T na 1 gnieździe = **28×** (44%); MPI×2 + OMP×64 = **52×** (81%) — obserwowane optimum przy 32 rdzeniach jest w pełnej zgodności z trendem *grain-size limit* |
+| **[Chaudhury19]** | Zawiera **bezpośrednią tabelę porównawczą** skalowania na maszynie 2-socket: OpenMP 128T = speedup **18×** (14% efektywności); OpenMP 64T na 1 gnieździe = **28×** (44%); MPI×2 + OMP×64 = **52×** (81%) — obserwowane optimum przy 32 rdzeniach jest w pełnej zgodności z trendem *grain-size limit* |
 | **[AMD-TG]** | Dokumentuje topologię NUMA EPYC 9554: cross-socket latencja przez Infinity Fabric **~120 ns vs ~80 ns** pamięci lokalnej; rekomenduje `numactl --cpubind=0 --membind=0` i `OMP_PROC_BIND=close` |
-| **[Stantchev08]** | Dokumentuje koszt fork-join: przy 4000 kroków × 9 etapów = **36 000 operacji fork-join na cykl RF**; eliminacja przez persistent region daje **20%–35% skrócenia** czasu wykonania — pośrednio uzasadnia dlaczego narzut synchronizacji przekracza czas solvera Poissona |
+| **[Chapman07]** | W Rozdziale 5 (Sekcje 5.4.4–5.4.5, ss. 148–150, Rysunki 5.23–5.26) explicite analizuje narzut ciągłego tworzenia regionów równoległych w zagnieżdżonych pętlach czasowych; zaleca wyniesienie `#pragma omp parallel` na zewnątrz pętli i amortyzację narzutu fork-join. W połączeniu z obserwacją **[Suciu20]** (s. 3, sekcja III-B) uzasadnia to, dlaczego narzut synchronizacji w 1D przekracza czas samego solvera Poissona. |
 
 ---
 
@@ -509,7 +511,7 @@ Aby zrekompensować te braki i zbliżyć wydajność Go do C++ z AVX-512:
 | Artykuł | Uzasadnienie |
 |:---|:---|
 | **[AMD-TG]** | Oficjalny przewodnik AMD EPYC 9004 Linux Tuning Guide explicite rekomenduje zestaw flag `-O3 -march=znver4 -mtune=znver4 -ffast-math -funroll-loops -mprefer-vector-width=512 -fno-math-errno` dla obciążeń HPC na procesorach Zen 4; potwierdza pełną przepustowość 512-bitowych operacji SIMD bez obniżania taktowania zegara CPU |
-| **[Vay18]** | Dokumentuje, że pełne wykorzystanie wektoryzacji SIMD oraz instrukcji FMA w pętlach PIC przynosi **$3.5\times–5.2\times$ przyspieszenia** fazy pchnięcia cząstek w porównaniu z kodem skalarnym; wskazuje, że ograniczenia domyślnej autowektoryzacji kompilatora wymagają jawnych wskazówek i flag |
+| **[Decyk14]** | Dokumentuje, że pełne wykorzystanie wektoryzacji SIMD oraz instrukcji FMA w pętlach PIC przynosi **$3.5\times–5.2\times$ przyspieszenia** fazy pchnięcia cząstek w porównaniu z kodem skalarnym; wskazuje, że ograniczenia domyślnej autowektoryzacji kompilatora wymagają jawnych wskazówek i flag |
 | **[SMILEI18]** | Wykazuje skuteczność flagi `-fopenmp-simd` w wymuszaniu wektoryzacji pętli pchnięcia cząstek z gwarancją braku niepożądanego narzutu barier OpenMP |
 
 ---

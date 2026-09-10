@@ -55,68 +55,40 @@ Poniższa propozycja struktury pracy naukowej / dyplomowej (inżynierskiej lub m
 
 ---
 
-### Rozdział 4. Zaawansowane Optymalizacje Numeryczne i Pamięciowe
-* **4.1. Układ pamięci i hierarchia cache:**
-  * Zastąpienie Array of Structures (AoS) strukturą **Structure of Arrays (SoA)** – lokalność pamięci L1/L2.
-  * Zjawisko **False Sharing** i jego eliminacja przez 64-bajtowy padding linii pamięci podręcznej.
-  * Eliminacja alokacji na stercie w pętli głównej (0 allocs/op) i neutralizacja Garbage Collectora w Go.
-* **4.2. Optymalizacje numeryczne w pętlach czasowych:**
-  * Prekomputacja stałych i eliminacja operacji dzielenia zmiennoprzecinkowego (`DIVSD`).
-  * 1-mnożeniowa formuła interpolacji Cloud-in-Cell ($E_p + d(E_{p+1}-E_p)$) – oszczędność 40 mln mnożeń na cykl.
-  * Trójdiagonalny solver Poissona `ThomasW` bez dzieleń w fazie eliminacji w przód.
-* **4.3. Mikrooptymalizacje modułu zderzeń Monte Carlo:**
-  * Fast-Path dla rezonansowej wymiany ładunku (`I_BACK`) – optymalizacja 80% zderzeń jonów.
-  * Czysta algebra wektorowa bez wywołań funkcji transcedentnych (`atan2`, `sin`, `cos`).
-  * Multiplikatywna selekcja typu zderzenia w metodzie Null-Collision.
-* **4.4. Eliminacja testów granic tablic (Bounds Check Elimination - BCE) i Unrolling w Go.**
+### Rozdział 4. Eksperymentalna Optymalizacja i Analiza Wydajności w Językach C++ oraz Go
+*(Główny rozdział badawczo-eksperymentalny pracy. Każda optymalizacja posiada autonomiczny podrozdział z 5-elementowym schematem: Motywacja -> Rozwiązanie -> Eksperyment -> Telemetria -> Walidacja fizyczna. Szczegóły w `experiments/struktura_rozdzialu_pracy_magisterskiej.md`)*
+
+* **4.1. Analiza stanu wyjściowego i diagnoza kodu bazowego (Baseline):**
+  * 4.1.1. Środowisko badawcze, aparatura telemetryczna (`perf`) i stan wzorcowy (Golden Record).
+  * 4.1.2. Charakterystyka modularnego kodu referencyjnego eduPIC i metoda bezpośrednia Direct MCC.
+  * 4.1.3. Profilowanie sprzętowe i identyfikacja wąskich gardeł (Stan $T_0$, bazowe IPC = 2.51, dominacja `libm`).
+* **4.2. Ścieżka optymalizacji silnika w języku C++ (OpenMP i SIMD):**
+  * 4.2.1. Algorytmiczna redukcja zderzeń kinetycznych: Metoda Zderzeń Zerowych (Null-Collision).
+  * 4.2.2. Hoisting niezmienników pętli i analityczna prekompilacja solwera Poissona (Thomas solver).
+  * 4.2.3. Redukcja siły operacji (Strength Reduction) i eliminacja dzieleń zmiennoprzecinkowych.
+  * 4.2.4. Dedykowana ścieżka szybkiej obsługi (Fast-Path) zderzeń wymiany ładunku (Charge Exchange).
+  * 4.2.5. Bezfunkcyjna algebra wektorowa kątów rozproszenia Eulera.
+  * 4.2.6. Wektoryzacja SIMD (AVX-512), wyrównanie pamięci (`alignas(64)`) i 4-krotne rozwinięcie pętli.
+  * 4.2.7. Mechanizmy współbieżności OpenMP (PRNG thread-local, WorkerBuffers scatter-add, eliminacja False Sharing, cykl życia cząstek).
+  * 4.2.8. Badanie skalowalności silnej i weryfikacja Prawa Amdahla na klastrze HPC (rekord **13.89 s**, analiza barier `libgomp` i NUMA).
+* **4.3. Ścieżka optymalizacji i architektura współbieżna w języku Go:**
+  * 4.3.1. Przeniesienie silnika do Go i gospodarka pamięcią (Zero-Alloc SoA, neutralizacja GC).
+  * 4.3.2. Model dynamiczny: Goroutyny per-krok (`parallel_chunking`, `sync.WaitGroup`, eksplozja futexów).
+  * 4.3.3. Model trwały: Pula workerów sterowana kanałami (`parallel_channels`).
+  * 4.3.4. Dedykowana bariera użytkownika `StarBarrier` ze spin-lockiem i instrukcją `PAUSE` (`parallel_optimized`, rekord **20.72 s**).
+  * 4.3.5. Problem braku autowektoryzacji w Go, emulacja gather i autorski kernel w asemblerze Plan 9 AVX2 (`push_amd64.s`).
+  * 4.3.6. Skalowalność Go na klastrze HPC i interakcja ze schedulerem GMP.
+* **4.4. Bezpośrednie porównanie międzyjęzykowe (C++ vs Go) i dyskusja wyników:**
+  * 4.4.1. Zestawienie wydajnościowe na 1–64/128 rdzeniach (C++ 13.89 s vs Go 20.72 s).
+  * 4.4.2. Rzeczywisty koszt abstrakcji środowiska zarządzanego (narzut $1.49\times$, GC, GMP vs OpenMP).
+  * 4.4.3. Skumulowany wykres kaskadowy przyspieszenia (Waterfall Chart).
+  * 4.4.4. Rekomendacje inżynierskie dla symulacji HPC w języku Go.
 
 ---
 
-### Rozdział 5. Problem Wektoryzacji SIMD i Operacji Gather
-* **5.1. Równoległość na poziomie instrukcji (ILP) a równoległość danych (DLP / SIMD):**
-  * Dlaczego 4-krotny unroll pętli w Go nie zastępuje wektoryzacji AVX2.
-  * Asymetria szczytowej mocy obliczeniowej (Peak FLOPS) rdzenia procesora.
-* **5.2. Nielokalny dostęp do siatki w algorytmie PIC jako źródło operacji Gather:**
-  * Chaotyczny ruch cząstek a rozproszenie indeksów siatki w pamięci RAM.
-  * Dlaczego sortowanie cząstek (*cell binning*) jest nieefektywne czasowo.
-* **5.3. Ograniczenia kompilatora Go `gc` i analiza bibliotek zewnętrznych:**
-  * Profilowanie pprof: emulacja operacji gather przez stos i spadek wydajności o 28%.
-* **5.4. Projekt i implementacja autorskiego kernela asemblera Plan 9 AVX2 (`push_amd64.s`):**
-  * Zastosowanie sprzętowej instrukcji `VGATHERDPD` i wektorowego FMA.
-  * Wyniki mikrobenchmarku: 4.53-krotne przyspieszenie w Go – dowód poprawności hipotezy.
-
----
-
-### Rozdział 6. Wyniki Eksperymentalne i Analiza Skalowalności na Klastrze HPC
-* **6.1. Charakterystyka środowiska pomiarowego:**
-  * Architektura procesora AMD EPYC 9554 (Zen 4, 64 rdzenie, struktura CCX/NUMA, L3 Cache).
-  * Konfiguracja systemu kolejkowego SLURM i metodyka eliminacji zakłóceń pomiarowych.
-* **6.2. Weryfikacja poprawności fizycznej:**
-  * Bitowa zgodność wyników (testy regresyjne `conv.dat`, zachowanie energii i gęstości).
-* **6.3. Wyniki wydajności jednowątkowej (Single-Thread Performance):**
-  * Bezpośrednie porównanie czasów wykonania poszczególnych kroków (Leap-Frog, Poisson, MCC).
-* **6.4. Skalowalność silna i słaba (Strong and Weak Scaling):**
-  * Pomiary przyspieszenia $S(p)$ i sprawności $E(p)$ dla konfiguracji 1, 2, 4, 8, 16, 32, 64 rdzeni.
-  * Porównanie modelu OpenMP vs Go Chunking vs Go Channels.
-* **6.5. Narzut środowiska uruchomieniowego i analiza Prawa Amdahla:**
-  * Koszt synchronizacji schedulera Go M:N w skali klastra.
-  * Wpływ nieparalelizowalnych ułamków kodu na asymetrię skalowania.
-
----
-
-### Rozdział 7. Dyskusja Wyników i Wytyczne Inżynierskie
-* **7.1. Koszt abstrakcji środowiska zarządzanego w obliczeniach HPC:**
-  * Czy narzut Go jest akceptowalny w symulacjach fizycznych?
-* **7.2. Porównanie produktywności programistycznej:**
-  * Bezpieczeństwo pamięci, czytelność kodu, czas kompilacji vs czas wykonania (Go vs C++).
-* **7.3. Rekomendacje dla inżynierii oprogramowania naukowego:**
-  * W jakich scenariuszach Go może zastąpić C++, a gdzie C++ pozostaje bezkonkurencyjny.
-
----
-
-### Rozdział 8. Podsumowanie i Wnioski Końcowe
-* **8.1. Zestawienie osiągniętych rezultatów.**
-* **8.2. Weryfikacja hipotez badawczych.**
-* **8.3. Kierunki dalszych badań:**
+### Rozdział 5. Podsumowanie i Wnioski Końcowe
+* **5.1. Zestawienie osiągniętych rezultatów.**
+* **5.2. Weryfikacja hipotez badawczych.**
+* **5.3. Kierunki dalszych badań:**
   * Hybrydowy model Go + Assembler / CGO na GPU (CUDA/HIP).
-  * Rozszerzenie modelu do geometrii 2D3V i zastosowanie wielowęzłowego MPI.
+  * Rozszerzenie modelu do geometrii 2D3V i wielowęzłowego MPI.

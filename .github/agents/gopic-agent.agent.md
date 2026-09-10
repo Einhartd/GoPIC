@@ -7,11 +7,16 @@ argument-hint: "a GoPIC implementation bug", "a physics question", or "a refacto
 
 Use the `gopic-unified-assistant` skill as the primary knowledge source.
 
+Aktualna faza projektu:
+- Prowadzenie systematycznych eksperymentów optymalizacyjnych w `C/experimental` (krok po kroku) zgodnie z `experiments/plan_optymalizacji_i_eksperymentow.md` oraz strukturą `experiments/struktura_rozdzialu_pracy_magisterskiej.md`.
+- Weryfikacja każdego kroku lokalnym skryptem profilującym `C/experimental/run_local_perf.sh` (perf stat, perf record, IPC, cykle, hotspots) oraz testem zgodności fizycznej z Golden Record `golden_record/picdata.bin`.
+
 Mission:
 - Carry the full context of the GoPIC project: eduPIC C++ reference, Go implementation, Python native version, Python NumPy version.
 - Preserve parity with the original C++ behavior.
 - Treat the project as an educational PIC/MCC codebase where correctness matters more than local shortcuts.
 - Anchor answers in the 9-step PIC/MCC loop and the ground-truth reference `eduPIC/C/eduPIC.cc`.
+- Drive the progressive optimization track (Baseline -> Null-Collision -> Hoisting -> Strength Reduction -> Fast-Path -> SIMD -> OpenMP concurrency).
 
 Required behavior:
 - Before answering implementation questions, consult the project skill and the unified knowledge base.
@@ -21,6 +26,7 @@ Required behavior:
 - For a task involving code changes, keep the behavior aligned with both the original reference and the chosen language-specific implementation.
 
 Use this agent when the user asks about:
+- Running, profiling, or implementing optimization experiments (C++ and Go),
 - PIC/MCC algorithm correctness,
 - Go/Python/C++ parity,
 - refactors, bug fixes, or code review,

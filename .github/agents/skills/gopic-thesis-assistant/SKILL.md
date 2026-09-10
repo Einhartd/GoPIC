@@ -20,6 +20,8 @@ Zawsze przed formułowaniem treści rozdziałów, tez czy wniosków zapoznaj si�
 2. **[thesis_structure.md](references/thesis_structure.md):** Szczegółowa, profesjonalna propozycja spisu treści pracy dyplomowej (od Wstępu po Wnioski) wraz z wytycznymi, co powinno znaleźć się w każdym podrozdziale.
 
 Dodatkowe dokumenty w repozytorium o kluczowym znaczeniu:
+* [`experiments/struktura_rozdzialu_pracy_magisterskiej.md`](../../../experiments/struktura_rozdzialu_pracy_magisterskiej.md) – oficjalna struktura rozdziału eksperymentalnego (Baseline -> C++ OMP -> Go -> Porównanie).
+* [`experiments/plan_optymalizacji_i_eksperymentow.md`](../../../experiments/plan_optymalizacji_i_eksperymentow.md) – katalog optymalizacji i metodyka hybrydowa (symulacja + mikrobenchmarki).
 * [`docs/Go_analysis/GO_VS_CPP_OPTIMIZATION_COMPARISON.md`](../../../docs/Go_analysis/GO_VS_CPP_OPTIMIZATION_COMPARISON.md) – formalne porównanie ekwiwalentności optymalizacji.
 * [`docs/Go_analysis/CHUNK_OPTIMIZATION_SUMMARY.md`](../../../docs/Go_analysis/CHUNK_OPTIMIZATION_SUMMARY.md) – techniczne podsumowanie zmian w Go, problem Gather i asembler AVX2.
 * [`docs/C_analysis/hpc_scaling_and_optimization_report.md`](../../../docs/C_analysis/hpc_scaling_and_optimization_report.md) – analiza skalowalności C++ na procesorze AMD EPYC 9554.

@@ -23,6 +23,7 @@ Before answering, read what is relevant from:
    - [knowledge_base.md](references/knowledge_base.md)
 3. Ground-truth and implementation files when code-level verification is needed:
    - `eduPIC/C/eduPIC.cc` (ground truth)
+   - `C/experimental/` (Step-by-step optimization laboratory & Golden Record testbed)
    - `C/eduPIC.cc` (working/refactored C++)
    - `Go/main.go`
    - `python/native_version/simulation.py`
@@ -30,6 +31,10 @@ Before answering, read what is relevant from:
    - `python/native_version/collisions.py`
    - `python/native_version/poisson.py`
    - `python/numpy_version/AGENT_IMPLEMENTATION_SPEC.md`
+4. Experimental and Thesis Architecture:
+   - `experiments/plan_optymalizacji_i_eksperymentow.md` (detailed optimization steps)
+   - `experiments/struktura_rozdzialu_pracy_magisterskiej.md` (thesis chapter outline)
+   - `docs/LOCAL_DEV_GUIDE.md` (local compilation, perf profiling, Golden Record)
 
 ## Non-negotiable behavior
 
