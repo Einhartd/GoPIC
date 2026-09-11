@@ -48,7 +48,7 @@ Dokument definiuje zestaw optymalizacji algorytmicznych, mikroarchitektonicznych
 
 ---
 
-### Hoisting Stałych i Prekompilacja Solvera Poissona
+### Eliminacja redundancji obliczeniowej poprzez hoisting stałych skalarnych i tablicowych
 
 * **Opis i mechanizm:**
   1. **Hoisting stałych:** Wyniesienie stałych definiowanych lokalnie w funkcjach (`A, B, C, S, ALPHA` w `solve_Poisson`, `F1, F2` w `collision_electron`, `DV, FACTOR_W, FACTOR_E, FACTOR_I` w `do_one_cycle`) do pliku nagłówkowego `constants.h`. Wyliczenie ich jednorazowo przy starcie programu zamiast ponownego tworzenia w każdym wywołaniu funkcji.
