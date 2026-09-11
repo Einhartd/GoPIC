@@ -1,6 +1,7 @@
 #pragma once
 #include "state.h"
 #include "poisson.h"
+#include "null_collision.h"
 #include "collisions.h"
 #include <cmath>
 
@@ -191,19 +192,28 @@ PIC_STEP void step6_check_boundaries_ions(int t){
 }
 
 PIC_STEP void step7_collisions_electrons(){
-    int k, energy_index;
-    double v_sqr, velocity, energy, nu, p_coll;
+    std::binomial_distribution<int> binom_e(N_e, P_star_e);
+    int N_coll_star_e = binom_e(MTgen);
+    if (N_coll_star_e > N_e) N_coll_star_e = N_e;
 
-    for (k=0; k<N_e; k++){                              // checking for occurrence of a collision for all electrons in every time step
-        v_sqr = vx_e[k] * vx_e[k] + vy_e[k] * vy_e[k] + vz_e[k] * vz_e[k];
-        velocity = sqrt(v_sqr);
-        energy   = 0.5 * E_MASS * v_sqr / EV_TO_J;
-        energy_index = min( int(energy / DE_CS + 0.5), CS_RANGES-1);
-        nu = sigma_tot_e[energy_index] * velocity;
-        p_coll = 1 - exp(- nu * DT_E);                  // collision probability for electrons
-        if (R01(MTgen) < p_coll) {                      // electron collision takes place
-            collision_electron(x_e[k], &vx_e[k], &vy_e[k], &vz_e[k], energy_index);
-            N_e_coll++;
+    if (N_coll_star_e > 0) {
+        std::vector<int> candidates_e;
+        random_sample(N_e, N_coll_star_e, candidates_e);
+
+        for (int ki : candidates_e){
+            double v_sqr = vx_e[ki]*vx_e[ki] + vy_e[ki]*vy_e[ki] + vz_e[ki]*vz_e[ki];
+            double velocity = sqrt(v_sqr);
+            double energy   = 0.5 * E_MASS * v_sqr / EV_TO_J;
+            int energy_index = min(int(energy / DE_CS + 0.5), CS_RANGES - 1);
+            
+            double real_nu = sigma_tot_e[energy_index] * velocity;
+            double p_accept = real_nu / nu_star_e;
+            if (p_accept > 1.0) p_accept = 1.0;
+            
+            if (R01(MTgen) < p_accept) {
+                collision_electron(x_e[ki], &vx_e[ki], &vy_e[ki], &vz_e[ki], energy_index);
+                N_e_coll++;
+            }
         }
     }
 }
@@ -211,25 +221,34 @@ PIC_STEP void step7_collisions_electrons(){
 PIC_STEP void step8_collision_ions(int t){
     if ((t % N_SUB) != 0) return;
 
-    int k, energy_index;
-    double vx_a, vy_a, vz_a, gx, gy, gz, g_sqr, g, energy, nu, p_coll;
-
-    for (k=0; k<N_i; k++){
-        vx_a = RMB(MTgen);                          // pick velocity components of a random target gas atom
-        vy_a = RMB(MTgen);
-        vz_a = RMB(MTgen);
-        gx   = vx_i[k] - vx_a;                       // compute the relative velocity of the collision partners
-        gy   = vy_i[k] - vy_a;
-        gz   = vz_i[k] - vz_a;
-        g_sqr = gx * gx + gy * gy + gz * gz;
-        g = sqrt(g_sqr);
-        energy = 0.5 * MU_ARAR * g_sqr / EV_TO_J;
-        energy_index = min( int(energy / DE_CS + 0.5), CS_RANGES-1);
-        nu = sigma_tot_i[energy_index] * g;
-        p_coll = 1 - exp(- nu * DT_I);              // collision probability for ions
-        if (R01(MTgen)< p_coll) {                   // ion collision takes place
-            collision_ion(&vx_i[k], &vy_i[k], &vz_i[k], &vx_a, &vy_a, &vz_a, energy_index);
-            N_i_coll++;
+    std::binomial_distribution<int> binom_i(N_i, P_star_i);
+    int N_coll_star_i = binom_i(MTgen);
+    if (N_coll_star_i > N_i) N_coll_star_i = N_i;
+    
+    if (N_coll_star_i > 0) {
+        std::vector<int> candidates_i;
+        random_sample(N_i, N_coll_star_i, candidates_i);
+        
+        double vx_a, vy_a, vz_a, gx, gy, gz, g_sqr, g, energy;
+        int energy_index;
+        for (int ki : candidates_i) {
+            vx_a = RMB(MTgen); vy_a = RMB(MTgen); vz_a = RMB(MTgen);
+            gx = vx_i[ki] - vx_a;
+            gy = vy_i[ki] - vy_a;
+            gz = vz_i[ki] - vz_a;
+            g_sqr = gx*gx + gy*gy + gz*gz;
+            g = sqrt(g_sqr);
+            energy = 0.5 * MU_ARAR * g_sqr / EV_TO_J;
+            energy_index = min(int(energy / DE_CS + 0.5), CS_RANGES - 1);
+            
+            double real_nu = sigma_tot_i[energy_index] * g;
+            double p_accept = real_nu / nu_star_i;
+            if (p_accept > 1.0) p_accept = 1.0;
+            
+            if (R01(MTgen) < p_accept) {
+                collision_ion(&vx_i[ki], &vy_i[ki], &vz_i[ki], &vx_a, &vy_a, &vz_a, energy_index);
+                N_i_coll++;
+            }
         }
     }
 }

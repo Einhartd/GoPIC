@@ -67,6 +67,19 @@ inline char             st0[80];                                     // used for
 inline FILE             *datafile;                                   // used for saving data
 inline bool             measurement_mode;                            // flag that controls measurements and data saving
 
+// =============================================================================
+// Wstępnie obliczone parametry metody zderzeń zerowych (Null-Collision)
+// =============================================================================
+
+// Maksymalna częstość zderzeń dla elektronów nu*_e
+inline double nu_star_e = 0.0;
+// Maksymalne prawdopodobieństwo zderzenia elektronu P*_e
+inline double P_star_e = 0.0;
+// Maksymalna częstość zderzeń dla jonów nu*_i
+inline double nu_star_i = 0.0;
+// Maksymalne prawdopodobieństwo zderzenia jonu P*_i
+inline double P_star_i = 0.0;
+
 inline std::random_device rd{}; 
 inline std::mt19937 MTgen(rd());
 inline std::uniform_real_distribution<> R01(0.0, 1.0);

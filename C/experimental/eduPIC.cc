@@ -3,6 +3,7 @@
 #include "cross_sections.h"
 #include "simulation.h"
 #include "io_manager.h"
+#include "null_collision.h"
 
 //------------------------------------------------------------------------------------------//
 // main                                                                                     //
@@ -42,6 +43,8 @@ int main (int argc, char *argv[]){
     set_electron_cross_sections_ar();
     set_ion_cross_sections_ar();
     calc_total_cross_sections();
+    //  Prekomputacja parametrów null-collision
+    compute_null_collision_params();
 
     datafile = fopen("conv.dat","a");
     if (arg1 == 0) {
