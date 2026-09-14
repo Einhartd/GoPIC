@@ -19,10 +19,8 @@ fi
 REPO_DIR="$HOME/GoPIC"
 
 #   TU PODMIENIAMY NAZWE FOLDERU Z EKSPERYMENTEM
-SRC_DIR="${REPO_DIR}/C/5.experiment-fast-path"
+SRC_DIR="${REPO_DIR}/C/7.experiment-simd"
 
-
-SRC_DIR="${REPO_DIR}/C/experiment"
 BUILD_DIR="$HOME/GoPIC_build/C"
 LOG_DIR="$(pwd)/saved_logs_C/logs_job_${SLURM_JOB_ID}_EXP_RECORD"
 DATA_DIR="${LOG_DIR}/edupic_data"
@@ -46,8 +44,12 @@ rm -f "${BINARY}"
 echo ">> Kompilacja: C++ experiment:"
 g++ -std=c++17 -O3 -Wall -fno-math-errno \
     -fno-omit-frame-pointer -g \
+    -march=znver4 -mtune=znver4 \
+    -mprefer-vector-width=512 \
+    -funroll-loops \
     -DPROFILE_RECORD \
     -ffast-math \
+    -fopt-info-vec-optimized \
     "${SRC_DIR}/eduPIC.cc" -o "${BINARY}" -lm
 
 
