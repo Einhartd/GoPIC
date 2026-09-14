@@ -28,9 +28,10 @@ PIC_STEP void step1_compute_electron_density(double factor_w){
     for(k=0; k<N_e; k++){
         c0 = x_e[k] * INV_DX;
         p  = int(c0);
-        double c2 = c0 - p;
+        double c2 = (c0 - p);
         double w2 = c2 * factor_w;
-        e_density[p]   += (factor_w - w2);
+        double w1 = factor_w - w2;
+        e_density[p]   += w1;
         e_density[p+1] += w2;
     }
     e_density[0]     *= 2.0;
@@ -47,9 +48,10 @@ PIC_STEP void step1_compute_ion_density(int t, double factor_w){
         for(k=0; k<N_i; k++){
             c0 = x_i[k] * INV_DX;
             p  = int(c0);
-            double c2 = c0 - p;
+            double c2 = (c0 - p);
             double w2 = c2 * factor_w;
-            i_density[p]   += (factor_w - w2);  
+            double w1 = factor_w - w2;
+            i_density[p]   += w1;  
             i_density[p+1] += w2;
         }
         i_density[0]     *= 2.0;
@@ -65,9 +67,7 @@ PIC_STEP void step2_solve_poisson(double current_time){
 
 PIC_STEP void step3_move_electrons(int t_index, double factor_e, double min_x, double max_x){
     if (__builtin_expect(!measurement_mode, 1)) {
-        // Fast-path dla krokow produkcyjnych (brak rozgalezien diagnostycznych)
-        // Interpolacja FMA: E(x) = E_p + c2 * (E_{p+1} - E_p)
-        #pragma GCC ivdep
+        // Fast-path dla krokow produkcyjnych (brak rozgalezien diagnostycznych + FMA)
         for(int k=0; k<N_e; k++){
             double c0  = x_e[k] * INV_DX;
             int p      = int(c0);
@@ -123,8 +123,7 @@ PIC_STEP void step4_move_ions(int t_index, int t, double factor_i){
     if ((t % N_SUB) != 0) return;
 
     if (__builtin_expect(!measurement_mode, 1)) {
-        // Fast-path dla jonow bez diagnostyki
-        #pragma GCC ivdep
+        // Fast-path dla jonow bez diagnostyki (FMA)
         for(int k=0; k<N_i; k++){
             double c0  = x_i[k] * INV_DX;
             int p      = int(c0);
@@ -164,53 +163,74 @@ PIC_STEP void step4_move_ions(int t_index, int t, double factor_i){
 }
 
 PIC_STEP void step5_check_boundaries_electrons(){
-    int k = 0;
-    bool out;
-    while(k < N_e) {    // check boundaries for all electrons in every time step
-        out = false;
-        if (x_e[k] < 0) {N_e_abs_pow++; out = true;}    // the electron is out at the powered electrode
-        if (x_e[k] > L) {N_e_abs_gnd++; out = true;}    // the electron is out at the grounded electrode
-        if (out) {                                      // remove the electron, if out
-            x_e [k] = x_e [N_e-1];
-            vx_e[k] = vx_e[N_e-1];
-            vy_e[k] = vy_e[N_e-1];
-            vz_e[k] = vz_e[N_e-1];
-            N_e--;
-        } else k++;
+    static std::vector<int> dead_e;
+    dead_e.clear();
+
+    for (int k = 0; k < N_e; k++) {
+        if (__builtin_expect(x_e[k] < 0.0, 0)) {
+            dead_e.push_back(k);
+            N_e_abs_pow++;
+        } else if (__builtin_expect(x_e[k] > L, 0)) {
+            dead_e.push_back(k);
+            N_e_abs_gnd++;
+        }
+    }
+
+    if (!dead_e.empty()) {
+        int last_valid = N_e - 1;
+        for (int dead_idx : dead_e) {
+            while (last_valid > dead_idx && (x_e[last_valid] < 0.0 || x_e[last_valid] > L)) {
+                last_valid--;
+            }
+            if (last_valid > dead_idx) {
+                x_e[dead_idx]  = x_e[last_valid];
+                vx_e[dead_idx] = vx_e[last_valid];
+                vy_e[dead_idx] = vy_e[last_valid];
+                vz_e[dead_idx] = vz_e[last_valid];
+                last_valid--;
+            }
+        }
+        N_e -= dead_e.size();
     }
 }
 
 PIC_STEP void step6_check_boundaries_ions(int t){
     if ((t % N_SUB) != 0) return;
 
-    int k = 0;
-    bool out;
-    double v_sqr;
-    int energy_index;
+    static std::vector<int> dead_i;
+    dead_i.clear();
 
-    while (k < N_i) {
-        out = false;
-        if (x_i[k] < 0) {
+    for (int k = 0; k < N_i; k++) {
+        if (__builtin_expect(x_i[k] < 0.0, 0)) {
+            dead_i.push_back(k);
             N_i_abs_pow++;
-            out = true;
-            v_sqr  = vx_i[k] * vx_i[k] + vy_i[k] * vy_i[k] + vz_i[k] * vz_i[k];
-            energy_index = (int)(v_sqr * FACTOR_ENERGY_IFED);
+            double v_sqr  = vx_i[k] * vx_i[k] + vy_i[k] * vy_i[k] + vz_i[k] * vz_i[k];
+            int energy_index = (int)(v_sqr * FACTOR_ENERGY_IFED);
             if (energy_index < N_IFED) ifed_pow[energy_index]++;
-        }
-        if (x_i[k] > L) {
+        } else if (__builtin_expect(x_i[k] > L, 0)) {
+            dead_i.push_back(k);
             N_i_abs_gnd++;
-            out = true;
-            v_sqr  = vx_i[k] * vx_i[k] + vy_i[k] * vy_i[k] + vz_i[k] * vz_i[k];
-            energy_index = (int)(v_sqr * FACTOR_ENERGY_IFED);
+            double v_sqr  = vx_i[k] * vx_i[k] + vy_i[k] * vy_i[k] + vz_i[k] * vz_i[k];
+            int energy_index = (int)(v_sqr * FACTOR_ENERGY_IFED);
             if (energy_index < N_IFED) ifed_gnd[energy_index]++;
         }
-        if (out) {
-            x_i [k] = x_i [N_i-1];
-            vx_i[k] = vx_i[N_i-1];
-            vy_i[k] = vy_i[N_i-1];
-            vz_i[k] = vz_i[N_i-1];
-            N_i--;
-        } else k++;
+    }
+
+    if (!dead_i.empty()) {
+        int last_valid = N_i - 1;
+        for (int dead_idx : dead_i) {
+            while (last_valid > dead_idx && (x_i[last_valid] < 0.0 || x_i[last_valid] > L)) {
+                last_valid--;
+            }
+            if (last_valid > dead_idx) {
+                x_i[dead_idx]  = x_i[last_valid];
+                vx_i[dead_idx] = vx_i[last_valid];
+                vy_i[dead_idx] = vy_i[last_valid];
+                vz_i[dead_idx] = vz_i[last_valid];
+                last_valid--;
+            }
+        }
+        N_i -= dead_i.size();
     }
 }
 

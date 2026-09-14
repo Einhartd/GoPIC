@@ -18,8 +18,19 @@ fi
 
 REPO_DIR="$HOME/GoPIC"
 
-#   TU PODMIENIAMY NAZWE FOLDERU Z EKSPERYMENTEM
-SRC_DIR="${REPO_DIR}/C/7.experiment-simd"
+# ==============================================================================
+# WYBÓR EKSPERYMENTU I FLAG KOMPILATORA
+# ==============================================================================
+# Domyślnie: EKSPERYMENT 7 (Optymalizacje strukturalne: pusher fast-path, linear boundary compaction)
+# Flagi: identyczne z Eksperymentami 1-6 (izolacja czystego zysku algorytmicznego)
+SRC_DIR="${REPO_DIR}/C/7.experiment-pusher-boundaries"
+CXX_FLAGS="-std=c++17 -O3 -Wall -fno-math-errno -fno-omit-frame-pointer -g -DPROFILE_RECORD -ffast-math"
+
+# --- Opcja: EKSPERYMENT 8 (Wektoryzacja SIMD AVX-512, alignas(64), unrolling, Zen 4 tuning) ---
+# Aby uruchomić Eksperyment 8, zakomentuj 2 linie powyżej i odkomentuj 2 linie poniżej:
+# SRC_DIR="${REPO_DIR}/C/8.experiment-simd"
+# CXX_FLAGS="-std=c++17 -O3 -Wall -fno-math-errno -fno-omit-frame-pointer -g -march=znver4 -mtune=znver4 -mprefer-vector-width=512 -funroll-loops -DPROFILE_RECORD -ffast-math -fopt-info-vec-optimized"
+# ==============================================================================
 
 BUILD_DIR="$HOME/GoPIC_build/C"
 LOG_DIR="$(pwd)/saved_logs_C/logs_job_${SLURM_JOB_ID}_EXP_RECORD"
@@ -33,6 +44,8 @@ exec > "${LOG_DIR}/job_output.log" 2>&1
 
 echo "=== [C++ Exp RECORD] Job: ${SLURM_JOB_ID} | (Allocated Cores: ${SLURM_CPUS_PER_TASK}) | Cycles: ${N_CYCLES} | Measurement: ${MEASURE_ARG:-off} | Node: ${SLURM_JOB_NODELIST} ==="
 echo ">> Ścieżka repo: ${REPO_DIR} | Commit: $(git -C "${REPO_DIR}" rev-parse --short HEAD 2>/dev/null || echo 'N/A')"
+echo ">> Źródła: ${SRC_DIR}"
+echo ">> Flagi CXX: ${CXX_FLAGS}"
 lscpu > "${LOG_DIR}/hardware_topology.txt" 2>&1
 
 module purge && module load gcc
@@ -42,15 +55,7 @@ BINARY="${BUILD_DIR}/edupic_exp_${SLURM_JOB_ID}"
 rm -f "${BINARY}"
 
 echo ">> Kompilacja: C++ experiment:"
-g++ -std=c++17 -O3 -Wall -fno-math-errno \
-    -fno-omit-frame-pointer -g \
-    -march=znver4 -mtune=znver4 \
-    -mprefer-vector-width=512 \
-    -funroll-loops \
-    -DPROFILE_RECORD \
-    -ffast-math \
-    -fopt-info-vec-optimized \
-    "${SRC_DIR}/eduPIC.cc" -o "${BINARY}" -lm
+g++ ${CXX_FLAGS} "${SRC_DIR}/eduPIC.cc" -o "${BINARY}" -lm
 
 
 if [ ! -f "${BINARY}" ]; then

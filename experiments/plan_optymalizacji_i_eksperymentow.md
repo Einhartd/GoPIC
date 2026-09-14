@@ -100,17 +100,35 @@ Dokument definiuje zestaw optymalizacji algorytmicznych, mikroarchitektonicznych
 
 ---
 
-### Wektoryzacja SIMD (AVX-512), Wyrównanie Pamięci i Rozwinięcie Pętli
+### Eksperyment 7: Optymalizacja Strukturalna Integratora i Liniowa Kompaktacja Warunków Brzegowych (Pusher Fast-Path & Boundary Compaction)
 
+* **Katalog eksperymentu:** `C/7.experiment-pusher-boundaries` oraz `experiments/7-pusher-boundaries/`
+* **Flagi kompilatora:** Identyczne jak w krokach 1–6 (`-std=c++17 -O3 -Wall -fno-math-errno -fno-omit-frame-pointer -g -ffast-math`). Pełna izolacja zysku algorytmiczno-strukturalnego bez zmian flag kompilacji.
 * **Opis i mechanizm:**
-  Zwieńczenie optymalizacji pojedynczego rdzenia procesora (Peak Single-Core Performance):
-  1. **Wyrównanie pamięci:** Wszystkie tablice cząstek (`x_e, vx_e...`) oraz pól siatki otrzymują atrybut `alignas(64)`, co dopasowuje ich adresy początkowe do 64-bajtowych linii pamięci podręcznej i umożliwia wektorowe operacje AVX-512 bez kar za niewyrównany dostęp.
-  2. **Fast-path pushera:** Wydzielenie osobnej ścieżki dla kroków bez pomiarów diagnostycznych (`!measurement_mode`), co usuwa rozgałęzienia warunkowe z pętli Leap-Frog dla większości cykli symulacji.
-  3. **Uproszczenie interpolacji pola:** Zastąpienie dwumnożnikowej interpolacji CIC równoważną formułą o jednym mnożeniu: $E(x) = E_p + c_2 \cdot (E_{p+1} - E_p)$.
-  4. **Rozwinięcie pętli (4-Way Unrolling):** Przetwarzanie 4 cząstek w jednej iteracji z dyrektywą `#pragma GCC ivdep`, pozwalające kompilatorowi na wykorzystanie równoległych potoków FMA w rdzeniu AMD Zen4.
-  5. **Flagi kompilatora:** `-std=c++17 -O3 -march=znver4 -mavx512f -mavx512dq -fno-math-errno`.
+  Po wyeliminowaniu wąskich gardeł w module zderzeniowym (kroki 2–6), ponad 67% czasu symulacji zaczęły zajmować procedury cząstkowe: pchnięcie cząstek (`step3`, `step4`) oraz warunki brzegowe na elektrodach (`step5`, `step6`). Zidentyfikowano dwie patologie strukturalne:
+  1. **Fast-path pushera (`__builtin_expect(!measurement_mode, 1)`):** W kodzie referencyjnym wewnątrz ciasnej pętli integratora (wykonywanej ponad 43 miliardy razy na 100 cykli) znajdowały się rozgałęzienia diagnostyczne badające `measurement_mode`. Ponieważ diagnostyka włączana jest tylko w ostatnich cyklach, rozdzielono procedurę na ścieżkę szybką (czysty Leap-Frog bez odgałęzień) oraz ścieżkę pomiarową, wspomaganą predyktorem GCC.
+  2. **Uproszczenie interpolacji pola (CIC FMA):** Zastąpienie standardowej dwumnożnikowej interpolacji CIC $E = (1 - c_2)E_p + c_2 E_{p+1}$ zoptymalizowaną formułą o jednym mnożeniu: $E = E_p + c_2(E_{p+1} - E_p)$, bezpośrednio redukowalną do pojedynczej instrukcji `vfmadd213sd`.
+  3. **Dwuetapowa liniowa kompaktacja warunków brzegowych (Linear Stream Compaction):** Zastąpienie pętli `while (k < N)` z warunkową inkrementacją i natychmiastowym `swap-with-last` (która całkowicie uniemożliwiała wektoryzację i powodowała nieliniowe zanieczyszczanie cache) deterministyczną pętlą `for`:
+     - **Faza 1 (Skan liniowy):** Pętla `for (int k = 0; k < N; ++k)` bada $x_k \in [0, L]$. W 99.9% iteracji warunek spełniony jest bez rozgałęzień; jedynie cząstki martwe odkładają swoje indeksy do bufora `absorbed_indices`.
+     - **Faza 2 (Kompaktacja późna):** Szybkie, jednokrotne przepisanie cząstek z końca tablicy w luki po cząstkach pochłoniętych za pomocą algorytmu dwuwskanikowego.
+  4. **Redukcja siły operacji w depozycji CIC:** Przeliczenie wag siatki: $w_2 = c_2 \cdot factor\_w$, $w_1 = factor\_w - w_2$, eliminujące jedno mnożenie zmiennoprzecinkowe na cząstkę.
 * **Eksperyment / Weryfikacja:**
-  Pomiar pełnej symulacji na 1 rdzeniu. Porównanie wskaźnika IPC, liczby cykli zegara oraz wygenerowanego kodu wektorowego `zmm` w pusherze cząstek. Stanowi finalny wynik Części I — punkt wyjścia dla zrównoleglenia wielordzeniowego.
+  Uruchomienie pełnej symulacji 100 cykli na klastrze HPC (`GoPIC_jobs/C/edupic_exp_job_stat.sh`). Weryfikacja redukcji liczby instrukcji w `perf stat` (oczekiwany spadek z 3.08 T do ~2.4–2.5 T) oraz wzrostu wskaźnika IPC. Potwierdzenie identyczności fizycznej (Golden Record: 108 203 elektrony, 113 620 jonów, stabilność $\omega_{pe}\Delta t = 0.090$).
+
+---
+
+### Eksperyment 8: Wektoryzacja SIMD (AVX-512), Wyrównanie Linii Pamięci Podręcznej `alignas(64)` i Strojenie Pod Architekturę Zen 4 (SIMD & Zen 4 Tuning)
+
+* **Katalog eksperymentu:** `C/8.experiment-simd` oraz `experiments/8-simd/`
+* **Flagi kompilatora:** `-std=c++17 -O3 -Wall -fno-math-errno -fno-omit-frame-pointer -g -march=znver4 -mtune=znver4 -mprefer-vector-width=512 -funroll-loops -ffast-math -fopt-info-vec-optimized`.
+* **Opis i mechanizm:**
+  Zwieńczenie optymalizacji pojedynczego rdzenia procesora (Peak Single-Core Performance), przygotowujące bazę kodu do zrównoleglenia wielordzeniowego OpenMP:
+  1. **Izolacja i wyrównanie linii pamięci podręcznej (`alignas(64)`):** Wszystkie tablice cząstek (`x_e`, `vx_e`, `vy_e`, `vz_e`, `x_i`...) oraz pola siatki w `state.h` otrzymują atrybut `alignas(64)`. Gwarantuje to dopasowanie adresu bazowego do 64-bajtowej linii cache L1d i uniemożliwia wystąpienie kar za dostęp przekraczający granicę linii cache (*split cache-line access*) podczas ładowania wektorów 512-bitowych (8 liczb typu `double`).
+  2. **Ręczne 4-krotne rozwinięcie pętli integratora (4-Way Loop Unrolling):** Przetwarzanie 4 cząstek w jednej iteracji pętli `step3_move_electrons` i `step4_move_ions` (`k += 4`). W pętli Leap-Frog instrukcje FMA dla pojedynczej cząstki mają zależność danych (latencja 4 cykli na Zen 4). Rozwinięcie 4-krotne dostarcza niezależnych strumieni instrukcji, całkowicie ukrywając opóźnienie potoku FMA i wysycając podwójne 512-bitowe jednostki wykonawcze rdzenia Zen 4.
+  3. **Wymuszenie 512-bitowej szerokości wektorów (`-mprefer-vector-width=512`):** Standardowo GCC na architekturach x86-64 ogranicza automatyczną wektoryzację do wektorów 256-bitowych (`%ymm`) z powodu historycznych kar termicznych na starszych układach Intel. Procesory AMD EPYC 9654 (Genoa / Zen 4) posiadają pełnoprawne, podwójne 512-bitowe ścieżki danych bez obniżania taktowania zegara. Wymuszenie wektorów 512-bitowych generuje instrukcje operujące bezpośrednio na rejestrach `%zmm0-%zmm31`.
+  4. **Dowód asemblerowy:** Porównanie dezasemblacji pushera skalarnego (instrukcje SSE2 `movsd`, `mulsd`, `addsd`) z wektorowym kodem generowanym dla Zen 4 (`vmovupd %zmm`, `vfmadd213pd %zmm`, `vsubpd %zmm`).
+* **Eksperyment / Weryfikacja:**
+  Uruchomienie na klastrze HPC Lem. Spadek liczby wykonanych instrukcji do poziomu ~1.86 T (identycznie jak w referencyjnym 1-rdzeniowym przebiegu OMP), wskaźnik IPC osiągający ~3.70 oraz czas wykonania 100 cykli symulacji skrócony do ~148 sekund (przyspieszenie blisko 2.2x względem Eksperymentu 6). Potwierdzenie identyczności fizycznej (Golden Record: 108 175 elektronów, 113 606 jonów, stabilność $\omega_{pe}\Delta t = 0.090$).
 
 ---
 
