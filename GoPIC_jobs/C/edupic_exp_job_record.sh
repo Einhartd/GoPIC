@@ -17,6 +17,11 @@ if [ "${MEASURE_FLAG}" = "1" ] || [ "${MEASURE_FLAG}" = "true" ] || [ "${MEASURE
 fi
 
 REPO_DIR="$HOME/GoPIC"
+
+#   TU PODMIENIAMY NAZWE FOLDERU Z EKSPERYMENTEM
+SRC_DIR="${REPO_DIR}/C/5.experiment-fast-path"
+
+
 SRC_DIR="${REPO_DIR}/C/experiment"
 BUILD_DIR="$HOME/GoPIC_build/C"
 LOG_DIR="$(pwd)/saved_logs_C/logs_job_${SLURM_JOB_ID}_EXP_RECORD"
@@ -42,6 +47,7 @@ echo ">> Kompilacja: C++ experiment:"
 g++ -std=c++17 -O3 -Wall -fno-math-errno \
     -fno-omit-frame-pointer -g \
     -DPROFILE_RECORD \
+    -ffast-math \
     "${SRC_DIR}/eduPIC.cc" -o "${BINARY}" -lm
 
 
