@@ -19,7 +19,11 @@ inline void init_poisson_solver() {
     }
 }
 
-PIC_STEP void solve_Poisson (double tt){
+// Wymuszenie noinline zapobiega agresywnemu inlinowaniu do pętli do_one_cycle().
+// Solver Poissona operuje na wielu tablicach i wywołuje cos(), co przy inliningu
+// wywołuje krytyczną presję na rejestry i wyrzuca stałe (INV_DX, efield) z rejestrów
+// w najgorętszej pętli cząstek (spillover do L1 dcache).
+inline __attribute__((noinline)) void solve_Poisson (double tt){
     // 1. Warunki brzegowe potencjału na elektrodach
     pot[0]     = VOLTAGE * cos(OMEGA * tt);
     pot[N_G-1] = 0.0;
