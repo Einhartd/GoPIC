@@ -263,6 +263,7 @@ analysis_output/
 /assembly_analysis/
 !docs/assembly_analysis/
 local_runs/
+experiments/
 experiments/**
 !experiments/**/
 !experiments/**/*.md
