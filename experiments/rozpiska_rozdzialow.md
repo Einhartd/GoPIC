@@ -42,6 +42,8 @@
 3. Porównawcza analiza assemblerowa kompilatorów GCC i Go gc
     - Porownać tą samą implementację sekwencyjną Go i C++ z poziomu assemblera i pokazać różnice
 3. Ścieżka optymalizacji symulacji w C++ (OpenMP)
+    - Optymalizacje sekwencyjne i wektorowe
+    - Optymalizacje wielowątkowe i OpenMP
 4. Ścieżka optymalizacji symulacji w Go
 5. Bezpośrednie porównanie międzyjęzykowe i dysusja wyników
 
