@@ -121,34 +121,55 @@ struct alignas(64) AlignedThreadCounters {
 
 ## 3. Dedykowany Mikrobenchmark: `bench_false_sharing.cc`
 
-W celu laboratoryjnego wyizolowania zjawiska False Sharing i udowodnienia skuteczności `alignas(64)`, zaimplementowano dedykowany mikrobenchmark w pliku [`C/microbenchmarks/bench_false_sharing.cc`](file:///C:/Users/E14/Documents/GitHub/GoPIC/C/microbenchmarks/bench_false_sharing.cc).
+W celu laboratoryjnego wyizolowania zjawiska False Sharing i udowodnienia skuteczności `alignas(64)`, zaimplementowano dedykowany mikrobenchmark w pliku [`bench/bench_false_sharing.cc`](file:///C:/Users/E14/Documents/GitHub/GoPIC/experiments/Cpp-parallel/3-false-sharing/bench/bench_false_sharing.cc).
 
-### 3.1. Konstrukcja Testu
-Mikrobenchmark wykonuje $10^8$ iteracji ciasnej pętli, w której każdy wątek inkrementuje liczniki swojej struktury w tablicy:
-```cpp
-#pragma omp parallel num_threads(num_threads)
-{
-    int tid = omp_get_thread_num();
-    for (long long i = 0; i < iterations; ++i) {
-        counters[tid].local_coll_e++;
-        counters[tid].local_abs_pow += (i & 1);
-    }
-}
-```
-Program testuje równoległe skalowanie dla 1, 2, 4 (oraz opcjonalnie 8..64) wątków, mierząc precyzyjny czas wykonania obu wariantów za pomocą `std::chrono::high_resolution_clock`.
+### 3.1. Na Czym Dokładnie Polega Ten Benchmark?
+
+Mikrobenchmark został zaprojektowany, aby w 100% laboratoryjnie i w izolacji od reszty fizyki plazmy odtworzyć zachowanie pamięci podręcznej L1/L2 przy operacjach na strukturach liczników wątków:
+
+#### A. Co jest testowane (Dwa warianty w pamięci):
+Program porównuje dwie struktury danych odpowiadające dokładnie licznikom używanym w symulacji GoPIC ([`state.h`](file:///C:/Users/E14/Documents/GitHub/GoPIC/C/parallel-only-omp/state.h#L133-L140)):
+1. **Wariant A (`UnalignedCounters` — 48 bajtów):**  
+   Struktura zawiera 1 pole `double` i 5 pól `unsigned long long` ($1 \times 8 + 5 \times 8 = 48\text{ bajtów}$). Gdy tablica `std::vector<UnalignedCounters> counters(p)` leży w pamięci RAM, kolejne wątki są upakowane co 48 bajtów, co sprawia, że **wątek $i$ oraz wątek $i+1$ dzielą tę samą 64-bajtową linię pamięci podręcznej**.
+2. **Wariant B (`AlignedCounters` — 64 bajty z `alignas(64)`):**  
+   Ta sama struktura, lecz opatrzona atrybutem `alignas(64)`. Kompilator wyrównuje początek do 64 bajtów i dodaje 16 bajtów dopełnienia (*padding*), zwiększając rozmiar do $64\text{ bajtów}$. Każdy wątek otrzymuje **własną, w pełni izolowaną linię pamięci L1D**.
+
+#### B. Przebieg eksperymentu krok po kroku:
+1. **Alokacja wektora w pamięci:** Dla danej liczby wątków $p$ alokowany jest wektor struktur:
+   `std::vector<UnalignedCounters> counters(num_threads);` (dla wariantu A) lub `std::vector<AlignedCounters> counters(num_threads);` (dla wariantu B).
+2. **Start precyzyjnego zegara:** Wywoływany jest pomiar czasu `std::chrono::high_resolution_clock::now()`.
+3. **Równoległa pętla $10^8$ iteracji:** Wewnątrz dyrektywy `#pragma omp parallel num_threads(num_threads)` każdy wątek pobiera swój identyfikator `tid` i wykonuje ciasną pętlę $100\ 000\ 000$ iteracji:
+   ```cpp
+   int tid = omp_get_thread_num();
+   for (long long i = 0; i < iterations; ++i) {
+       counters[tid].local_coll_e++;
+       counters[tid].local_abs_pow += (i & 1);
+   }
+   ```
+4. **Dlaczego pola mają kwalifikator `volatile`? (Kluczowy detal inżynierski):**  
+   Nowoczesne kompilatory (GCC `-O3`) posiadają optymalizację *Scalar Replacement of Aggregates (SRA)*. Bez słowa kluczowego `volatile`, kompilator zauważyłby, że `counters[tid]` jest modyfikowane w pętli przez ten sam wątek, i trzymałby licznik wyłącznie w rejestrze procesora (`%rax`), wykonując tylko jeden zapis na koniec! Spowodowałoby to fałszywy brak False Sharing. Kwalifikator `volatile` zmusza procesor do wyemitowania fizycznej instrukcji zapisu `movq` do pamięci podręcznej L1D przy **każdej pojedynczej iteracji**.
+5. **Ochrona przed usunięciem martwego kodu (*Dead Code Elimination*):**  
+   Po wyjściu z pętli równoległej program sumuje wartości wszystkich liczników do zmiennej `dummy`. Gwarantuje to, że kompilator nie usunie pętli jako bezużytecznej.
+6. **Zatrzymanie zegara:** Obliczana jest różnica czasu wykonania $\Delta t$ w sekundach.
+
+#### C. Jak interpretować wyniki w tabeli:
+* **Kolumna `Unaligned [s]`:** Czas wykonania przy ciasnym upakowaniu struktur (48 B). Gdy wiele rdzeni próbuje jednocześnie pisać do tej samej 64-bajtowej linii cache, sprzętowy protokół MOESI nieustannie unieważnia linie w sąsiednich rdzeniach i wymusza żądania RFO (*Request For Ownership*), drastycznie spowalniając wykonanie.
+* **Kolumna `Aligned [s]`:** Czas wykonania z `alignas(64)`. Każdy rdzeń pisze do własnej linii L1D, linie nigdy nie są unieważniane, brak jakiejkolwiek komunikacji na magistrali międzyrdzeniowej.
+* **Kolumna `Przyspieszenie`:** $\frac{T_{\text{Unaligned}}}{T_{\text{Aligned}}}$. Wartość $10\times - 14\times$ oznacza, że False Sharing spowalniał program ponad dziesięciokrotnie!
+
+---
 
 ### 3.2. Instrukcja Kompilacji i Uruchomienia
 
-Kompilacja i uruchomienie za pomocą dołączonego pliku [`C/microbenchmarks/Makefile`](file:///C:/Users/E14/Documents/GitHub/GoPIC/C/microbenchmarks/Makefile):
+Kompilacja i uruchomienie za pomocą dołączonego pliku [`bench/Makefile`](file:///C:/Users/E14/Documents/GitHub/GoPIC/experiments/Cpp-parallel/3-false-sharing/bench/Makefile):
 ```bash
-# Kompilacja
-cd C/microbenchmarks
-make
+# Wejście do katalogu benchmarku
+cd experiments/Cpp-parallel/3-false-sharing/bench
 
-# Uruchomienie mikrobenchmarku
+# 1. Kompilacja i automatyczny bieg (wyniki na ekranie + zapis do raw_results_false_sharing.txt):
 make run
 
-# Profilowanie zdarzeń pamięci podręcznej (na klastrze Lem HPC / Linuksie)
+# 2. Pomiar sprzętowych liczników pamięci podręcznej przez Linux perf (zapis do perf_stat_false_sharing.txt):
 make perf
 ```
 
