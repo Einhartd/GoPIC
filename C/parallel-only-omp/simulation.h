@@ -815,7 +815,7 @@ PIC_STEP void step8_collision_ions_body(int tid, int num_threads, int t) {
             }
         }
     }
-
+    #pragma omp barrier
     #pragma omp single
     {
         for (int t = 0; t < num_threads; ++t) {
@@ -886,6 +886,8 @@ PIC_STEP void do_one_cycle(void) {
             // Krok 1: Depozycja gęstości ładunku elektronów i jonów (równoległa + redukcja)
             step1_compute_electron_density_body(tid, nthreads);
             step1_compute_ion_density_body(tid, nthreads, t);
+
+            #pragma omp barrier
 
             // Krok 2: Inkrementacja czasu i rozwiązanie równania Poissona (sekwencyjnie w 1 bloku single)
             #pragma omp single
