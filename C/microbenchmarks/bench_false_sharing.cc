@@ -19,21 +19,21 @@ Opis:
 
 // Dokładna struktura liczników używana w GoPIC (C/parallel-only-omp/state.h)
 struct UnalignedCounters {
-    double accu_center = 0.0;
-    unsigned long long counter_center = 0;
-    unsigned long long local_abs_pow = 0;
-    unsigned long long local_abs_gnd = 0;
-    unsigned long long local_coll_e = 0;
-    unsigned long long local_coll_i = 0;
+    volatile double accu_center = 0.0;
+    volatile unsigned long long counter_center = 0;
+    volatile unsigned long long local_abs_pow = 0;
+    volatile unsigned long long local_abs_gnd = 0;
+    volatile unsigned long long local_coll_e = 0;
+    volatile unsigned long long local_coll_i = 0;
 };
 
 struct alignas(64) AlignedCounters {
-    double accu_center = 0.0;
-    unsigned long long counter_center = 0;
-    unsigned long long local_abs_pow = 0;
-    unsigned long long local_abs_gnd = 0;
-    unsigned long long local_coll_e = 0;
-    unsigned long long local_coll_i = 0;
+    volatile double accu_center = 0.0;
+    volatile unsigned long long counter_center = 0;
+    volatile unsigned long long local_abs_pow = 0;
+    volatile unsigned long long local_abs_gnd = 0;
+    volatile unsigned long long local_coll_e = 0;
+    volatile unsigned long long local_coll_i = 0;
 };
 
 // Funkcja testowa dla Wariantu A (z False Sharing)
