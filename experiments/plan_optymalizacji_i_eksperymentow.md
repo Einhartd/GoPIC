@@ -134,46 +134,46 @@ Dokument definiuje zestaw optymalizacji algorytmicznych, mikroarchitektonicznych
 
 ## Część II: Optymalizacje Wielowątkowe i Współbieżność OpenMP
 
-### Prywatyzacja Generatora Liczb Losowych (Thread-Local PRNG)
-
-* **Opis i mechanizm:**
-  W symulacji PIC/MCC generator liczb pseudolosowych jest wywoływany w każdym kroku dla zderzeń, losowania cząstek termicznych z rozkładu Maxwella-Boltzmanna oraz rozpraszania kątowego. Współdzielenie pojedynczego obiektu `std::mt19937` pomiędzy wątki wymagałoby synchronizacji muteksem (`std::mutex` lub `#pragma omp critical`), co prowadzi do całkowitej serializacji wykonania i katastrofalnego spadku wydajności (*lock contention*).
-  Optymalizacja polega na przydzieleniu każdemu wątkowi OpenMP niezależnej instancji generatora za pomocą specyfikatora pamięci lokalnej wątku:
-  ```cpp
-  inline thread_local std::mt19937 MTgen(rd());
-  inline thread_local std::uniform_real_distribution<> R01(0.0, 1.0);
-  ```
-  Każdy wątek losuje liczby w 100% bezblokadowo z prywatnego bufora rejestrów/stosu.
-* **Mikrobenchmark:**
-  * **Plik:** `C/microbenchmarks/bench_prng_concurrency.cc`
-  * **Konstrukcja:** Wielowątkowa pętla generująca łącznie 100 milionów liczb losowych z rozkładu jednorodnego oraz Maxwella-Boltzmanna na 1, 2, 4, 8, 16, 32 i 64 wątkach.
-  * **Wariant A:** Jeden wspólny `std::mt19937` zabezpieczony sekcją krytyczną `#pragma omp critical`.
-  * **Wariant B:** `thread_local std::mt19937` z niezależnym stanem per wątek.
-  * **Pomiary:** Czas wykonania, przepustowość losowań (miliony próbek/sekundę) w funkcji liczby wątków. Zademonstrowanie załamania skalowania wariantu A powyżej 2 wątków.
+W części wielowątkowej symulacji PIC/MCC wprowadzane techniki tworzą spójną ścieżkę optymalizacyjną: od **przebudowy struktur danych i buforowania wątkowego**, przez **bezkolizyjne zarządzanie cyklem życia cząstek**, **izolację linii pamięci podręcznej (False Sharing)**, **architekturę zespołu wątków i amortyzację narzutu OpenMP**, **strojenie polityki oczekiwania środowiska wykonawczego**, aż po **pełne badanie skalowalności silnej i prawo Amdahla na klastrze HPC**.
 
 ---
 
-### Prywatyzacja Tablic Depozycji Siatki (WorkerBuffers & Parallel Reduction dla Scatter-Add)
+### Krok 1: Prywatyzacja Pamięci i Buforowanie Wątkowe (*Thread-Private Buffering & State Privatization*)
 
-* **Opis i mechanizm:**
-  Operacja depozycji ładunku cząstek na siatkę przestrzenną (*scatter-add*) metodą Cloud-in-Cell polega na rozdzielaniu ładunku cząstki pomiędzy dwa sąsiadujące węzły siatki: $p$ oraz $p+1$. Ponieważ cząstki poruszają się swobodnie, wiele wątków przetwarzających różne cząstki próbuje jednocześnie zmodyfikować tę samą komórkę siatki. Naiwne użycie `#pragma omp atomic` powoduje nasycenie magistrali spójności pamięci podręcznej i drastyczny spadek wydajności.
-  Optymalizacja polega na zastosowaniu wzorca buforów prywatnych (*thread-private grid buffers*):
-  1. Każdy wątek posiada własną tablicę `worker_buffers.e_density[tid][N_G]`.
-  2. Depozycja cząstek odbywa się w całości w lokalnej pamięci podręcznej L1d rdzenia (rozmiar bufora to $400 \times 8\text{ B} = 3.2\text{ KB}$, co idealnie mieści się w 32 KB L1d).
-  3. Po zakończeniu pętli cząstek następuje szybka, równoległa redukcja węzłów siatki: wątki dzielą między siebie węzły $p \in [1, N_G-2]$ i sumują wiersze buforów prywatnych do tablicy globalnej.
-* **Mikrobenchmark:**
-  * **Plik:** `C/microbenchmarks/bench_scatter_add.cc`
-  * **Konstrukcja:** Równoległa depozycja ładunku 1 miliona cząstek o losowych pozycjach do siatki 400 węzłów, powtórzona 1000 razy na 1, 2, 4, 8, 16, 32, 64 wątkach.
-  * **Wariant A:** Bezpośrednia depozycja do wspólnej tablicy z użyciem `#pragma omp atomic`.
-  * **Wariant B:** Prywatne bufory `e_density[tid]` w pamięci podręcznej L1d z końcową redukcją równoległą.
-  * **Pomiary:** Czas wykonania, skalowanie przyspieszenia, pomiar unieważnień linii cache za pomocą `perf stat -e cache-misses,L1-dcache-load-misses`.
+* **Opis i mechanizm:**  
+  Trzy fundamentalne operacje symulacji cząstkowej wymagają nieustannego zapisu danych w każdym kroku czasowym:
+  1. **Losowanie stanów Monte Carlo:** Generator liczb pseudolosowych posiada stan wewnętrzny modyfikowany przy każdym losowaniu.
+  2. **Depozycja ładunku metodą Cloud-in-Cell (Scatter-Add):** Wiele cząstek próbuje jednocześnie zaktualizować ten sam węzeł siatki przestrzennej.
+  3. **Tworzenie nowych cząstek w zderzeniach jonizacyjnych:** Zapis współrzędnych i prędkości nowo powstałych par elektron-jon.  
+  W naiwnym podejściu wielowątkowym operacje te wymagałyby sekcji krytycznych (`#pragma omp critical`) lub instrukcji atomowych (`#pragma omp atomic`), co prowadzi do całkowitej serializacji wykonania (*lock contention*) i nasycenia magistrali pamięci.
+  
+  Optymalizacja polega na zastosowaniu spójnego wzorca prywatnych buforów wątkowych:
+  * **Prywatyzacja generatora PRNG:** Każdy wątek otrzymuje niezależną instancję generatora `inline thread_local std::mt19937 MTgen(rd())` na własnym stosie/rejestrach, co zapewnia w 100% bezblokadowe (*lock-free*) losowanie liczb.
+  * **Prywatne bufory siatki w pamięci L1d (`WorkerBuffers.e_density`):** Każdy wątek posiada własną tablicę `worker_buffers.e_density[tid][N_G]`. Rozmiar bufora wynosi $400 \times 8\text{ B} = 3.2\text{ KB}$, co idealnie mieści się w lokalnej pamięci podręcznej L1d rdzenia (32 KB). Cząstki są deponowane bez jakiejkolwiek synchronizacji w L1d, a po zakończeniu pętli cząstek następuje szybka redukcja równoległa do tablicy globalnej.
+  * **Statyczne bufory narodzin cząstek (`NewParticles`):** Nowo narodzone elektrony i jony są zapisywane do prywatnych tablic statycznych `NewParticles` (bufor `std::array` o stałym rozmiarze 4096 elementów, zero alokacji na stercie). Po zakończeniu pętli zderzeń cząstki są seryjnie i bezkolizyjnie dopisywane do tablic globalnych w jednym bloku.
+* **Eksperyment / Weryfikacja:**  
+  Wdrożenie wzorca do silnika [`C/parallel-only-omp/`](file:///C:/Users/E14/Documents/GitHub/GoPIC/C/parallel-only-omp). Wykazanie eliminacji wszystkich sekcji krytycznych i atomików z pętli cząstkowych.
 
 ---
 
-### Eliminacja False Sharing i Izolacja Linii Pamięci Podręcznej (alignas(64) Padding)
+### Krok 2: Dwuetapowa Bezkonfliktowa Obsługa Warunków Brzegowych (*Two-Phase Boundary Handling & Compaction*)
 
-* **Opis i mechanizm:**
-  W symulacji wielowątkowej każdy wątek zlicza lokalne statystyki: liczbę zaabsorbowanych cząstek na elektrodach, liczbę zderzeń oraz próbki energii. Gdyby liczniki te zostały umieszczone w zwartej tablicy (np. `double counters[num_threads]`), zmienne należące do różnych rdzeni znalazłyby się w tej samej 64-bajtowej linii pamięci podręcznej. Zapis przez rdzeń $A$ powoduje unieważnienie całej linii cache w rdzeniu $B$ (*False Sharing*), wywołując nieustanny ruch na magistrali Infinity Fabric procesora.
+* **Opis i mechanizm:**  
+  Gdy cząstki wylatują poza elektrody ($x < 0 \lor x > L$), w kodzie sekwencyjnym są natychmiast usuwane przez podmianę z ostatnią cząstką z tablicy (`swap-with-last`) i dekrementację licznika `N--`. W kodzie wielowątkowym jednoczesne modyfikowanie globalnego rozmiaru `N` i zamienianie elementów z końca tablicy przez wiele rdzeni prowadzi do wyścigów danych (*data races*) i nadpisywania żywych cząstek.
+  
+  Optymalizacja polega na wdrożeniu algorytmu dwuetapowego:
+  1. **Faza 1 (Równoległa):** Wątki równolegle skanują swoje fragmenty tablicy położeń i jedynie odkładają indeksy cząstek martwych do prywatnych wektorów `absorbed_indices[tid]`.
+  2. **Faza 2 (Kompaktacja in-place):** Pojedynczy wątek za pomocą szybkiego algorytmu dwuwskanikowego (`last_valid`) przepisuje żywe cząstki z końca tablicy w miejsca martwych, minimalizując operacje kopiowania pamięci.
+* **Eksperyment / Weryfikacja:**  
+  Weryfikacja braku wyścigów danych na tablicach cząstek, stabilności zużycia pamięci RAM oraz poprawności liczby zaabsorbowanych cząstek na elektrodach.
+
+---
+
+### Krok 3: Eliminacja Zjawiska False Sharing i Izolacja Linii Pamięci Podręcznej (`alignas(64)`)
+
+* **Opis i mechanizm:**  
+  W symulacji wielowątkowej każdy wątek zlicza lokalne statystyki diagnostyczne (liczbę cząstek zaabsorbowanych na elektrodach, liczbę zderzeń, próbki energii elektronów w centrum szczeliny). Gdyby umieścić te liczniki w zwartej tablicy (np. `double counters[num_threads]`), zmienne należące do różnych rdzeni znalazłyby się w tej samej 64-bajtowej linii pamięci podręcznej. Zapis przez rdzeń $A$ powoduje unieważnienie całej linii cache w rdzeniu $B$ (*False Sharing*), wywołując nieustanny ruch spójności na magistrali procesora.
+  
   Optymalizacja polega na zastosowaniu struktury z wymuszonym wyrównaniem i dopełnieniem do pełnej linii pamięci podręcznej:
   ```cpp
   struct alignas(64) AlignedThreadCounters {
@@ -185,56 +185,51 @@ Dokument definiuje zestaw optymalizacji algorytmicznych, mikroarchitektonicznych
       Ullong local_coll_i = 0;
   };
   ```
-* **Mikrobenchmark:**
+* **Dedykowany Mikrobenchmark:**
   * **Plik:** `C/microbenchmarks/bench_false_sharing.cc`
-  * **Konstrukcja:** 64 wątki wykonują ciasną pętlę $10^8$ iteracji, inkrementując swój prywatny licznik.
-  * **Wariant A:** Zwykła, zwarta tablica struktur lub skalary umieszczone obok siebie w pamięci (współdzielona linia cache).
+  * **Konstrukcja:** Ciasna pętla $10^8$ iteracji wykonywana równolegle przez 1..64 wątki, inkrementująca lokalne liczniki.
+  * **Wariant A:** Zwarta tablica liczników (współdzielona 64-bajtowa linia cache).
   * **Wariant B:** Struktury wyrównane do 64 bajtów z paddingiem (`alignas(64)`).
-  * **Pomiary:** Całkowity czas wykonania, profil zdarzeń sprzętowych `perf stat -e cache-misses,L1-dcache-store-misses`.
+  * **Pomiary:** Całkowity czas wykonania oraz profil zdarzeń sprzętowych `perf stat -e cache-misses,L1-dcache-store-misses`. Bezpośrednie wykazanie eliminacji narzutu unieważnień cache.
 
 ---
 
-### Bezkonfliktowe Zarządzanie Cyklem Życia Cząstek (Narodziny i Granice)
+### Krok 4: Architektura Trwałego Zespołu Wątków i Minimalizacja Barier Synchronizacyjnych (*Persistent Thread Team & `nowait`*)
 
-* **Opis i mechanizm:**
-  W symulacji cząstki dynamicznie powstają (procesy jonizacji) oraz giną (absorpcja na elektrodach $x < 0$ lub $x > L$):
-  1. **Narodziny cząstek:** Zamiast chronić globalny rozmiar tablicy $N_e$ sekcją krytyczną `#pragma omp critical` przy każdym zderzeniu jonizacyjnym, każdy wątek zapisuje współrzędne nowych cząstek do prywatnej statycznej tablicy `NewParticles` (bufor o stałym rozmiarze 4096 elementów, zero alokacji dynamicznych na stercie). Po zakończeniu pętli cząstki są seryjnie dopisywane do tablic globalnych w jednym bloku.
-  2. **Sprawdzanie granic i absorpcja:** W kodzie sekwencyjnym usuwanie cząstki polega na natychmiastowym zamienieniu jej z ostatnią cząstką tablicy (`swap-with-last`). W wersji wielowątkowej powodowałoby to konflikt zapisu na indeksie $N_e$. Zastosowano algorytm dwuetapowy:
-     - **Faza 1 (Równoległa):** Wątki równolegle sprawdzają warunek $x < 0 \lor x > L$ i zapisują wyłącznie indeksy cząstek martwych do bufora `absorbed_indices[tid]`.
-     - **Faza 2 (Kompaktacja):** Pojedynczy wątek za pomocą szybkiego algorytmu dwuwskanikowego (`last_valid`) przepisuje ostatnie żywe cząstki w miejsca martwych, minimalizując liczbę operacji kopiowania pamięci.
-* **Mikrobenchmark:**
-  * **Plik:** `C/microbenchmarks/bench_particle_lifecycle.cc`
-  * **Konstrukcja:** Równoległa pętla przetwarzająca 500 000 cząstek, w której losowy odsetek cząstek ($1\%$) ginie, a $1\%$ cząstek tworzy nowe pary elektron-jon.
-  * **Wariant A:** Bezpośrednie modyfikacje tablicy z użyciem `#pragma omp critical` i dynamicznego `std::vector::push_back`.
-  * **Wariant B:** Bufory prywatne `NewParticles` oraz dwuwskanikowa kompaktacja in-place.
-  * **Pomiary:** Czas wykonania, skalowanie na 1 .. 64 wątkach, stabilność zużycia pamięci RAM (eliminacja narzutu alokatora sterty).
+* **Opis i mechanizm:**  
+  W jednym cyklu RF występuje 4000 podkroków czasowych, a w każdym podkroku wykonuje się 8 kroków algorytmu PIC. Naiwne umieszczanie dyrektyw `#pragma omp parallel for` na każdej pętli oznacza tworzenie i niszczenie zespołu wątków (*fork-join*) **ponad 32 000 razy na cykl** (3.2 miliona razy w 100 cyklach!). Narzut biblioteki OpenMP zniszczyłby zysk ze zrównoleglenia. Dodatkowo domyślne niejawne bariery na końcu każdej pętli generują jałowe oczekiwanie.
+  
+  Optymalizacja polega na:
+  1. **Trwałym zespole wątków (Persistent Thread Team):** Otwarcie **jednego nadrzędnego bloku `#pragma omp parallel` na cały okres RF (4000 kroków)** wewnątrz funkcji `do_one_cycle()`. Wątki są tworzone tylko raz na cykl, a synchronizacja odbywa się wyłącznie za pomocą lekkich barier sprzętowych `#pragma omp barrier` oraz sekcji `#pragma omp single`.
+  2. **Klauzuli `nowait` na redukcjach:** Zastosowanie `#pragma omp for schedule(static) nowait` przy redukcji siatki, co pozwala wątkom natychmiast przejść do kolejnego kroku bez czekania na najwolniejszy rdzeń.
+* **Eksperyment / Weryfikacja:**  
+  Wykazanie redukcji narzutu tworzenia wątków w profilu czasowym `perf report` i FlameGraph.
 
 ---
 
-### Strategie Harmonogramowania Pętli Cząstkowych (Scheduling & Load Balancing)
+### Krok 5: Strojenie Środowiska Wykonawczego OpenMP: Polityka Oczekiwania (`OMP_WAIT_POLICY=ACTIVE` vs `PASSIVE`)
 
-* **Opis i mechanizm:**
-  W wyładowaniu wysokiej częstotliwości (RF) rozkład przestrzenny cząstek jest wysoce niejednorodny — w centralnej części szczeliny gęstość plazmy jest wysoka (dużo zderzeń), natomiast przy elektrodach występują warstwy ładunku przestrzennego (*sheath*) niemal całkowicie pozbawione elektronów. Przy podziale cząstek na równe fragmenty (`schedule(static)`) wątki obsługujące cząstki w obszarze plazmy wykonują więcej pracy niż wątki obsługujące warstwy przyelektrodowe (*load imbalance*).
-  Badanie polega na analizie strategii harmonogramowania OpenMP:
-  - `schedule(static)` — zerowy narzut synchronizacji, ale ryzyko nierównomiernego obciążenia.
-  - `schedule(dynamic, chunk)` — dynamiczne przydzielanie paczek cząstek, eliminujące nierówność kosztem narzutu synchronizacji kolejki zadań.
-  - `schedule(guided)` — paczki o malejącym rozmiarze, kompromis między narzutem a równowagą.
-* **Mikrobenchmark:**
-  * **Plik:** `C/microbenchmarks/bench_loop_scheduling.cc`
-  * **Konstrukcja:** Równoległa pętla Boris pushera i zderzeń dla niejednorodnego rozkładu przestrzennego cząstek (funkcja gęstości o kształcie parabolicznym z gęstym centrum).
-  * **Pomiary:** Całkowity czas wykonania pętli oraz odchylenie standardowe czasu pracy poszczególnych wątków w zespole na 16, 32 i 64 rdzeniach.
+* **Opis i mechanizm:**  
+  Domyślnie w systemie Linux wątki po krótkim oczekiwaniu na barierze są przełączane w stan uśpienia przez kernel (wywołanie systemowe `futex`). W symulacji PIC/MCC mamy 4000 podkroków na cykl i częste bariery. Usypianie i wybudzanie wątków generuje lawinę przełączeń kontekstu (*voluntary context-switches*) i narzut opóźnień rzędu milisekund.
+  
+  Optymalizacja polega na wymuszeniu `OMP_WAIT_POLICY=ACTIVE`, co nakazuje wątkom aktywne wirowanie (*busy-spin*) w przestrzeni użytkownika, eliminując opóźnienia wybudzania.
+* **Dedykowany Test na Klastrze Lem HPC (np. na 8 lub 16 rdzeniach):**
+  * **Wariant A:** `OMP_WAIT_POLICY=PASSIVE` (usypianie w kernelu przez `futex`).
+  * **Wariant B:** `OMP_WAIT_POLICY=ACTIVE` (aktywne wirowanie *busy-spin*).
+  * **Pomiary w `perf stat`:**
+    * Liczba przełączeń kontekstu `context-switches` (wykazanie setek tysięcy przełączeń w wariancie A vs **dokładnie 0** w wariancie B),
+    * Całkowity czas wykonania 100 cykli symulacji,
+    * Wskaźnik instrukcji na cykl (IPC).
 
 ---
 
-### Analiza Skalowalności Silnej, Prawo Amdahla i Efekty Topologii NUMA
+### Krok 6: Analiza Skalowalności Silnej (Strong Scaling 1..128 rdzeni), Prawo Amdahla i Efekty Topologii NUMA
 
-* **Opis i mechanizm:**
-  Zwieńczenie całej pracy badawczej — uruchomienie w pełni zoptymalizowanego silnika wielowątkowego (`C/parallel-only-omp/`) na pełnej symulacji na klastrze HPC (węzeł Lem z 2 procesorami AMD EPYC 9554, łącznie 128 rdzeni fizycznych, pamięć L3 po 32 MB na każde 8 rdzeni, 2 domeny NUMA):
-  1. **Skalowanie silne (Strong Scaling):** Pomiary czasu wykonania 100 cykli symulacji dla $p \in \{1, 2, 4, 8, 16, 32, 64, 128\}$ rdzeni.
-  2. **Dopasowanie do Prawa Amdahla:** Wyznaczenie przyspieszenia $S(p) = T_1 / T_p$, efektywności $E(p) = S(p)/p$ oraz wyznaczenie granicznej frakcji sekwencyjnej $s = 1 - P$ (część symulacji, która nie podlega zrównolegleniu — m.in. 1D solver Poissona i bariery synchronizacyjne).
-  3. **Wpływ topologii NUMA i powinowactwa wątków:**
-     - `OMP_PROC_BIND=close` (upakowanie wątków w obrębie jednego procesora / wspólnego bloku L3).
-     - `OMP_PROC_BIND=spread` (równomierne rozproszenie wątków po gniazdach NUMA w celu nasycenia kontrolerów pamięci RAM).
-     - Przekroczenie granicy 64 rdzeni (skalowanie cross-socket przez łącze AMD Infinity Fabric).
-* **Eksperyment / Weryfikacja:**
-  Uruchomienie zadań wsadowych Slurm na klastrze Lem (`GoPIC_jobs/C/edupic_job_stat.sh`, `edupic_job_record.sh`). Generowanie wykresów skalowania, raportów `perf stat` oraz profili FlameGraph dla 1, 8, 32, 64 i 128 rdzeni. Weryfikacja osiągnięcia docelowego rekordowego czasu wykonania symulacji (~13.89 s na 32 rdzeniach vs ponad 500 s w kodzie bazowym).
+* **Opis i mechanizm:**  
+  Zwieńczenie całej pracy nad silnikiem wielowątkowym C++ — uruchomienie w pełni zoptymalizowanego kodu [`C/parallel-only-omp/`](file:///C:/Users/E14/Documents/GitHub/GoPIC/C/parallel-only-omp) na klastrze HPC (węzeł Lem z 2 procesorami AMD EPYC 9554, łącznie 128 rdzeni fizycznych, pamięć L3 po 32 MB na każde 8 rdzeni, 2 domeny NUMA):
+  1. **Skalowanie silne (Strong Scaling):** Pomiary czasu wykonania 100 cykli symulacji dla $p \in \{1, 2, 4, 8, 16, 32, 64, 128\}$ rdzeni (po 3 powtórzenia per punkt). Punkt odniesienia: w pełni zoptymalizowany silnik jednordzeniowy ($T_1 \approx 148–161\text{ s}$). Wyznaczenie przyspieszenia $S(p) = T_1 / T_p$ oraz efektywności $E(p) = S(p)/p$.
+  2. **Dopasowanie do Prawa Amdahla:** Wyznaczenie granicznej frakcji sekwencyjnej $s = 1 - P$ (część symulacji, która nie podlega zrównolegleniu — m.in. 1D solver Poissona, redukcje siatkowe i bariery) oraz asymptoty teoretycznego maksymalnego przyspieszenia $S_{\max} = 1/s$.
+  3. **Wpływ topologii klastra i architektury CCX / NUMA:**
+     * Wykazanie wpływu geometrii przydziału rdzeni przez Slurma na procesorach AMD EPYC: alokacja w obrębie 1 modułu CCX (wspólne 32 MB L3 cache $\to$ 19.5 s) vs Cross-CCX (przekraczanie granic L3 przez I/O Die $\to$ 22.7–24.7 s) vs Cross-Socket (przekraczanie granicy 64 rdzeni przez AMD Infinity Fabric $\to$ 29.5 s).
+  4. **Profilowanie i ewolucja hotspotów:** Pomiary `perf record` i FlameGraph dla 1, 8, 32 i 64 rdzeni — wykazanie zaniku kosztu pushera i relatywnego wzrostu kosztu solwera Poissona i barier w profilu czasowym.
+  5. **Weryfikacja Fizyczna (Golden Record):** Potwierdzenie zachowania gęstości centralnej ($n_c \approx 7.5 \times 10^{15}\text{ m}^{-3}$) oraz stabilności plazmowej ($\omega_{pe}\Delta t = 0.090$) w całym zakresie 1–128 rdzeni.
