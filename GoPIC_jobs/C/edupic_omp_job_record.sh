@@ -13,8 +13,6 @@ set -euo pipefail
 # Konfiguracja OpenMP i przypięcia rdzeni (Affinity)
 # -----------------------------------------------------------------------------
 export OMP_NUM_THREADS=${OMP_THREADS:-${SLURM_CPUS_PER_TASK}}
-export OMP_PROC_BIND=close
-export OMP_PLACES=cores
 export OMP_WAIT_POLICY=ACTIVE
 
 export OMP_DISPLAY_AFFINITY=true
