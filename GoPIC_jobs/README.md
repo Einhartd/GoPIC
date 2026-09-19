@@ -131,13 +131,49 @@ sbatch GoPIC/GoPIC_jobs/Go/gopic_job_record.sh
 ```
 
 #### Ścieżka eksperymentów sekwencyjnych (Go/1.experiment-baseline ... 4.bce-loop-unrolling):
-*(Skrypty dedykowane analogiczne do `C/edupic_exp_job_*.sh`. Domyślnie uruchamiają czysty Baseline z `Go/1.experiment-baseline` bez specjalistycznych flag Go)*:
+*(Skrypty dedykowane analogiczne do `C/edupic_exp_job_*.sh`)*:
+
 ```bash
-# Pomiary liczników sprzętowych (perf stat - 100 cykli):
+# Krok 1: Baseline (Czysty Direct MCC bez specjalistycznych flag, punkt odniesienia T0):
 sbatch GoPIC/GoPIC_jobs/Go/gopic_exp_job_stat.sh
 
-# Profilowanie drzewa wywołań (perf record + FlameGraph):
-sbatch GoPIC/GoPIC_jobs/Go/gopic_exp_job_record.sh
+# Krok 2: Algorithmic Port (Null-Collision, kąty Eulera, Thomas prekomputowany, redukcja siły operacji):
+sbatch --export=ALL,SRC_DIR=Go/2.algorithmic-port GoPIC/GoPIC_jobs/Go/gopic_exp_job_stat.sh
+
+# Krok 3: Zero-Allocation (eliminacja alokacji sterty 4.8 GB/cykl, uśpienie GC):
+sbatch --export=ALL,SRC_DIR=Go/3.zero-allocation GoPIC/GoPIC_jobs/Go/gopic_exp_job_stat.sh
+
+# Krok 4: BCE & Loop Unrolling (Bounds Check Elimination, 4-way unrolling, GOAMD64=v4):
+sbatch --export=ALL,SRC_DIR=Go/4.bce-loop-unrolling,GOAMD64=v4 GoPIC/GoPIC_jobs/Go/gopic_exp_job_stat.sh
+
+# Profilowanie drzewa wywołań (perf record + FlameGraph) dla wybranego kroku (np. Krok 4):
+sbatch --export=ALL,SRC_DIR=Go/4.bce-loop-unrolling GoPIC/GoPIC_jobs/Go/gopic_exp_job_record.sh
+```
+
+---
+
+### 2.4. Ścieżka eksperymentów wielowątkowych (Go/parallel-1-channels ... parallel-5-optimized-final)
+
+Dedykowany skrypt `gopic_parallel_exp_job_stat.sh` oraz `gopic_parallel_exp_job_record.sh` umożliwia przetestowanie pełnej ewolucji zrównoleglenia w Go za pomocą parametru `PARALLEL_STEP=1..5`:
+
+```bash
+# Etap 1: Channels (Model CSP, narzut hchan.lock i kolejkowania goroutines):
+sbatch --export=ALL,PARALLEL_STEP=1,GOMAXPROCS=8,NUM_WORKERS=8 GoPIC/GoPIC_jobs/Go/gopic_parallel_exp_job_stat.sh
+
+# Etap 2: Buffers & Chunking (Współdzielenie pamięci, prywatne bufory L1d, sync.WaitGroup):
+sbatch --export=ALL,PARALLEL_STEP=2,GOMAXPROCS=8,NUM_WORKERS=8 GoPIC/GoPIC_jobs/Go/gopic_parallel_exp_job_stat.sh
+
+# Etap 3: StarBarrier (Bariera bezblokadowa na atomikach + wirowanie PAUSE, koordynator w chunk 0):
+sbatch --export=ALL,PARALLEL_STEP=3,GOMAXPROCS=8,NUM_WORKERS=8 GoPIC/GoPIC_jobs/Go/gopic_parallel_exp_job_stat.sh
+
+# Etap 4: Fused Move & Detect (Fuzja pchnięcia i granic w rejestrach, zero-barrier kompaktacja O(dead)):
+sbatch --export=ALL,PARALLEL_STEP=4,GOMAXPROCS=8,NUM_WORKERS=8 GoPIC/GoPIC_jobs/Go/gopic_parallel_exp_job_stat.sh
+
+# Etap 5: Optimized Final (Pełna optymalizacja: 4-way unrolling, BCE, AVX-512 / GOAMD64=v4):
+sbatch --export=ALL,PARALLEL_STEP=5,GOMAXPROCS=8,NUM_WORKERS=8 GoPIC/GoPIC_jobs/Go/gopic_parallel_exp_job_stat.sh
+
+# Profilowanie wybranego etapu (perf record + FlameGraph):
+sbatch --export=ALL,PARALLEL_STEP=5,GOMAXPROCS=8,NUM_WORKERS=8 GoPIC/GoPIC_jobs/Go/gopic_parallel_exp_job_record.sh
 ```
 
 ---
