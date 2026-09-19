@@ -115,6 +115,7 @@ sbatch GoPIC/GoPIC_jobs/Go/gopic_channels_job_record.sh
 
 ### 2.3. Go Sequential
 
+#### Zadania ogólne (Go/native_version):
 ```bash
 # Stat (Null-Collision):
 sbatch --export=ALL,USE_NULL_COLLISION=1 GoPIC/GoPIC_jobs/Go/gopic_job_stat.sh
@@ -127,6 +128,16 @@ sbatch --export=ALL,USE_NULL_COLLISION=1 GoPIC/GoPIC_jobs/Go/gopic_job_record.sh
 
 # Record (Standard MCC):
 sbatch GoPIC/GoPIC_jobs/Go/gopic_job_record.sh
+```
+
+#### Ścieżka eksperymentów sekwencyjnych (Go/1.experiment-baseline ... 4.bce-loop-unrolling):
+*(Skrypty dedykowane analogiczne do `C/edupic_exp_job_*.sh`. Domyślnie uruchamiają czysty Baseline z `Go/1.experiment-baseline` bez specjalistycznych flag Go)*:
+```bash
+# Pomiary liczników sprzętowych (perf stat - 100 cykli):
+sbatch GoPIC/GoPIC_jobs/Go/gopic_exp_job_stat.sh
+
+# Profilowanie drzewa wywołań (perf record + FlameGraph):
+sbatch GoPIC/GoPIC_jobs/Go/gopic_exp_job_record.sh
 ```
 
 ---

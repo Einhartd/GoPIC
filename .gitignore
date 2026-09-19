@@ -268,3 +268,4 @@ experiments/**
 experiments/**/
 experiments/**/*.md
 experiments/Cpp-parallel/**
+docs/
