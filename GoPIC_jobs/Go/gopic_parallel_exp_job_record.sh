@@ -44,7 +44,8 @@ BUILD_DIR="$HOME/GoPIC_build/Go"
 LOG_DIR="$(pwd)/saved_logs_Go/logs_job_${SLURM_JOB_ID}_PARALLEL_STEP${PARALLEL_STEP}_RECORD"
 DATA_DIR="${LOG_DIR}/edupic_data"
 PERF_DATA="${SCRATCH:-${DATA_DIR}}/perf_${SLURM_JOB_ID}.data"
-FLAME_DIR="$HOME/FlameGraph"
+FLAME_DIR="${REPO_DIR}/plots/FlameGraph"
+[ ! -d "${FLAME_DIR}" ] && FLAME_DIR="$HOME/FlameGraph"
 
 mkdir -p "${BUILD_DIR}" "${DATA_DIR}"
 exec > "${LOG_DIR}/job_output.log" 2>&1
@@ -86,12 +87,13 @@ if [ ! -f "${BINARY}" ]; then
 fi
 
 cd "${DATA_DIR}"
+cp "${REPO_DIR}/golden_record/picdata.bin" ./picdata.bin
 
 CMD_ARGS=("${N_CYCLES}")
 if [ -n "${MEASURE_ARG}" ]; then
     CMD_ARGS+=("${MEASURE_ARG}")
 fi
-CMD_ARGS+=("${NUM_WORKERS}")
+CMD_ARGS+=("--workers=${NUM_WORKERS}")
 
 echo ">> Start profilera perf record (częstotliwość 997 Hz, call-graph dwarf)..."
 perf record -F 997 --call-graph dwarf -o "${PERF_DATA}" -- \
@@ -104,6 +106,7 @@ if [ -d "${FLAME_DIR}" ] && [ -f "${FLAME_DIR}/stackcollapse-perf.pl" ]; then
     echo ">> Generowanie Flame Graph..."
     perf script -i "${PERF_DATA}" | "${FLAME_DIR}/stackcollapse-perf.pl" > "${LOG_DIR}/out.folded" 2>/dev/null || true
     "${FLAME_DIR}/flamegraph.pl" "${LOG_DIR}/out.folded" > "${LOG_DIR}/flamegraph_${SLURM_JOB_ID}.svg" 2>/dev/null || true
+    cp -f "${LOG_DIR}/flamegraph_${SLURM_JOB_ID}.svg" "${DATA_DIR}/flamegraph.svg" 2>/dev/null || true
 fi
 
 rm -f "${PERF_DATA}" "${BINARY}"

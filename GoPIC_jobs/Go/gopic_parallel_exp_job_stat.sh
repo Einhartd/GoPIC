@@ -69,6 +69,7 @@ fi
 echo "=== [Go Parallel STAT] Job: ${SLURM_JOB_ID} | Step: ${PARALLEL_STEP} (${STEP_NAME}) | Threads: ${GOMAXPROCS} | Workers: ${NUM_WORKERS} | Cycles: ${N_CYCLES} | Measurement: ${MEASURE_ARG:-off} | Node: ${SLURM_JOB_NODELIST} ==="
 echo ">> Ścieżka repo: ${REPO_DIR} | Commit: $(git -C "${REPO_DIR}" rev-parse --short HEAD 2>/dev/null || echo 'N/A')"
 echo ">> Katalog źródeł: ${SRC_DIR}"
+echo ">> Docelowa architektura: GOAMD64=${GOAMD64}"
 
 AFFINITY_MASK=$(taskset -cp $$ 2>/dev/null | awk -F': ' '{print $2}' || grep -m1 Cpus_allowed_list /proc/self/status 2>/dev/null | awk '{print $2}' || echo "N/A")
 echo ">> Przydział Slurm (Allocated Cores): ${SLURM_CPUS_PER_TASK:-1} rdzeni"
@@ -82,14 +83,13 @@ lscpu > "${LOG_DIR}/hardware_topology.txt" 2>&1
 
 module load go || true
 echo ">> Wersja kompilatora Go: $(go version 2>&1 || echo 'Brak go w module/PATH')"
-echo ">> Docelowa architektura: GOAMD64=${GOAMD64}"
 
 BINARY="${BUILD_DIR}/${TARGET_BIN}_${SLURM_JOB_ID}"
 rm -f "${BINARY}"
 
 cd "${SRC_DIR}"
 echo ">> Kompilacja etapu ${PARALLEL_STEP}..."
-go build -ldflags="-s -w" -o "${BINARY}" ./cmd/pic
+go build -o "${BINARY}" ./cmd/pic
 
 if [ ! -f "${BINARY}" ]; then
     echo ">> BŁĄD: Kompilacja nie powiodła się, brak pliku ${BINARY}!"
@@ -97,19 +97,22 @@ if [ ! -f "${BINARY}" ]; then
 fi
 
 cd "${DATA_DIR}"
+cp "${REPO_DIR}/golden_record/picdata.bin" ./picdata.bin
 
-# Zestaw liczników sprzętowych (IPC, L1d/L3 cache miss, migracje, branch miss, context switches)
-PERF_EVENTS="task-clock,cycles,instructions,branches,branch-misses,L1-dcache-loads,L1-dcache-load-misses,LLC-loads,LLC-load-misses,context-switches,cpu-migrations"
-
-echo ">> Start pomiarów: perf stat..."
 CMD_ARGS=("${N_CYCLES}")
 if [ -n "${MEASURE_ARG}" ]; then
     CMD_ARGS+=("${MEASURE_ARG}")
 fi
-CMD_ARGS+=("${NUM_WORKERS}")
+CMD_ARGS+=("--workers=${NUM_WORKERS}")
 
-perf stat -e "${PERF_EVENTS}" -r 3 \
-    -o "${LOG_DIR}/perf_stat.log" -- \
+echo ">> Start pomiaru perf stat..."
+perf stat \
+    -e task-clock,context-switches,cpu-migrations \
+    -e cycles:u,instructions:u \
+    -e L1-dcache-loads:u,L1-dcache-load-misses:u \
+    -e branch-loads:u,branch-misses:u \
+    -o "${DATA_DIR}/perf_cpu_stats.txt" \
     "${BINARY}" "${CMD_ARGS[@]}"
 
-echo ">> Zakończono pomyślnie zadanie Slurm: ${SLURM_JOB_ID} (Etap ${PARALLEL_STEP}: ${STEP_NAME})"
+rm -f "${BINARY}"
+echo ">> Zakończono pomyślnie zadanie Slurm: ${SLURM_JOB_ID} (Etap ${PARALLEL_STEP}: ${STEP_NAME}). Wyniki w: ${DATA_DIR}"

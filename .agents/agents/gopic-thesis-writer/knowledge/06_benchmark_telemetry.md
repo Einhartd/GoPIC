@@ -61,13 +61,13 @@ Pomiary wykonane narzędziem [`experiments/Go-sequential/3-zero-allocation/bench
 
 ### 2.1. Zestawienie Czasów Wykonania Symulacji (100 Cykli RF, tryb bez pomiarów)
 
-| Implementacja / Wersja | 1 Rdzeń | 2 Rdzenie | 4 Rdzenie | 8 Rdzeni (1 CCX) | 16 Rdzeni | 32 Rdzenie | 64 Rdzenie |
+| Implementacja / Wersja | 1 Rdzeń (HPC WCSS Lem) | 2 Rdzenie | 4 Rdzenie | 8 Rdzeni (1 CCX) | 16 Rdzeni | 32 Rdzenie | 64 Rdzenie |
 | :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
 | **C++ Sequential Baseline** | *[T_c_seq]* | — | — | — | — | — | — |
 | **C++ OpenMP (zoptymalizowany)** | *[T_c_1]* | *[T_c_2]* | *[T_c_4]* | *[T_c_8]* | *[T_c_16]* | *[T_c_32]* | *[T_c_64]* |
-| **Go Sekwencyjny 1 (Baseline)** | *[T_go_s1]* | — | — | — | — | — | — |
-| **Go Sekwencyjny 2 (Algorithmic Port)** | *[T_go_s2]* | — | — | — | — | — | — |
-| **Go Sekwencyjny 3 (Zero-Allocation)** | *[T_go_s3]* | — | — | — | — | — | — |
+| **Go Sekwencyjny 1 (Baseline $T_0$)** | **1500.39 s** (IPC 2.58) | — | — | — | — | — | — |
+| **Go Sekwencyjny 2 (Algorithmic Port)** | **298.25 s** (IPC 4.12, **5.03x**) | — | — | — | — | — | — |
+| **Go Sekwencyjny 3 (Zero-Allocation)** | **272.69 s** (IPC 4.27, **5.50x**) | — | — | — | — | — | — |
 | **Go Sekwencyjny 4 (BCE & Unrolling)** | *[T_go_s4]* | — | — | — | — | — | — |
 | **Go Równoległy 1 (Channels)** | — | *[T_p1_2]* | *[T_p1_4]* | *[T_p1_8]* | *[T_p1_16]* | *[T_p1_32]* | *[T_p1_64]* |
 | **Go Równoległy 2 (Chunking + L1d)** | — | *[T_p2_2]* | *[T_p2_4]* | *[T_p2_8]* | *[T_p2_16]* | *[T_p2_32]* | *[T_p2_64]* |
