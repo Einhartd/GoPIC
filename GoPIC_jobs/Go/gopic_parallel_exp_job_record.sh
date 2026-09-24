@@ -5,7 +5,7 @@
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=8
 #SBATCH --mem-per-cpu=4G
-#SBATCH --time=00:15:00
+#SBATCH --time=00:30:00
 
 set -euo pipefail
 
@@ -40,6 +40,14 @@ case "${PARALLEL_STEP}" in
 esac
 
 SRC_DIR="${REPO_DIR}/Go/${STEP_NAME}"
+
+N_CYCLES="${N_CYCLES_RECORD:-100}"
+MEASURE_FLAG="${MEASUREMENT_MODE:-${MEASUREMENT:-0}}"
+MEASURE_ARG=""
+if [ "${MEASURE_FLAG}" = "1" ] || [ "${MEASURE_FLAG}" = "true" ] || [ "${MEASURE_FLAG}" = "m" ] || [ "${MEASURE_FLAG}" = "M" ]; then
+    MEASURE_ARG="m"
+fi
+
 BUILD_DIR="$HOME/GoPIC_build/Go"
 LOG_DIR="$(pwd)/saved_logs_Go/logs_job_${SLURM_JOB_ID}_PARALLEL_STEP${PARALLEL_STEP}_RECORD"
 DATA_DIR="${LOG_DIR}/edupic_data"
@@ -50,23 +58,17 @@ FLAME_DIR="${REPO_DIR}/plots/FlameGraph"
 mkdir -p "${BUILD_DIR}" "${DATA_DIR}"
 exec > "${LOG_DIR}/job_output.log" 2>&1
 
-N_CYCLES="${N_CYCLES_RECORD:-20}"
-MEASURE_FLAG="${MEASUREMENT_MODE:-${MEASUREMENT:-0}}"
-MEASURE_ARG=""
-if [ "${MEASURE_FLAG}" = "1" ] || [ "${MEASURE_FLAG}" = "true" ] || [ "${MEASURE_FLAG}" = "m" ] || [ "${MEASURE_FLAG}" = "M" ]; then
-    MEASURE_ARG="m"
-fi
-
 echo "=== [Go Parallel RECORD] Job: ${SLURM_JOB_ID} | Step: ${PARALLEL_STEP} (${STEP_NAME}) | Threads: ${GOMAXPROCS} | Workers: ${NUM_WORKERS} | Cycles: ${N_CYCLES} | Measurement: ${MEASURE_ARG:-off} | Node: ${SLURM_JOB_NODELIST} ==="
 echo ">> Ścieżka repo: ${REPO_DIR} | Commit: $(git -C "${REPO_DIR}" rev-parse --short HEAD 2>/dev/null || echo 'N/A')"
 echo ">> Katalog źródeł: ${SRC_DIR}"
+echo ">> Docelowa architektura: GOAMD64=${GOAMD64}"
 
 AFFINITY_MASK=$(taskset -cp $$ 2>/dev/null | awk -F': ' '{print $2}' || grep -m1 Cpus_allowed_list /proc/self/status 2>/dev/null | awk '{print $2}' || echo "N/A")
-echo ">> Przydział Slurm: ${SLURM_CPUS_PER_TASK:-1} rdzeni"
-echo ">> Powinowactwo CPU: ${AFFINITY_MASK}"
+echo ">> Przydział Slurm (Allocated Cores): ${SLURM_CPUS_PER_TASK:-1} rdzeni"
+echo ">> Powinowactwo CPU zadania (Taskset / Cpus_allowed): ${AFFINITY_MASK}"
 if command -v numactl >/dev/null 2>&1; then
     NUMA_BIND=$(numactl --show 2>/dev/null | grep -E 'physcpubind|cpubind' | tr '\n' ' ' || true)
-    [ -n "${NUMA_BIND}" ] && echo ">> Powiązanie NUMA: ${NUMA_BIND}"
+    [ -n "${NUMA_BIND}" ] && echo ">> Powiązanie NUMA (numactl): ${NUMA_BIND}"
 fi
 
 lscpu > "${LOG_DIR}/hardware_topology.txt" 2>&1
@@ -78,11 +80,11 @@ BINARY="${BUILD_DIR}/${TARGET_BIN}_rec_${SLURM_JOB_ID}"
 rm -f "${BINARY}"
 
 cd "${SRC_DIR}"
-echo ">> Kompilacja etapu ${PARALLEL_STEP} (z zachowaniem symboli debugowania dla perf)..."
+echo ">> Kompilacja etapu ${PARALLEL_STEP} (debug symbols zachowane dla perf)..."
 go build -o "${BINARY}" ./cmd/pic
 
 if [ ! -f "${BINARY}" ]; then
-    echo ">> BŁĄD: Kompilacja nie powiodła się!"
+    echo ">> BŁĄD: Kompilacja nie powiodła się, brak pliku ${BINARY}!"
     exit 1
 fi
 
@@ -95,19 +97,19 @@ if [ -n "${MEASURE_ARG}" ]; then
 fi
 CMD_ARGS+=("--workers=${NUM_WORKERS}")
 
-echo ">> Start profilera perf record (częstotliwość 997 Hz, call-graph dwarf)..."
-perf record -F 997 --call-graph dwarf -o "${PERF_DATA}" -- \
+echo ">> Profilowanie wywołań (perf record)..."
+perf record --max-size=100M -F 49 -g -o "${PERF_DATA}" -- \
     "${BINARY}" "${CMD_ARGS[@]}"
 
 echo ">> Generowanie raportu tekstowego perf report..."
-perf report -i "${PERF_DATA}" --stdio --no-children > "${LOG_DIR}/perf_report.txt" 2>&1 || true
+perf report --stdio --no-children -i "${PERF_DATA}" > "${DATA_DIR}/perf_report.txt" 2>&1 || true
 
-if [ -d "${FLAME_DIR}" ] && [ -f "${FLAME_DIR}/stackcollapse-perf.pl" ]; then
-    echo ">> Generowanie Flame Graph..."
-    perf script -i "${PERF_DATA}" | "${FLAME_DIR}/stackcollapse-perf.pl" > "${LOG_DIR}/out.folded" 2>/dev/null || true
-    "${FLAME_DIR}/flamegraph.pl" "${LOG_DIR}/out.folded" > "${LOG_DIR}/flamegraph_${SLURM_JOB_ID}.svg" 2>/dev/null || true
-    cp -f "${LOG_DIR}/flamegraph_${SLURM_JOB_ID}.svg" "${DATA_DIR}/flamegraph.svg" 2>/dev/null || true
+if [ -f "${FLAME_DIR}/stackcollapse-perf.pl" ] && [ -f "${FLAME_DIR}/flamegraph.pl" ]; then
+    echo ">> Generowanie wykresu Flame Graph..."
+    perf script -i "${PERF_DATA}" 2>/dev/null | perl "${FLAME_DIR}/stackcollapse-perf.pl" > "${DATA_DIR}/perf.folded" 2>/dev/null || true
+    perl "${FLAME_DIR}/flamegraph.pl" --title "Go Parallel (Step ${PARALLEL_STEP}, Workers ${NUM_WORKERS}, Job ${SLURM_JOB_ID})" "${DATA_DIR}/perf.folded" > "${DATA_DIR}/flamegraph.svg" 2>/dev/null || true
+    rm -f "${DATA_DIR}/perf.folded"
 fi
 
 rm -f "${PERF_DATA}" "${BINARY}"
-echo ">> Zakończono pomyślnie profilowanie zadania ${SLURM_JOB_ID}!"
+echo ">> Zakończono pomyślnie. Wyniki w: ${DATA_DIR}"
