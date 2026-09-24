@@ -59,21 +59,21 @@ Pomiary wykonane narzędziem [`experiments/Go-sequential/3-zero-allocation/bench
 ## 2. Szablony Tabel dla Wyników Klastrowych (WCSS / Slurm)
 *(Do uzupełnienia po spłynięciu wyników z klastra Lem/Bem)*
 
-### 2.1. Zestawienie Czasów Wykonania Symulacji (100 Cykli RF, tryb bez pomiarów)
+### 2.1. Zestawienie Czasów Wykonania Symulacji (100 Cykli RF na klastrze HPC Lem)
 
-| Implementacja / Wersja | 1 Rdzeń (HPC WCSS Lem) | 2 Rdzenie | 4 Rdzenie | 8 Rdzeni (1 CCX) | 16 Rdzeni | 32 Rdzenie | 64 Rdzenie |
+| Implementacja / Wersja | 1 Rdzeń | 2 Rdzenie | 4 Rdzenie | 8 Rdzeni (1 CCX) | 16 Rdzeni | 32 Rdzenie | 64 Rdzenie |
 | :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
-| **C++ Sequential Baseline** | *[T_c_seq]* | — | — | — | — | — | — |
-| **C++ OpenMP (zoptymalizowany)** | *[T_c_1]* | *[T_c_2]* | *[T_c_4]* | *[T_c_8]* | *[T_c_16]* | *[T_c_32]* | *[T_c_64]* |
+| **C++ Sequential Baseline** | **142.42 s** | — | — | — | — | — | — |
+| **C++ OpenMP (zoptymalizowany)** | **142.42 s** (IPC 3.69) | **77.70 s** (IPC 3.49) | **40.83 s** (IPC 3.24) | **23.11 s** (IPC 2.87) | **16.60 s** (IPC 1.98) | **14.30 s** (IPC 1.45) | **19.85 s** (IPC 0.82) |
 | **Go Sekwencyjny 1 (Baseline $T_0$)** | **1500.39 s** (IPC 2.58) | — | — | — | — | — | — |
 | **Go Sekwencyjny 2 (Algorithmic Port)** | **298.25 s** (IPC 4.12, **5.03x**) | — | — | — | — | — | — |
 | **Go Sekwencyjny 3 (Zero-Allocation)** | **272.69 s** (IPC 4.27, **5.50x**) | — | — | — | — | — | — |
-| **Go Sekwencyjny 4 (BCE & Unrolling)** | *[T_go_s4]* | — | — | — | — | — | — |
-| **Go Równoległy 1 (Channels)** | — | *[T_p1_2]* | *[T_p1_4]* | *[T_p1_8]* | *[T_p1_16]* | *[T_p1_32]* | *[T_p1_64]* |
-| **Go Równoległy 2 (Chunking + L1d)** | — | *[T_p2_2]* | *[T_p2_4]* | *[T_p2_8]* | *[T_p2_16]* | *[T_p2_32]* | *[T_p2_64]* |
-| **Go Równoległy 3 (StarBarrier)** | — | *[T_p3_2]* | *[T_p3_4]* | *[T_p3_8]* | *[T_p3_16]* | *[T_p3_32]* | *[T_p3_64]* |
-| **Go Równoległy 4 (Fused Move&Detect)** | — | *[T_p4_2]* | *[T_p4_4]* | *[T_p4_8]* | *[T_p4_16]* | *[T_p4_32]* | *[T_p4_64]* |
-| **Go Równoległy 5 (Optimized Final)** | — | *[T_p5_2]* | *[T_p5_4]* | *[T_p5_8]* | *[T_p5_16]* | *[T_p5_32]* | *[T_p5_64]* |
+| **Go Sekwencyjny 4 (BCE & Unrolling)** | **249.95 s** (IPC 4.27, **6.00x**) | — | — | — | — | — | — |
+| **Go Równoległy 1 (Channels)** | **224.75 s** (IPC 4.07) | **198.70 s** (IPC 3.72) | **214.14 s** (IPC 2.80) | **103.29 s** (IPC 3.48) | — | — | — |
+| **Go Równoległy 2 (Chunking + L1d)** | **208.97 s** (IPC 4.41) | **161.11 s** (IPC 3.64) | **173.88 s** (IPC 3.12) | **168.93 s** (IPC 1.92) | — | — | — |
+| **Go Równoległy 3 (StarBarrier)** | — | **122.41 s** (IPC 3.83) | **73.95 s** (IPC 3.18) | **54.52 s** (IPC 2.44) | — | — | — |
+| **Go Równoległy 4 (Fused Move&Detect)**| — | **125.92 s** (IPC 3.43) | **60.35 s** (IPC 3.65) | **44.32 s** (IPC 2.53) | — | — | — |
+| **Go Równoległy 5 (Optimized Final)** | **199.20 s** (IPC 4.50) | **107.90 s** (IPC 4.20) | **57.49 s** (IPC 3.90) | **47.48 s** (IPC 2.46) | **31.49 s** (IPC 1.82) | **21.89 s** (IPC 1.26) | **39.29 s** (IPC 0.43) |
 
 ---
 
@@ -81,10 +81,11 @@ Pomiary wykonane narzędziem [`experiments/Go-sequential/3-zero-allocation/bench
 
 | Metryka Sprzętowa | Go Parallel 1 (Channels) | Go Parallel 2 (Chunking) | Go Parallel 3 (StarBarrier) | Go Parallel 4 (Fused) | Go Parallel 5 (Optimized) | C++ OpenMP |
 | :--- | :---: | :---: | :---: | :---: | :---: | :---: |
-| **Instrukcje (`instructions`)** | *[dane]* | *[dane]* | *[dane]* | *[dane]* | *[dane]* | *[dane]* |
-| **Cykle procesora (`cycles`)** | *[dane]* | *[dane]* | *[dane]* | *[dane]* | *[dane]* | *[dane]* |
-| **Wskaźnik IPC (`IPC`)** | *[dane]* | *[dane]* | *[dane]* | *[dane]* | *[dane]* | *[dane]* |
-| **Chybienia L1d (`L1-dcache-load-misses`)** | *[dane]* | *[dane]* | *[dane]* | *[dane]* | *[dane]* | *[dane]* |
-| **Chybienia L3 LLC (`LLC-load-misses`)** | *[dane]* | *[dane]* | *[dane]* | *[dane]* | *[dane]* | *[dane]* |
-| **Przełączenia kontekstu (`context-switches`)** | *[dane]* | *[dane]* | *[dane]* | *[dane]* | *[dane]* | *[dane]* |
-| **Błędne skoki (`branch-misses`)** | *[dane]* | *[dane]* | *[dane]* | *[dane]* | *[dane]* | *[dane]* |
+| **Czas 100 cykli [s]** | **103.29 s** | **168.93 s** | **54.52 s** *(min 42.26 s)* | **44.32 s** *(min 38.49 s)* | **47.48 s** *(min 40.55 s)* | **23.11 s** |
+| **Przyspieszenie vs Krok 1** | **1.00x** | **0.61x** *(spadek)* | **1.89x (2.44x)** | **2.33x (2.68x)** | **2.18x (2.55x)** | **4.47x** |
+| **Instrukcje (`instructions`)** | 3 325 652 445 279 | 3 464 181 253 719 | 3 416 744 741 587 | **3 192 604 162 329** | 3 128 906 788 198 | **~890 000 000 000** |
+| **Wskaźnik IPC** | **3.48** | **1.92** *(załamanie)* | **2.44** | **2.53** | **2.46** | **2.87** |
+| **Chybienia L1d Miss %** | **4.82%** | **4.75%** | **2.84%** | **1.98%** *(minimum)* | **2.01%** | **1.25%** |
+| **Narzut granic (Step 5)** | w `startWorker` | **8.82% CPU** | **11.92% CPU** | **< 0.05% CPU** | **< 0.05% CPU** | **< 0.1% CPU** |
+| **Prymityw synchronizacji** | kanały Go (`chan`) | `sync.WaitGroup` | `StarBarrier` (PAUSE) | `StarBarrier` (PAUSE) | `StarBarrier` (PAUSE) | `#pragma omp barrier` |
+| **Narzut synchronizacji** | muteks `hchan.lock` | kernel `SYS_futex` | `procyield` (32.7% CPU) | `procyield` (22.4% CPU) | `procyield` (~20% CPU) | libgomp spin-wait |
