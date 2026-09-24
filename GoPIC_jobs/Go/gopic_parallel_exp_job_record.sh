@@ -49,7 +49,7 @@ if [ "${MEASURE_FLAG}" = "1" ] || [ "${MEASURE_FLAG}" = "true" ] || [ "${MEASURE
 fi
 
 BUILD_DIR="$HOME/GoPIC_build/Go"
-LOG_DIR="$(pwd)/saved_logs_Go/logs_job_${SLURM_JOB_ID}_PARALLEL_STEP${PARALLEL_STEP}_RECORD"
+LOG_DIR="$(pwd)/saved_logs_Go/logs_job_${SLURM_JOB_ID}_STEP${PARALLEL_STEP}_W${NUM_WORKERS}_RECORD"
 DATA_DIR="${LOG_DIR}/edupic_data"
 PERF_DATA="${SCRATCH:-${DATA_DIR}}/perf_${SLURM_JOB_ID}.data"
 FLAME_DIR="${REPO_DIR}/plots/FlameGraph"

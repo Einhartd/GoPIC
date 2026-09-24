@@ -53,7 +53,7 @@ esac
 
 SRC_DIR="${REPO_DIR}/Go/${STEP_NAME}"
 BUILD_DIR="$HOME/GoPIC_build/Go"
-LOG_DIR="$(pwd)/saved_logs_Go/logs_job_${SLURM_JOB_ID}_PARALLEL_STEP${PARALLEL_STEP}_STAT"
+LOG_DIR="$(pwd)/saved_logs_Go/logs_job_${SLURM_JOB_ID}_STEP${PARALLEL_STEP}_W${NUM_WORKERS}_STAT"
 DATA_DIR="${LOG_DIR}/edupic_data"
 
 mkdir -p "${BUILD_DIR}" "${DATA_DIR}"
