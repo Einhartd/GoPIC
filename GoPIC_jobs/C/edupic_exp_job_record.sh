@@ -21,15 +21,17 @@ REPO_DIR="$HOME/GoPIC"
 # ==============================================================================
 # WYBÓR EKSPERYMENTU I FLAG KOMPILATORA
 # ==============================================================================
-# Domyślnie: EKSPERYMENT 7 (Optymalizacje strukturalne: pusher fast-path, linear boundary compaction)
-# Flagi: identyczne z Eksperymentami 1-6 (izolacja czystego zysku algorytmicznego)
-SRC_DIR="${REPO_DIR}/C/7.experiment-pusher-boundaries"
-CXX_FLAGS="-std=c++17 -O3 -Wall -fno-math-errno -fno-omit-frame-pointer -g -DPROFILE_RECORD -ffast-math"
+# --- Opcja 1: EKSPERYMENT 1 (Baseline - Direct MCC, czysty punkt odniesienia T0) ---
+SRC_DIR="${REPO_DIR}/C/1.experiment-baseline"
+CXX_FLAGS="-std=c++17 -O3 -Wall -fno-math-errno -fno-omit-frame-pointer -g -DPROFILE_RECORD -fno-inline -fno-optimize-sibling-calls"
 
-# --- Opcja: EKSPERYMENT 8 (Wektoryzacja SIMD AVX-512, alignas(64), unrolling, Zen 4 tuning) ---
-# Aby uruchomić Eksperyment 8, zakomentuj 2 linie powyżej i odkomentuj 2 linie poniżej:
+# --- Opcja 2: EKSPERYMENT 7 (Optymalizacje strukturalne: pusher fast-path, linear boundary compaction) ---
+# SRC_DIR="${REPO_DIR}/C/7.experiment-pusher-boundaries"
+# CXX_FLAGS="-std=c++17 -O3 -Wall -fno-math-errno -fno-omit-frame-pointer -g -DPROFILE_RECORD -fno-inline -ffast-math"
+
+# --- Opcja 3: EKSPERYMENT 8 (Wektoryzacja SIMD AVX-512, alignas(64), unrolling, Zen 4 tuning) ---
 # SRC_DIR="${REPO_DIR}/C/8.experiment-simd"
-# CXX_FLAGS="-std=c++17 -O3 -Wall -fno-math-errno -fno-omit-frame-pointer -g -march=znver4 -mtune=znver4 -mprefer-vector-width=512 -funroll-loops -DPROFILE_RECORD -ffast-math -fopt-info-vec-optimized"
+# CXX_FLAGS="-std=c++17 -O3 -Wall -fno-math-errno -fno-omit-frame-pointer -g -march=znver4 -mtune=znver4 -mprefer-vector-width=512 -funroll-loops -DPROFILE_RECORD -fno-inline -ffast-math -fopt-info-vec-optimized"
 # ==============================================================================
 
 BUILD_DIR="$HOME/GoPIC_build/C"
@@ -66,11 +68,13 @@ fi
 cd "${DATA_DIR}"
 cp "${REPO_DIR}/golden_record/picdata.bin" ./picdata.bin
 
-echo ">> Profilowanie wywołań (perf record)..."
-perf record --max-size=100M -F 49 -g -o "${PERF_DATA}" -- "${BINARY}" "${N_CYCLES}" ${MEASURE_ARG}
+echo ">> Profilowanie wywołań (perf record z DWARF call-graph)..."
+perf record --max-size=1000M -F 99 --call-graph dwarf,8192 -o "${PERF_DATA}" -- "${BINARY}" "${N_CYCLES}" ${MEASURE_ARG}
 
 echo ">> Generowanie raportów tekstowych perf..."
 perf report -i "${PERF_DATA}" --stdio > "${DATA_DIR}/perf_report.txt"
+perf report -i "${PERF_DATA}" --stdio --no-children --sort=dso,symbol > "${DATA_DIR}/perf_report_flat.txt"
+perf report -i "${PERF_DATA}" --stdio --hierarchy > "${DATA_DIR}/perf_report_hierarchy.txt"
 
 if [ -f "${FLAME_DIR}/stackcollapse-perf.pl" ] && [ -f "${FLAME_DIR}/flamegraph.pl" ]; then
     echo ">> Generowanie Flame Graph (SVG)..."
