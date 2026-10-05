@@ -108,7 +108,7 @@ PIC_STEP void collision_ion (double *vx_1, double *vy_1, double *vz_1,
     t2  = t1 + sigma[I_BACK][e_index];
     rnd = R01(MTgen);
 
-    // Fast-path dla wymiany ładunku (I_BACK - wsteczny transfer ładunku, ~80% zderzeń jonowych):
+    // Fast-path dla wymiany ładunku (I_BACK - wsteczny transfer ładunku):
     // Na mocy analitycznej tożsamości kinematycznej dla cząstek o równej masie (m1 = m2 = m_Ar)
     // przy rozproszeniu wstecznym (chi = PI), wektor prędkości względnej ulega dokładnemu odwróceniu:
     // g_new = -g_old = v2 - v1. W układzie laboratoryjnym prędkość nowego jonu wynosi dokładnie:
@@ -121,7 +121,7 @@ PIC_STEP void collision_ion (double *vx_1, double *vy_1, double *vz_1,
         return;
     }
     
-    // Pozostałe zderzenia (~20%): rozpraszanie izotropowe (I_ISO)
+    // Pozostałe zderzenia: rozpraszanie izotropowe (I_ISO)
     double   g,gx,gy,gz,wx,wy,wz;
     double   theta,phi,chi,eta,st,ct,sp,cp,sc,cc,se,ce;
 

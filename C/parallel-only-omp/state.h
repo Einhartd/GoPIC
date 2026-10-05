@@ -170,6 +170,10 @@ struct alignas(64) NewParticles {
     size_t size() const { return (size_t)count; }
 };
 
+// Struktura która dokonuje wyrównania tablic w wektorach do 64 bajtów
+// ponieważ array sam wyrównuje maksymalnie do 16 bajtów
+template <typename T, size_t N>
+struct alignas(64) AlignedArray : std::array<T, N> {};
 
 // WorkerBuffers: Wstępnie zaalokowane bufory robocze dla wątków OpenMP.
 // Kluczowy wzorzec optymalizacji:
@@ -178,28 +182,28 @@ struct alignas(64) NewParticles {
 // 3. Po zakończeniu fazy równoległej następuje szybka redukcja do tablic globalnych.
 struct WorkerBuffers {
     // Prywatne bufory depozycji gęstości ładunku (Krok 1) (z buforem SIMD)
-    std::vector<std::array<double, N_G + 16>> e_density;
-    std::vector<std::array<double, N_G + 16>> i_density;
+    std::vector<AlignedArray<double, N_G + 16>> e_density;
+    std::vector<AlignedArray<double, N_G + 16>> i_density;
 
     // Prywatne bufory diagnostyk elektronowych (Krok 3)
-    std::vector<std::array<double, N_G>> counter_e;
-    std::vector<std::array<double, N_G>> ue;
-    std::vector<std::array<double, N_G>> meanee;
-    std::vector<std::array<double, N_G>> ioniz;
-    std::vector<std::array<double, N_EEPF>> eepf;
+    std::vector<AlignedArray<double, N_G>> counter_e;
+    std::vector<AlignedArray<double, N_G>> ue;
+    std::vector<AlignedArray<double, N_G>> meanee;
+    std::vector<AlignedArray<double, N_G>> ioniz;
+    std::vector<AlignedArray<double, N_EEPF>> eepf;
 
     // Wyrównane do linii cache liczniki skalarne na wątek
     std::vector<AlignedThreadCounters> thread_counters;
 
     // Prywatne bufory diagnostyk jonowych (Krok 4)
-    std::vector<std::array<double, N_G>> counter_i;
-    std::vector<std::array<double, N_G>> ui;
-    std::vector<std::array<double, N_G>> meanei;
+    std::vector<AlignedArray<double, N_G>> counter_i;
+    std::vector<AlignedArray<double, N_G>> ui;
+    std::vector<AlignedArray<double, N_G>> meanei;
 
     // Bufory dla filtracji granic i kompaktacji tablic cząstek (Kroki 5 i 6)
     std::vector<std::vector<int>> absorbed_indices;
-    std::vector<std::array<int, N_IFED>> local_ifed_pow;
-    std::vector<std::array<int, N_IFED>> local_ifed_gnd;
+    std::vector<AlignedArray<int, N_IFED>> local_ifed_pow;
+    std::vector<AlignedArray<int, N_IFED>> local_ifed_gnd;
 
     // Prywatne bufory nowo narodzonych cząstek dla każdego wątku (Krok 7)
     std::vector<NewParticles> new_electrons;
