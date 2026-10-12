@@ -900,7 +900,7 @@ PIC_STEP void do_one_cycle(void) {
             step3_move_electrons_body(tid, nthreads, t_index);
             step4_move_ions_body(tid, nthreads, t_index, t);
 
-            // Krok 5 & 6: Warunki brzegowe (równoległe oznaczanie + seryjna kompaktacja)
+            // Krok 5 & 6: Warunki brzegowe (równoległe oznaczanie i usuwanie)
             step5_check_boundaries_electrons_body(tid, nthreads);
             step6_check_boundaries_ions_body(tid, nthreads, t);
 
