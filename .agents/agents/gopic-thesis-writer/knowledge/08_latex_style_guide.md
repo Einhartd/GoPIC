@@ -6,11 +6,12 @@ Niniejszy dokument definiuje reguły edytorskie, konwencje językowe oraz szablo
 
 ## 1. Konwencje Językowe i Styl Naukowy
 
-### 1.1. Forma Gramatyczna
+### 1.1. Forma Gramatyczna i Formatowanie Liczb
 - Obowiązuje wyłącznie **język polski w rejestrze formalnym / akademickim**.
 - Stosowanie **formy bezosobowej** lub **strony biernej**:
   - PRAWIDŁOWO: *"W pracy przedstawiono..."*, *"Zaimplementowano algorytm..."*, *"Pomiary wykazały..."*, *"Zaobserwowano spadek opóźnień..."*.
   - NIEDOPUSZCZALNE: *"Zrobiłem..."*, *"Napisałem funkcję..."*, *"Zauważyliśmy..."*, *"W moim kodzie..."*.
+- **Liczby dziesiętne w LaTeX:** stosuj zwykły przecinek `,` (np. `1,5`, `14,3 s`, `3,49\times`). Nie stosuj klamer `{,}`.
 
 ### 1.2. Słownik Standardowej Terminologii Informatycznej i Fizycznej
 Aby uniknąć żargonu środowiskowego i kalk językowych z angielskiego, należy stosować ujednoliconą terminologię:
