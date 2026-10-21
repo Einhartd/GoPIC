@@ -32,9 +32,9 @@ constexpr double VOLTAGE            = 250.0;                      // Amplituda n
 constexpr double L                  = 0.025;                      // Odległość między elektrodami [m]
 constexpr double PRESSURE           = 10.0;                       // Ciśnienie gazu neutralnego (argon) [Pa]
 constexpr double TEMPERATURE        = 350.0;                      // Temperatura gazu tła [K]
-constexpr double WEIGHT             = 7.0e4;                      // Waga supercząstki (liczba realnych cząstek na makrocząstkę)
+constexpr double WEIGHT             = 7.0e4/5;                    // Waga supercząstki (liczba realnych cząstek na makrocząstkę)
 constexpr double ELECTRODE_AREA     = 1.0e-4;                     // Fikcyjna powierzchnia elektrod [m^2]
-constexpr int    N_INIT             = 1000;                       // Początkowa liczba par elektron-jon przy inicjalizacji
+constexpr int    N_INIT             = 1000*5;                     // Początkowa liczba par elektron-jon przy inicjalizacji
 
 // =============================================================================
 // Stałe pochodne (wyliczane na podstawie parametrów głównych)
@@ -73,10 +73,10 @@ typedef double   cross_section[CS_RANGES];                        // Tablica prz
 // Współrzędne cząstek i typy wektorowe
 // =============================================================================
 
-constexpr int    MAX_N_P            = 1000000;                    // Maksymalna pojemność tablic cząstek
+constexpr int    MAX_N_P            = 1000000*2;                        // Maksymalna pojemność tablic cząstek
 typedef double __attribute__((aligned(64)))   particle_vector[MAX_N_P]; // Tablica właściwości cząstek (AVX-512)
 typedef double __attribute__((aligned(64)))   xvector[N_G + 16];        // Tablica siatkowa z buforem SIMD
-typedef unsigned long long int Ullong;                                 // 64-bitowa liczba całkowita bez znaku
+typedef unsigned long long int Ullong;                                  // 64-bitowa liczba całkowita bez znaku
 
 // =============================================================================
 // Funkcja rozkładu prawdopodobieństwa energii elektronów (EEPF)

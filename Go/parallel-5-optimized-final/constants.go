@@ -15,16 +15,16 @@ const (
 	K_BOLTZMANN float64 = 1.38064852e-23    // Stała Boltzmanna [J/K]
 	EPSILON0    float64 = 8.85418781e-12    // Przenikalność elektryczna próżni [F/m]
 
-	N_G            int     = 400     // Liczba punktów siatki przestrzennej 1D
-	N_T            int     = 4000    // Liczba podkroków czasowych w jednym okresie RF
-	FREQUENCY      float64 = 13.56e6 // Częstotliwość napięcia zasilającego RF [Hz]
-	VOLTAGE        float64 = 250.0   // Amplituda napięcia na elektrodzie zasilanej [V]
-	L              float64 = 0.025   // Odległość między elektrodami (szerokość szczeliny) [m]
-	PRESSURE       float64 = 10.0    // Ciśnienie gazu neutralnego (Ar) [Pa]
-	TEMPERATURE    float64 = 350.0   // Temperatura gazu tła [K]
-	WEIGHT         float64 = 7.0e4   // Waga makrocząstki (liczba realnych cząstek w supercząstce)
-	ELECTRODE_AREA float64 = 1.0e-4  // Umowna powierzchnia elektrody [m^2]
-	N_INIT         int     = 1000    // Początkowa liczba par makrocząstek (elektronów i jonów)
+	N_G            int     = 400       // Liczba punktów siatki przestrzennej 1D
+	N_T            int     = 4000      // Liczba podkroków czasowych w jednym okresie RF
+	FREQUENCY      float64 = 13.56e6   // Częstotliwość napięcia zasilającego RF [Hz]
+	VOLTAGE        float64 = 250.0     // Amplituda napięcia na elektrodzie zasilanej [V]
+	L              float64 = 0.025     // Odległość między elektrodami (szerokość szczeliny) [m]
+	PRESSURE       float64 = 10.0      // Ciśnienie gazu neutralnego (Ar) [Pa]
+	TEMPERATURE    float64 = 350.0     // Temperatura gazu tła [K]
+	WEIGHT         float64 = 7.0e4 / 5 // Waga makrocząstki (liczba realnych cząstek w supercząstce)
+	ELECTRODE_AREA float64 = 1.0e-4    // Umowna powierzchnia elektrody [m^2]
+	N_INIT         int     = 1000 * 5  // Początkowa liczba par makrocząstek (elektronów i jonów)
 
 	PERIOD      float64 = 1.0 / FREQUENCY                        // Okres fali RF [s]
 	DT_E        float64 = PERIOD / float64(N_T)                  // Krok czasowy dla elektronów [s]
@@ -53,7 +53,7 @@ const (
 	MIN_X    float64 = 0.45 * L // Dolna granica centralnego obszaru dla EEPF [m]
 	MAX_X    float64 = 0.55 * L // Górna granica centralnego obszaru dla EEPF [m]
 
-	MAX_N_P int     = 1000000     // Maksymalna pojemność tablic cząstek SoA
+	MAX_N_P int     = 1000000 * 2 // Maksymalna pojemność tablic cząstek SoA
 	N_EEPF  int     = 2000        // Liczba przedziałów histogramu energii elektronów (EEPF)
 	DE_EEPF float64 = 0.05        // Krok dyskretyzacji energii dla EEPF [eV]
 	N_IFED  int     = 200         // Liczba przedziałów rozkładu strumienia jonów na elektrodach (IFED)
@@ -101,8 +101,8 @@ type XtDistr [N_G][N_XT]float64
 type WorkerCommand int
 
 const (
-	CmdComputeEDensity           WorkerCommand = iota // Krok 1a: Depozycja gęstości elektronów CIC
-	CmdComputeIDensity                                // Krok 1b: Depozycja gęstości jonów CIC
+	CmdComputeEDensity            WorkerCommand = iota // Krok 1a: Depozycja gęstości elektronów CIC
+	CmdComputeIDensity                                 // Krok 1b: Depozycja gęstości jonów CIC
 	CmdMoveElectronsAndBoundaries                      // Krok 3 + 5: Fuzja Leap-Frog + detekcja granic elektronów
 	CmdMoveIonsAndBoundaries                           // Krok 4 + 6: Fuzja Leap-Frog + detekcja granic jonów + IFED
 	CmdCollisionsE                                     // Krok 7: Zderzenia elektronów MCC
