@@ -3,9 +3,9 @@
 #SBATCH --partition=plgrid-lem-cpu
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
-#SBATCH --cpus-per-task=8
+#SBATCH --cpus-per-task=1
 #SBATCH --mem-per-cpu=4G
-#SBATCH --time=00:10:00
+#SBATCH --time=01:00:00
 
 set -euo pipefail
 
@@ -64,7 +64,7 @@ if [ ! -f "${BINARY}" ]; then
 fi
 
 cd "${DATA_DIR}"
-cp "${REPO_DIR}/golden_record/picdata.bin" ./picdata.bin
+cp "${REPO_DIR}/golden_record_5x/picdata.bin" ./picdata.bin
 
 echo ">> Profilowanie wywołań (perf record)..."
 perf record --max-size=100M -F 49 -g -o "${PERF_DATA}" -- "${BINARY}" --workers="${NUM_WORKERS}" "${N_CYCLES}" ${MEASURE_ARG}

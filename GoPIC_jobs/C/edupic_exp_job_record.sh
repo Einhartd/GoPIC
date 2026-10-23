@@ -9,7 +9,7 @@
 
 set -euo pipefail
 
-N_CYCLES="${N_CYCLES:-100}"
+N_CYCLES="${N_CYCLES:-10}"
 MEASURE_FLAG="${MEASUREMENT_MODE:-${MEASUREMENT:-0}}"
 MEASURE_ARG=""
 if [ "${MEASURE_FLAG}" = "1" ] || [ "${MEASURE_FLAG}" = "true" ] || [ "${MEASURE_FLAG}" = "m" ] || [ "${MEASURE_FLAG}" = "M" ]; then

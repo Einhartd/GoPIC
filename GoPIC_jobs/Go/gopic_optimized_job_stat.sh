@@ -3,9 +3,9 @@
 #SBATCH --partition=plgrid-lem-cpu
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
-#SBATCH --cpus-per-task=8
+#SBATCH --cpus-per-task=1
 #SBATCH --mem-per-cpu=4G
-#SBATCH --time=00:30:00
+#SBATCH --time=01:00:00
 
 set -euo pipefail
 
@@ -62,7 +62,7 @@ if [ ! -f "${BINARY}" ]; then
 fi
 
 cd "${DATA_DIR}"
-cp "${REPO_DIR}/golden_record/picdata.bin" ./picdata.bin
+cp "${REPO_DIR}/golden_record_5x/picdata.bin" ./picdata.bin
 
 echo ">> Uruchamianie pomiaru perf stat..."
 perf stat \
