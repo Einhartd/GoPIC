@@ -45,7 +45,6 @@ echo ">> Wersja kompilatora C++: $(g++ --version | head -n 1)"
 BINARY="${BUILD_DIR}/edupic_omp_${SLURM_JOB_ID}"
 rm -f "${BINARY}"
 
-echo ">> Kompilacja: C++ OpenMP (zoptymalizowany silnik Null-Collision)..."
 g++ -std=c++17 -O3 -fno-omit-frame-pointer \
  -march=znver4 -mtune=znver4 \
  -ffast-math -funroll-loops \
@@ -68,15 +67,9 @@ g++ -std=c++17 -O3 -fno-omit-frame-pointer \
 #                             informacje o tym, ktore petle w ktorych liniach kodu zostaly pomyslnie
 #                             zwektoryzowane do instrukcji SIMD
 
-if [ ! -f "${BINARY}" ]; then
-    echo ">> BŁĄD: Kompilacja nie powiodła się, brak pliku ${BINARY}!"
-    exit 1
-fi
-
 cd "${DATA_DIR}"
 cp "${REPO_DIR}/golden_record_5x/picdata.bin" ./picdata.bin
 
-echo ">> Uruchamianie pomiaru perf stat..."
 perf stat \
     -e task-clock,context-switches,cpu-migrations \
     -e cycles:u,instructions:u \
@@ -86,4 +79,3 @@ perf stat \
     "${BINARY}" "${N_CYCLES}" ${MEASURE_ARG}
 
 rm -f "${BINARY}"
-echo ">> Zakończono pomyślnie. Wyniki w: ${DATA_DIR}"

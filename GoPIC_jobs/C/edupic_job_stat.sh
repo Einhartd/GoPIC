@@ -52,15 +52,9 @@ else
     g++ -std=c++17 -O3 -fno-omit-frame-pointer -march=native -fno-math-errno "${SRC_DIR}/eduPIC.cc" -o "${BINARY}" -lm
 fi
 
-if [ ! -f "${BINARY}" ]; then
-    echo ">> BŁĄD: Kompilacja nie powiodła się, brak pliku ${BINARY}!"
-    exit 1
-fi
-
 cd "${DATA_DIR}"
 cp "${REPO_DIR}/golden_record/picdata.bin" ./picdata.bin
 
-echo ">> Uruchamianie pomiaru perf stat..."
 perf stat \
     -e task-clock,context-switches,cpu-migrations \
     -e cycles:u,instructions:u \
@@ -70,4 +64,3 @@ perf stat \
     "${BINARY}" "${N_CYCLES}" ${MEASURE_ARG}
 
 rm -f "${BINARY}"
-echo ">> Zakończono pomyślnie. Wyniki w: ${DATA_DIR}"

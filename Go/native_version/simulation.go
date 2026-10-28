@@ -5,10 +5,8 @@ import (
 	"math"
 )
 
-//----------------------------------------------------------------------//
-// initialization of the simulation by placing a given number of        //
-// electrons and ions at random positions between the electrodes        //
-//----------------------------------------------------------------------//
+// initialization of the simulation by placing a given number of
+// electrons and ions at random positions between the electrodes
 
 func (sim *SimulationState) InitParticles(nseed int) {
 	for i := 0; i < nseed; i++ {
@@ -25,9 +23,7 @@ func (sim *SimulationState) InitParticles(nseed int) {
 	sim.N_i = nseed // initial number of ions
 }
 
-//---------------------------------------------------------------------//
-// simulation of one radiofrequency cycle                              //
-//---------------------------------------------------------------------//
+// simulation of one radiofrequency cycle
 
 func (sim *SimulationState) Step1ComputeElectronDensity() {
 	var k, p int
@@ -226,8 +222,6 @@ func (sim *SimulationState) Step6CheckBoundariesIons(t int) {
 		}
 	}
 }
-
-
 
 func (sim *SimulationState) Step9CollectXtData(t_index int) {
 	if !sim.Measurement_mode {

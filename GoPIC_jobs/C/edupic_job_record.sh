@@ -53,27 +53,16 @@ else
     g++ -std=c++17 -O3 -fno-omit-frame-pointer -march=native -fno-math-errno "${SRC_DIR}/eduPIC.cc" -o "${BINARY}" -lm
 fi
 
-if [ ! -f "${BINARY}" ]; then
-    echo ">> BŁĄD: Kompilacja nie powiodła się, brak pliku ${BINARY}!"
-    exit 1
-fi
-
 cd "${DATA_DIR}"
 cp "${REPO_DIR}/golden_record/picdata.bin" ./picdata.bin
 
-echo ">> Profilowanie wywołań (perf record)..."
 perf record --max-size=100M -F 49 -g -o "${PERF_DATA}" -- "${BINARY}" "${N_CYCLES}" ${MEASURE_ARG}
-
-echo ">> Generowanie raportów tekstowych perf..."
 perf report -i "${PERF_DATA}" --stdio > "${DATA_DIR}/perf_report.txt"
 
 FLAME_DIR="${REPO_DIR}/plots/FlameGraph"
 [ ! -d "${FLAME_DIR}" ] && FLAME_DIR="$HOME/FlameGraph"
 
 if [ -f "${FLAME_DIR}/stackcollapse-perf.pl" ] && [ -f "${FLAME_DIR}/flamegraph.pl" ]; then
-    echo ">> Generowanie Flame Graph (SVG)..."
     perf script -i "${PERF_DATA}" | perl "${FLAME_DIR}/stackcollapse-perf.pl" > "${DATA_DIR}/perf.folded" 2>/dev/null || true
     perl "${FLAME_DIR}/flamegraph.pl" --title "C++ Sequential (Job ${SLURM_JOB_ID})" "${DATA_DIR}/perf.folded" > "${DATA_DIR}/flamegraph.svg" 2>/dev/null || true
 fi
-
-echo ">> Zakończono pomyślnie. Wyniki w: ${DATA_DIR}"

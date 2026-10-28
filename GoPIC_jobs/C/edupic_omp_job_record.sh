@@ -48,7 +48,6 @@ echo ">> Wersja kompilatora C++: $(g++ --version | head -n 1)"
 BINARY="${BUILD_DIR}/edupic_omp_${SLURM_JOB_ID}"
 rm -f "${BINARY}"
 
-echo ">> Kompilacja: C++ OpenMP (zoptymalizowany silnik Null-Collision)..."
 g++ -std=c++17 -O3 -fno-omit-frame-pointer \
  -march=znver4 -mtune=znver4 \
  -ffast-math -funroll-loops \
@@ -72,25 +71,15 @@ g++ -std=c++17 -O3 -fno-omit-frame-pointer \
 #                             informacje o tym, ktore petle w ktorych liniach kodu zostaly pomyslnie
 #                             zwektoryzowane do instrukcji SIMD
 
-if [ ! -f "${BINARY}" ]; then
-    echo ">> BŁĄD: Kompilacja nie powiodła się, brak pliku ${BINARY}!"
-    exit 1
-fi
-
 cd "${DATA_DIR}"
 cp "${REPO_DIR}/golden_record_5x/picdata.bin" ./picdata.bin
 
-echo ">> Profilowanie wywołań (perf record)..."
 perf record --max-size=100M -F 49 -g -o "${PERF_DATA}" -- "${BINARY}" "${N_CYCLES}" ${MEASURE_ARG}
 
-echo ">> Generowanie raportów tekstowych perf..."
 perf report -i "${PERF_DATA}" --stdio > "${DATA_DIR}/perf_report.txt"
 perf report -i "${PERF_DATA}" --stdio --sort=cpu,symbol > "${DATA_DIR}/perf_report_per_cpu.txt"
 
 if [ -f "${FLAME_DIR}/stackcollapse-perf.pl" ] && [ -f "${FLAME_DIR}/flamegraph.pl" ]; then
-    echo ">> Generowanie Flame Graph (SVG)..."
     perf script -i "${PERF_DATA}" | perl "${FLAME_DIR}/stackcollapse-perf.pl" > "${DATA_DIR}/perf.folded" 2>/dev/null || true
     perl "${FLAME_DIR}/flamegraph.pl" --title "C++ OpenMP (Job ${SLURM_JOB_ID})" "${DATA_DIR}/perf.folded" > "${DATA_DIR}/flamegraph.svg" 2>/dev/null || true
 fi
-
-echo ">> Zakończono pomyślnie. Wyniki w: ${DATA_DIR}"
