@@ -6,20 +6,22 @@ import (
 	"os"
 )
 
-//----------------------------------------------------------------------------//
-//  electron cross sections: A V Phelps & Z Lj Petrovic, PSST 8 R21 (1999)    //
-//----------------------------------------------------------------------------//
-
+// SetElectronCrossSectionsAr oblicza i tabelaryzuje mikroskopowe przekroje czynne zderzeń elektronów
+// z atomami argonu (e- + Ar) na podstawie dopasowań analitycznych z pracy:
+// A.V. Phelps, Z.Lj. Petrovic, Plasma Sources Sci. Technol. 8, R21 (1999).
+// Wypełnia tablice Sigma[E_ELA] (zderzenia sprężyste), Sigma[E_EXC] (wzbudzenie, próg 11.5 eV)
+// oraz Sigma[E_ION] (jonizacja uderzeniowa, próg 15.8 eV) w jednostkach [m^2].
 func (sim *SimulationState) SetElectronCrossSectionsAr() {
 	var en, qmel, qexc, qion float64
 
 	fmt.Println(">> gopic: Setting e- / Ar cross sections")
 	for i := 0; i < CS_RANGES; i++ {
+		// Energia kinetyczna elektronu dla danego przedziału tabeli [eV]
 		if i == 0 {
 			en = DE_CS
 		} else {
 			en = DE_CS * float64(i)
-		} // electron energy
+		}
 		qmel = math.Abs(6.0/math.Pow(1.0+(en/0.1)+math.Pow(en/0.6, 2.0), 3.3)-
 			1.1*math.Pow(en, 1.4)/(1.0+math.Pow(en/15.0, 1.2))/math.Sqrt(1.0+math.Pow(en/5.5, 2.5)+math.Pow(en/60.0, 4.1))) +
 			0.05/math.Pow(1.0+en/10.0, 2.0) + 0.01*math.Pow(en, 3.0)/(1.0+math.Pow(en/12.0, 6.0))
@@ -34,52 +36,54 @@ func (sim *SimulationState) SetElectronCrossSectionsAr() {
 		} else {
 			qion = 0
 		}
-		sim.Sigma[E_ELA][i] = qmel * 1.0e-20 // cross section for e- / Ar elastic collision
-		sim.Sigma[E_EXC][i] = qexc * 1.0e-20 // cross section for e- / Ar excitation
-		sim.Sigma[E_ION][i] = qion * 1.0e-20 // cross section for e- / Ar ionization
+		// Zapis przekrojów czynnych przeliczonych na jednostki SI [m^2]
+		sim.Sigma[E_ELA][i] = qmel * 1.0e-20
+		sim.Sigma[E_EXC][i] = qexc * 1.0e-20
+		sim.Sigma[E_ION][i] = qion * 1.0e-20
 	}
 }
 
-//------------------------------------------------------------------------------//
-//  ion cross sections: A. V. Phelps, J. Appl. Phys. 76, 747 (1994)             //
-//------------------------------------------------------------------------------//
-
+// SetIonCrossSectionsAr oblicza i tabelaryzuje mikroskopowe przekroje czynne zderzeń jonów argonu
+// z atomami tła (Ar+ + Ar) na podstawie dopasowań analitycznych z pracy:
+// A.V. Phelps, J. Appl. Phys. 76, 747 (1994).
+// Wypełnia tablice Sigma[I_ISO] (rozpraszanie izotropowe) oraz Sigma[I_BACK] (rozpraszanie wsteczne /
+// rezonansowa wymiana ładunku) w jednostkach [m^2].
 func (sim *SimulationState) SetIonCrossSectionsAr() {
 	var e_com, e_lab, qmom, qback, qiso float64
 
 	fmt.Println(">> gopic: Setting Ar+ / Ar cross sections")
 	for i := 0; i < CS_RANGES; i++ {
+		// Energia zderzenia w układzie środka masy [eV] oraz w układzie laboratoryjnym [eV]
 		if i == 0 {
 			e_com = DE_CS
 		} else {
 			e_com = DE_CS * float64(i)
-		} // ion energy in the center of mass frame of reference
-		e_lab = 2.0 * e_com // ion energy in the laboratory frame of reference
+		}
+		e_lab = 2.0 * e_com
 		qmom = 1.15e-18 * math.Pow(e_lab, -0.1) * math.Pow(1.0+0.015/e_lab, 0.6)
 		qiso = 2e-19*math.Pow(e_lab, -0.5)/(1.0+e_lab) + 3e-19*e_lab/math.Pow(1.0+e_lab/3.0, 2.0)
 		qback = (qmom - qiso) / 2.0
-		sim.Sigma[I_ISO][i] = qiso   // cross section for Ar+ / Ar isotropic part of elastic scattering
-		sim.Sigma[I_BACK][i] = qback // cross section for Ar+ / Ar backward elastic scattering
+		// Zapis przekrojów czynnych dla rozpraszania izotropowego oraz wstecznego [m^2]
+		sim.Sigma[I_ISO][i] = qiso
+		sim.Sigma[I_BACK][i] = qback
 	}
 }
 
-//----------------------------------------------------------------------//
-//  calculation of total cross sections for electrons and ions          //
-//----------------------------------------------------------------------//
-
+// CalcTotalCrossSections oblicza całkowite makroskopowe przekroje czynne dla elektronów (SigmaTotE)
+// oraz jonów (SigmaTotI), mnożąc sumę mikroskopowych przekrojów czynnych przez gęstość gazu tła GAS_DENSITY.
 func (sim *SimulationState) CalcTotalCrossSections() {
 	for i := 0; i < CS_RANGES; i++ {
-		sim.SigmaTotE[i] = (sim.Sigma[E_ELA][i] + sim.Sigma[E_EXC][i] + sim.Sigma[E_ION][i]) * GAS_DENSITY // total macroscopic cross section of electrons
-		sim.SigmaTotI[i] = (sim.Sigma[I_ISO][i] + sim.Sigma[I_BACK][i]) * GAS_DENSITY                      // total macroscopic cross section of ions
+		// Całkowity makroskopowy przekrój czynny dla elektronów [1/m]
+		sim.SigmaTotE[i] = (sim.Sigma[E_ELA][i] + sim.Sigma[E_EXC][i] + sim.Sigma[E_ION][i]) * GAS_DENSITY
+		// Całkowity makroskopowy przekrój czynny dla jonów [1/m]
+		sim.SigmaTotI[i] = (sim.Sigma[I_ISO][i] + sim.Sigma[I_BACK][i]) * GAS_DENSITY
 	}
 }
 
-//----------------------------------------------------------------------//
-//  test of cross sections for electrons and ions                       //
-//----------------------------------------------------------------------//
-
+// TestCrossSections zapisuje wszystkie stabelaryzowane przekroje czynne do pliku tekstowego cross_sections.dat.
+// Kolejne kolumny pliku: Energia [eV], sigma_E_ELA, sigma_E_EXC, sigma_E_ION, sigma_I_ISO, sigma_I_BACK [m^2].
 func (sim *SimulationState) TestCrossSections() {
-	f, err := os.Create("cross_sections.dat") // cross sections saved in data file: cross_sections.dat
+	f, err := os.Create("cross_sections.dat")
 	if err != nil {
 		panic(err)
 	}
@@ -93,10 +97,11 @@ func (sim *SimulationState) TestCrossSections() {
 	}
 }
 
-//---------------------------------------------------------------------//
-// find upper limit of collision frequencies                           //
-//---------------------------------------------------------------------//
-
+// MaxElectronCollFreq wyznacza maksymalną częstość zderzeń elektronów z atomami gazu tła
+// w całym rozważanym zakresie energii jako maksimum iloczynu v(E) * SigmaTotE(E).
+//
+// Zwraca:
+//   - maksymalna częstość zderzeń elektronów nu*_e [1/s].
 func (sim *SimulationState) MaxElectronCollFreq() float64 {
 	nu_max := 0.0
 	for i := 0; i < CS_RANGES; i++ {
@@ -110,6 +115,11 @@ func (sim *SimulationState) MaxElectronCollFreq() float64 {
 	return nu_max
 }
 
+// MaxIonCollFreq wyznacza maksymalną częstość zderzeń jonów z atomami gazu tła
+// w całym rozważanym zakresie energii jako maksimum iloczynu prędkości względnej g(E) * SigmaTotI(E).
+//
+// Zwraca:
+//   - maksymalna częstość zderzeń jonów nu*_i [1/s].
 func (sim *SimulationState) MaxIonCollFreq() float64 {
 	nu_max := 0.0
 	for i := 0; i < CS_RANGES; i++ {

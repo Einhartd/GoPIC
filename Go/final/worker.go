@@ -6,19 +6,20 @@ import (
 	"sync/atomic"
 )
 
-/*
-InitWorkers uruchamia trwałe goroutines workerów w tle (dla workerID = 1 .. NumWorkers-1).
-Worker 0 jest wykonywany bezpośrednio przez wątek główny (koordynatora).
-*/
+// InitWorkers uruchamia w tle trwałe goroutines robocze dla indeksów workerID = 1 .. NumWorkers-1.
+// Zadania dla workerID = 0 są wykonywane bezpośrednio przez główny wątek koordynatora.
 func (sim *SimulationState) InitWorkers() {
 	for w := 1; w < sim.NumWorkers; w++ {
 		go sim.startWorker(w)
 	}
 }
 
-/*
-startWorker to główna pętla wykonawcza trwałego workera w tle (workerID = 1 .. NumWorkers-1).
-*/
+// startWorker stanowi główną pętlę wykonawczą trwałego workera działającego w tle.
+// Oczekuje aktywnie (hybrydowa pętla procyield + Gosched) na kolejny krok bariery StarBarrier,
+// odczytuje i wykonuje rozkaz, po czym sygnalizuje ukończenie pracy w swojej linii cache.
+//
+// Parametry:
+//   - workerID: unikalny identyfikator workera (1 .. NumWorkers-1).
 func (sim *SimulationState) startWorker(workerID int) {
 	var myStep int64 = 1
 	for {
@@ -45,10 +46,12 @@ func (sim *SimulationState) startWorker(workerID int) {
 	}
 }
 
-/*
-executeWorkerTask to lekki dyspozytor zadań.
-Dzięki rozbiciu na wyspecjalizowane metody kompilator Go nie zrzuca rejestrów na stos (brak register spilling).
-*/
+// executeWorkerTask kieruje wykonanie do wyspecjalizowanej metody kroku PIC na podstawie rozkazu cmd.
+// Wydzielenie osobnych metod dla poszczególnych kroków zapobiega nadmiernemu zrzucaniu rejestrów na stos.
+//
+// Parametry:
+//   - workerID: identyfikator workera wykonującego zadanie (0 .. NumWorkers-1).
+//   - cmd: rozkaz określający fazę obliczeń w bieżącym podkroku czasowym.
 func (sim *SimulationState) executeWorkerTask(workerID int, cmd WorkerCommand) {
 	switch cmd {
 	case CmdComputeEDensity:
@@ -66,7 +69,11 @@ func (sim *SimulationState) executeWorkerTask(workerID int, cmd WorkerCommand) {
 	}
 }
 
-// workerComputeEDensity wykonuje depozycję ładunku elektronów w przypisanym fragmencie.
+// workerComputeEDensity wykonuje depozycję gęstości ładunku elektronów metodą CIC
+// dla przypisanego podzbioru cząstek do prywatnego bufora WorkerEDensity[workerID].
+//
+// Parametry:
+//   - workerID: identyfikator workera (0 .. NumWorkers-1).
 func (sim *SimulationState) workerComputeEDensity(workerID int) {
 	chunkSize := sim.EChunkSize
 	if chunkSize <= 0 {
@@ -95,7 +102,11 @@ func (sim *SimulationState) workerComputeEDensity(workerID int) {
 	}
 }
 
-// workerComputeIDensity wykonuje depozycję ładunku jonów w przypisanym fragmencie.
+// workerComputeIDensity wykonuje depozycję gęstości ładunku jonów metodą CIC
+// dla przypisanego podzbioru cząstek do prywatnego bufora WorkerIDensity[workerID].
+//
+// Parametry:
+//   - workerID: identyfikator workera (0 .. NumWorkers-1).
 func (sim *SimulationState) workerComputeIDensity(workerID int) {
 	chunkSize := sim.IChunkSize
 	if chunkSize <= 0 {
@@ -124,7 +135,13 @@ func (sim *SimulationState) workerComputeIDensity(workerID int) {
 	}
 }
 
-// workerMoveElectrons integruje ruch elektronów Leap-Frog z natychmiastowym sprawdzeniem granic w rejestrach.
+// workerMoveElectrons wykonuje połączony krok przesunięcia elektronów (Leap-Frog) oraz
+// natychmiastowego sprawdzenia warunków brzegowych dla przypisanego podzbioru cząstek.
+// W trybie bez pomiarów wykorzystuje 4-krotnie rozwiniętą pętlę, natomiast w trybie pomiarowym
+// akumuluje rozkłady diagnostyczne w prywatnej strukturze WorkerEDiag[workerID].
+//
+// Parametry:
+//   - workerID: identyfikator workera (0 .. NumWorkers-1).
 func (sim *SimulationState) workerMoveElectrons(workerID int) {
 	chunkSize := sim.EChunkSize
 	if chunkSize <= 0 {
@@ -198,7 +215,7 @@ func (sim *SimulationState) workerMoveElectrons(workerID int) {
 			}
 		}
 	} else {
-		// Ścieżka szybka (bez pomiarów): rozwinięcie x4 zminimalizowane w małej funkcji
+		// Szybka ścieżka bez diagnostyk z 4-krotnym rozwinięciem pętli i eliminacją sprawdzania granic tablic
 		if end > start {
 			_ = sim.X_e[end-1]
 			_ = sim.Vx_e[end-1]
@@ -280,6 +297,7 @@ func (sim *SimulationState) workerMoveElectrons(workerID int) {
 			}
 		}
 
+		// Obsługa pozostałych elementów podzbioru (ogon pętli)
 		for ; k < end; k++ {
 			c0 := sim.X_e[k] * INV_DX
 			p := min(max(int(c0), 0), N_G-2)
@@ -306,7 +324,11 @@ func (sim *SimulationState) workerMoveElectrons(workerID int) {
 	sim.WorkerDeadElectrons[workerID] = dead
 }
 
-// workerMoveIons integruje ruch jonów Leap-Frog z natychmiastowym sprawdzeniem granic i IFED.
+// workerMoveIons wykonuje połączony krok przesunięcia jonów (Leap-Frog) oraz natychmiastowego
+// sprawdzenia granic i zliczania rozkładu IFED dla przypisanego podzbioru cząstek.
+//
+// Parametry:
+//   - workerID: identyfikator workera (0 .. NumWorkers-1).
 func (sim *SimulationState) workerMoveIons(workerID int) {
 	chunkSize := sim.IChunkSize
 	if chunkSize <= 0 {
@@ -377,6 +399,7 @@ func (sim *SimulationState) workerMoveIons(workerID int) {
 			}
 		}
 	} else {
+		// Szybka ścieżka bez diagnostyk XT z 4-krotnym rozwinięciem pętli
 		if end > start {
 			_ = sim.X_i[end-1]
 			_ = sim.Vx_i[end-1]
@@ -497,6 +520,7 @@ func (sim *SimulationState) workerMoveIons(workerID int) {
 			}
 		}
 
+		// Obsługa pozostałych elementów podzbioru (ogon pętli)
 		for ; k < end; k++ {
 			c0 := sim.X_i[k] * INV_DX
 			p := min(max(int(c0), 0), N_G-2)
@@ -530,7 +554,11 @@ func (sim *SimulationState) workerMoveIons(workerID int) {
 	sim.WorkerDeadIons[workerID] = dead
 }
 
-// workerCollisionsE przeprowadza zderzenia MCC elektronów w przypisanym fragmencie.
+// workerCollisionsE przeprowadza zderzenia Monte Carlo elektronów metodą Null-Collision
+// w przypisanym podzbiorze cząstek [start, end).
+//
+// Parametry:
+//   - workerID: identyfikator workera (0 .. NumWorkers-1).
 func (sim *SimulationState) workerCollisionsE(workerID int) {
 	sim.WorkerNewElectrons[workerID] = sim.WorkerNewElectrons[workerID][:0]
 	sim.WorkerNewIons[workerID] = sim.WorkerNewIons[workerID][:0]
@@ -574,7 +602,11 @@ func (sim *SimulationState) workerCollisionsE(workerID int) {
 	}
 }
 
-// workerCollisionsI przeprowadza zderzenia MCC jonów w przypisanym fragmencie.
+// workerCollisionsI przeprowadza zderzenia Monte Carlo jonów z atomami tła metodą Null-Collision
+// w przypisanym podzbiorze cząstek [start, end).
+//
+// Parametry:
+//   - workerID: identyfikator workera (0 .. NumWorkers-1).
 func (sim *SimulationState) workerCollisionsI(workerID int) {
 	sim.WorkerNewIons[workerID] = sim.WorkerNewIons[workerID][:0]
 

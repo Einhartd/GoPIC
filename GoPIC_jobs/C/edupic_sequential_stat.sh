@@ -1,5 +1,5 @@
 #!/bin/bash -l
-#SBATCH --job-name=edupic_c_seq_stat
+#SBATCH --job-name=edupic_seq_stat
 #SBATCH --partition=plgrid-lem-cpu
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
@@ -13,14 +13,14 @@ N_CYCLES="${N_CYCLES:-100}"
 USE_NC="${USE_NULL_COLLISION:-0}"
 MEASURE_FLAG="${MEASUREMENT_MODE:-${MEASUREMENT:-0}}"
 MEASURE_ARG=""
-if [ "${MEASURE_FLAG}" = "1" ] || [ "${MEASURE_FLAG}" = "true" ] || [ "${MEASURE_FLAG}" = "m" ]; then
+if [ "${MEASURE_FLAG}" = "1" ] || [ "${MEASURE_FLAG}" = "true" ] || [ "${MEASURE_FLAG}" = "m" ] || [ "${MEASURE_FLAG}" = "M" ]; then
     MEASURE_ARG="m"
 fi
 
-REPO_DIR="$HOME/GoPIC"
+REPO_DIR="${REPO_DIR:-$HOME/GoPIC}"
 SRC_DIR="${REPO_DIR}/C/sequential"
 BUILD_DIR="$HOME/GoPIC_build/C"
-LOG_DIR="$(pwd)/saved_logs_C/logs_job_${SLURM_JOB_ID}_STAT"
+LOG_DIR="$(pwd)/saved_logs_C/logs_job_${SLURM_JOB_ID}_SEQ_STAT"
 DATA_DIR="${LOG_DIR}/edupic_data"
 
 mkdir -p "${BUILD_DIR}" "${DATA_DIR}"
@@ -29,17 +29,10 @@ exec > "${LOG_DIR}/job_output.log" 2>&1
 echo "=== [C++ Sequential STAT] Job: ${SLURM_JOB_ID} | Threads: 1 (Allocated Cores: ${SLURM_CPUS_PER_TASK:-1}) | Cycles: ${N_CYCLES} | Measurement: ${MEASURE_ARG:-off} | Node: ${SLURM_JOB_NODELIST} ==="
 echo ">> Ścieżka repo: ${REPO_DIR} | Commit: $(git -C "${REPO_DIR}" rev-parse --short HEAD 2>/dev/null || echo 'N/A')"
 
-AFFINITY_MASK=$(taskset -cp $$ 2>/dev/null | awk -F': ' '{print $2}' || grep -m1 Cpus_allowed_list /proc/self/status 2>/dev/null | awk '{print $2}' || echo "N/A")
-echo ">> Przydział Slurm (Allocated Cores): ${SLURM_CPUS_PER_TASK:-1} rdzeni"
-echo ">> Powinowactwo CPU zadania (Taskset / Cpus_allowed): ${AFFINITY_MASK}"
-if command -v numactl >/dev/null 2>&1; then
-    NUMA_BIND=$(numactl --show 2>/dev/null | grep -E 'physcpubind|cpubind' | tr '\n' ' ' || true)
-    [ -n "${NUMA_BIND}" ] && echo ">> Powiązanie NUMA (numactl): ${NUMA_BIND}"
-fi
-
 lscpu > "${LOG_DIR}/hardware_topology.txt" 2>&1
 
 module purge && module load gcc
+echo ">> Wersja kompilatora C++: $(g++ --version | head -n 1)"
 
 BINARY="${BUILD_DIR}/edupic_seq_${SLURM_JOB_ID}"
 rm -f "${BINARY}"
@@ -64,3 +57,4 @@ perf stat \
     "${BINARY}" "${N_CYCLES}" ${MEASURE_ARG}
 
 rm -f "${BINARY}"
+echo ">> Zakończono pomyślnie. Wyniki w: ${DATA_DIR}"

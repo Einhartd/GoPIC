@@ -7,7 +7,9 @@ import (
 	"math"
 )
 
-// InitNullCollision precomputes parameters for null-collision MCC.
+// InitNullCollision oblicza i inicjalizuje globalne parametry metody zderzeń zerowych (Null-Collision):
+// maksymalne częstości zderzeń (NuStarE, NuStarI) oraz odpowiadające im stałe maksymalne
+// prawdopodobieństwa zderzenia w pojedynczym kroku czasowym (PStarE, PStarI).
 func (sim *SimulationState) InitNullCollision() {
 	sim.NuStarE = sim.MaxElectronCollFreq()
 	sim.PStarE = 1.0 - math.Exp(-sim.NuStarE*DT_E)
@@ -19,7 +21,15 @@ func (sim *SimulationState) InitNullCollision() {
 	fmt.Printf(">> GoPIC: null-collision: nu*_i = %e, P*_i = %e\n", sim.NuStarI, sim.PStarI)
 }
 
-// randomSample returns count unique indices drawn from [0, n) without replacement.
+// randomSample losuje bez zwracania podzbiór unikalnych indeksów z przedziału [0, n)
+// za pomocą częściowego tasowania Fishera-Yatesa.
+//
+// Parametry:
+//   - n: rozmiar całej populacji cząstek.
+//   - count: liczba unikalnych indeksów do wylosowania.
+//
+// Zwraca:
+//   - wycinek zawierający wylosowane indeksy kandydatów do zderzenia.
 func (sim *SimulationState) randomSample(n, count int) []int {
 	pool := make([]int, n)
 	for i := range pool {
@@ -32,11 +42,16 @@ func (sim *SimulationState) randomSample(n, count int) []int {
 	return pool[:count]
 }
 
-// sampleBinomial losuje liczbę zdarzeń z rozkładu dwumianowego Binomial(n, p).
-// Zastosowano aproksymację normalną N(mu, sigma^2) zgodnie z twierdzeniem de Moivre'a-Laplace'a.
-// Założenie matematyczne: Dla dużej liczby cząstek (n >= 1000) oraz n*p >= 5.0, rozkład Binomial(n, p)
-// jest w pełni zbieżny z rozkładem Gaussa N(n*p, n*p*(1-p)).
-// Optymalizacja redukuje złożoność czasową z O(n) losowań Bernoulliego do O(1) przy zachowaniu błędu statystycznego < 0.01%.
+// sampleBinomial losuje liczbę kandydatów do zderzenia z rozkładu dwumianowego Binomial(n, p).
+// Dla małych wartości oczekiwanych (n*p < 5.0) wykonuje dokładne próby Bernoulliego, natomiast
+// dla większych populacji stosuje aproksymację rozkładem normalnym N(n*p, n*p*(1-p)) w czasie O(1).
+//
+// Parametry:
+//   - n: liczba aktywnych cząstek w populacji.
+//   - p: stałe maksymalne prawdopodobieństwo zderzenia P*.
+//
+// Zwraca:
+//   - wylosowana liczba kandydatów do zderzenia z przedziału [0, n].
 func (sim *SimulationState) sampleBinomial(n int, p float64) int {
 	if n <= 0 || p <= 0.0 {
 		return 0
@@ -44,7 +59,7 @@ func (sim *SimulationState) sampleBinomial(n int, p float64) int {
 	if p >= 1.0 {
 		return n
 	}
-	// Dla bardzo małych wartości n*p < 5.0 stosujemy dokładne losowanie Bernoulliego
+	// Dokładne losowanie Bernoulliego dla małej oczekiwanej liczby zdarzeń (n*p < 5.0)
 	if float64(n)*p < 5.0 {
 		count := 0
 		for i := 0; i < n; i++ {
@@ -68,6 +83,9 @@ func (sim *SimulationState) sampleBinomial(n int, p float64) int {
 	return count
 }
 
+// Step7CollisionsElectrons realizuje zderzenia elektronów metodą Null-Collision.
+// Losuje liczbę kandydatów z rozkładu dwumianowego Binomial(N_e, PStarE), wybiera losowe elektrony
+// i przeprowadza test akceptacji z prawdopodobieństwem pAccept = nu(E) / NuStarE.
 func (sim *SimulationState) Step7CollisionsElectrons() {
 	nCollStar := sim.sampleBinomial(sim.N_e, sim.PStarE)
 	if nCollStar > sim.N_e {
@@ -97,6 +115,12 @@ func (sim *SimulationState) Step7CollisionsElectrons() {
 	}
 }
 
+// Step8CollisionIons realizuje zderzenia jonów z atomami tła metodą Null-Collision co N_SUB kroków.
+// Losuje liczbę kandydatów z rozkładu dwumianowego Binomial(N_i, PStarI) i przeprowadza test
+// akceptacji pAccept = nu(E) / NuStarI z uwzględnieniem losowej prędkości termicznej atomu Ar.
+//
+// Parametry:
+//   - t: indeks bieżącego podkroku czasowego w okresie RF (0 .. N_T-1).
 func (sim *SimulationState) Step8CollisionIons(t int) {
 	if (t % N_SUB) != 0 {
 		return

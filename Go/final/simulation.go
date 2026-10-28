@@ -5,20 +5,21 @@ import (
 	"runtime"
 )
 
-/*
-broadcastAndWait rozsyła rozkaz do workerów za pośrednictwem bezblokadowej bariery StarBarrier.
-Koordynator samodzielnie wykonuje chunk 0 (eliminując marnowanie rdzenia i goroutine oversubscription),
-a następnie czeka w pętli PAUSE na zakończenie pozostałych workerów.
-*/
+// broadcastAndWait rozsyła rozkaz cmd do zespołu workerów za pośrednictwem bariery StarBarrier.
+// Wątek koordynatora samodzielnie wykonuje pracę dla podzbioru 0, a następnie oczekuje
+// w niskolatencyjnej pętli procyield na zakończenie pracy przez pozostałe workery (1 .. NumWorkers-1).
+//
+// Parametry:
+//   - cmd: rozkaz określający fazę obliczeń do wykonania przez wszystkie workery.
 func (sim *SimulationState) broadcastAndWait(cmd WorkerCommand) {
 	sim.Barrier.cmd.Store(int32(cmd))
 	target := sim.Barrier.step.Add(1)
 
-	// Koordynator natychmiast wykonuje chunk 0
+	// Wątek główny wykonuje bezpośrednio podzbiór 0
 	sim.executeWorkerTask(0, cmd)
 	sim.Barrier.workerDone[0].val.Store(target)
 
-	// Czeka na zakończenie workerów 1 .. NumWorkers-1
+	// Oczekiwanie na ukończenie kroku przez pozostałe workery w tle
 	for i := 1; i < sim.NumWorkers; i++ {
 		spins := 0
 		for sim.Barrier.workerDone[i].val.Load() < target {
@@ -32,9 +33,8 @@ func (sim *SimulationState) broadcastAndWait(cmd WorkerCommand) {
 	}
 }
 
-/*
-StopWorkers zatrzymuje trwałe goroutines workerów, wysyłając rozkaz CmdStop przez barierę.
-*/
+// StopWorkers zatrzymuje wszystkie trwałe goroutines robocze działające w tle,
+// wysyłając rozkaz CmdStop przez barierę StarBarrier.
 func (sim *SimulationState) StopWorkers() {
 	if sim.NumWorkers <= 1 {
 		return
@@ -56,9 +56,12 @@ func (sim *SimulationState) StopWorkers() {
 	}
 }
 
-/*
-Inicjalizacja cząstek w domenie symulacji (Seed).
-*/
+// InitParticles inicjalizuje populację początkową elektronów i jonów w obszarze wyładowczym,
+// rozmieszczając zadaną liczbę par makrocząstek jednorodnie w przestrzeni [0, L]
+// z zerowymi prędkościami początkowymi oraz aktualizując rozmiary podzbiorów dla workerów.
+//
+// Parametry:
+//   - nseed: liczba par elektron-jon tworzonych na starcie symulacji.
 func (sim *SimulationState) InitParticles(nseed int) {
 	for i := 0; i < nseed; i++ {
 		sim.X_e[i] = L * sim.R01()
@@ -75,20 +78,18 @@ func (sim *SimulationState) InitParticles(nseed int) {
 	sim.UpdateChunkSizes()
 }
 
-/*
-KROK 1a: Obliczanie gęstości ładunku elektronów metodą CIC ze zoptymalizowaną redukcją sekwencyjną (streaming access).
-*/
+// Step1ComputeElectronDensity realizuje równoległą depozycję gęstości ładunku elektronów metodą CIC
+// oraz sekwencyjną redukcję buforów prywatnych WorkerEDensity do tablicy globalnej E_density.
 func (sim *SimulationState) Step1ComputeElectronDensity() {
 	sim.broadcastAndWait(CmdComputeEDensity)
 
-	// Zoptymalizowana redukcja strumieniowa:
-	// Kopiujemy wkład workera 0 (sekwencyjny odczyt i zapis w pamięci cache L1)
+	// Skopiowanie tablicy pierwszego workera jako bazy do redukcji
 	w0 := &sim.WorkerEDensity[0]
 	for p := 0; p < N_G; p++ {
 		sim.E_density[p] = w0[p]
 	}
 
-	// Dodajemy wkłady pozostałych workerów (sekwencyjny streaming, brak skoków pamięciowych)
+	// Sekwencyjne zsumowanie wkładów od pozostałych workerów
 	for w := 1; w < sim.NumWorkers; w++ {
 		wb := &sim.WorkerEDensity[w]
 		for p := 0; p < N_G; p++ {
@@ -96,7 +97,7 @@ func (sim *SimulationState) Step1ComputeElectronDensity() {
 		}
 	}
 
-	// Korekta skrajnych półkomórek i akumulacja w czasie
+	// Korekta objętości połowicznych komórek brzegowych na elektrodach (mnożnik 2.0) oraz akumulacja
 	sim.E_density[0] *= 2.0
 	sim.E_density[N_G-1] *= 2.0
 	for p := 0; p < N_G; p++ {
@@ -104,9 +105,11 @@ func (sim *SimulationState) Step1ComputeElectronDensity() {
 	}
 }
 
-/*
-KROK 1b: Obliczanie gęstości ładunku jonów (Subcycling co N_SUB kroków).
-*/
+// Step1ComputeIonDensity realizuje równoległą depozycję gęstości ładunku jonów metodą CIC
+// co N_SUB kroków czasowych (subcycling) oraz w każdym kroku akumuluje tablicę Cumul_i_density.
+//
+// Parametry:
+//   - t: indeks bieżącego podkroku czasowego w okresie RF (0 .. N_T-1).
 func (sim *SimulationState) Step1ComputeIonDensity(t int) {
 	if (t % N_SUB) == 0 {
 		sim.broadcastAndWait(CmdComputeIDensity)
@@ -132,10 +135,11 @@ func (sim *SimulationState) Step1ComputeIonDensity(t int) {
 	}
 }
 
-/*
-KROK 2: Rozwiązanie równania Poissona (1D Field Solver).
-Wykonywane sekwencyjnie w jednym wątku.
-*/
+// Step2SolvePoisson wyznacza wypadkową gęstość ładunku przestrzennego rho = e * (n_i - n_e)
+// w węzłach siatki i rozwiązuje równanie Poissona dla zadanego czasu fizycznego.
+//
+// Parametry:
+//   - currentTime: aktualny fizyczny czas symulacji [s].
 func (sim *SimulationState) Step2SolvePoisson(currentTime float64) {
 	var rho Xvector
 	for p := 0; p < N_G; p++ {
@@ -144,9 +148,11 @@ func (sim *SimulationState) Step2SolvePoisson(currentTime float64) {
 	sim.SolvePoisson(&rho, currentTime)
 }
 
-/*
-KROK 3: Popychanie elektronów (Push / Leap-Frog) i detekcja granic (Fused Step 3 + 5).
-*/
+// Step3MoveAndBoundariesElectrons zleca workerom równoległe wykonanie połączonego kroku przesunięcia
+// elektronów i detekcji granic, a w trybie pomiarowym redukuje zebrane bufory diagnostyczne do tablic globalnych.
+//
+// Parametry:
+//   - t_index: indeks przedziału czasowego dla macierzy diagnostyk XT (t / N_BIN).
 func (sim *SimulationState) Step3MoveAndBoundariesElectrons(t_index int) {
 	sim.broadcastAndWait(CmdMoveElectronsAndBoundaries)
 
@@ -169,16 +175,12 @@ func (sim *SimulationState) Step3MoveAndBoundariesElectrons(t_index int) {
 	}
 }
 
-/*
-Step3MoveElectrons to wrapper kompatybilności wstecznej dla testów jednostkowych.
-*/
-func (sim *SimulationState) Step3MoveElectrons(t_index int) {
-	sim.Step3MoveAndBoundariesElectrons(t_index)
-}
-
-/*
-KROK 4: Popychanie jonów (Push / Leap-Frog) i detekcja granic (Fused Step 4 + 6).
-*/
+// Step4MoveAndBoundariesIons zleca workerom równoległe wykonanie połączonego kroku przesunięcia jonów,
+// detekcji granic i zliczania IFED co N_SUB kroków czasowych, a w trybie pomiarowym redukuje diagnostyki XT.
+//
+// Parametry:
+//   - t_index: indeks przedziału czasowego dla macierzy diagnostyk XT (t / N_BIN).
+//   - t: indeks bieżącego podkroku czasowego w okresie RF (0 .. N_T-1).
 func (sim *SimulationState) Step4MoveAndBoundariesIons(t_index, t int) {
 	if (t % N_SUB) != 0 {
 		return
@@ -198,16 +200,9 @@ func (sim *SimulationState) Step4MoveAndBoundariesIons(t_index, t int) {
 	}
 }
 
-/*
-Step4MoveIons to wrapper kompatybilności wstecznej dla testów jednostkowych.
-*/
-func (sim *SimulationState) Step4MoveIons(t_index, t int) {
-	sim.Step4MoveAndBoundariesIons(t_index, t)
-}
-
-/*
-KROK 5: Kompaktacja elektronów (Seryjna O(dead) in-place - ZERO BARIER!).
-*/
+// Step5CompactElectrons wykonuje dwuwskaźnikową kompaktację in-place tablic elektronowych,
+// zastępując elektrony zaabsorbowane na elektrodach (zgromadzone w WorkerDeadElectrons)
+// aktywnymi cząstkami z końca tablicy w czasie proporcjonalnym wyłącznie do liczby usuniętych cząstek.
 func (sim *SimulationState) Step5CompactElectrons() {
 	var totalAbs int
 	for w := 0; w < sim.NumWorkers; w++ {
@@ -242,36 +237,11 @@ func (sim *SimulationState) Step5CompactElectrons() {
 	}
 }
 
-/*
-Step5CheckBoundariesElectrons wykonuje sprawdzenie granic i kompaktację elektronów.
-Zapewnia zgodność wsteczną dla testów jednostkowych, w których cząstki zostały ustawione ręcznie
-poza granicami bez uprzedniego wywołania Leap-Frog.
-*/
-func (sim *SimulationState) Step5CheckBoundariesElectrons() {
-	hasDead := false
-	for w := 0; w < sim.NumWorkers; w++ {
-		if len(sim.WorkerDeadElectrons[w]) > 0 || sim.WorkerEDiag[w].abs_pow > 0 || sim.WorkerEDiag[w].abs_gnd > 0 {
-			hasDead = true
-			break
-		}
-	}
-	if !hasDead {
-		for k := 0; k < sim.N_e; k++ {
-			if sim.X_e[k] < 0 {
-				sim.WorkerDeadElectrons[0] = append(sim.WorkerDeadElectrons[0], k)
-				sim.WorkerEDiag[0].abs_pow++
-			} else if sim.X_e[k] > L {
-				sim.WorkerDeadElectrons[0] = append(sim.WorkerDeadElectrons[0], k)
-				sim.WorkerEDiag[0].abs_gnd++
-			}
-		}
-	}
-	sim.Step5CompactElectrons()
-}
-
-/*
-KROK 6: Kompaktacja jonów (Seryjna O(dead) in-place - ZERO BARIER!).
-*/
+// Step6CompactIons redukuje lokalne histogramy IFED oraz wykonuje dwuwskaźnikową kompaktację in-place
+// tablic jonowych co N_SUB kroków czasowych.
+//
+// Parametry:
+//   - t: indeks bieżącego podkroku czasowego w okresie RF (0 .. N_T-1).
 func (sim *SimulationState) Step6CompactIons(t int) {
 	if (t % N_SUB) != 0 {
 		return
@@ -315,49 +285,11 @@ func (sim *SimulationState) Step6CompactIons(t int) {
 	}
 }
 
-/*
-Step6CheckBoundariesIons wykonuje sprawdzenie granic i kompaktację jonów.
-Zapewnia zgodność wsteczną dla testów jednostkowych.
-*/
-func (sim *SimulationState) Step6CheckBoundariesIons(t int) {
-	if (t % N_SUB) != 0 {
-		return
-	}
-
-	hasDead := false
-	for w := 0; w < sim.NumWorkers; w++ {
-		if len(sim.WorkerDeadIons[w]) > 0 || sim.WorkerIDiag[w].abs_pow > 0 || sim.WorkerIDiag[w].abs_gnd > 0 {
-			hasDead = true
-			break
-		}
-	}
-	if !hasDead {
-		for k := 0; k < sim.N_i; k++ {
-			if sim.X_i[k] < 0 {
-				sim.WorkerDeadIons[0] = append(sim.WorkerDeadIons[0], k)
-				sim.WorkerIDiag[0].abs_pow++
-				vSqr := sim.Vx_i[k]*sim.Vx_i[k] + sim.Vy_i[k]*sim.Vy_i[k] + sim.Vz_i[k]*sim.Vz_i[k]
-				eIdx := int(vSqr * FACTOR_ENERGY_IFED)
-				if eIdx < N_IFED {
-					sim.WorkerIDiag[0].ifed_pow[eIdx]++
-				}
-			} else if sim.X_i[k] > L {
-				sim.WorkerDeadIons[0] = append(sim.WorkerDeadIons[0], k)
-				sim.WorkerIDiag[0].abs_gnd++
-				vSqr := sim.Vx_i[k]*sim.Vx_i[k] + sim.Vy_i[k]*sim.Vy_i[k] + sim.Vz_i[k]*sim.Vz_i[k]
-				eIdx := int(vSqr * FACTOR_ENERGY_IFED)
-				if eIdx < N_IFED {
-					sim.WorkerIDiag[0].ifed_gnd[eIdx]++
-				}
-			}
-		}
-	}
-	sim.Step6CompactIons(t)
-}
-
-/*
-KROK 9: Zbieranie danych czasoprzestrzennych do macierzy XT.
-*/
+// Step9CollectXtData akumuluje chwilowe profile potencjału, pola elektrycznego oraz gęstości
+// cząstek do macierzy rozkładów czasoprzestrzennych XT, gdy aktywny jest tryb pomiarowy.
+//
+// Parametry:
+//   - t_index: indeks przedziału czasowego dla macierzy diagnostyk XT (t / N_BIN).
 func (sim *SimulationState) Step9CollectXtData(t_index int) {
 	if !sim.Measurement_mode {
 		return
@@ -371,30 +303,31 @@ func (sim *SimulationState) Step9CollectXtData(t_index int) {
 	}
 }
 
-/*
-DoOneCycle wykonuje pełny okres RF (N_T kroków).
-*/
+// DoOneCycle wykonuje jeden pełny okres RF symulacji (N_T = 4000 kroków czasowych DT_E),
+// koordynując pracę trwałych workerów za pomocą bezblokadowej bariery StarBarrier.
 func (sim *SimulationState) DoOneCycle() {
-	var t int
-	var t_index int
-
-	for t = 0; t < N_T; t++ {
+	for t := 0; t < N_T; t++ {
 		sim.Time += DT_E
-		t_index = t / N_BIN
+		t_index := t / N_BIN
 
+		// Krok 1 i 2: Równoległa depozycja gęstości ładunku i rozwiązanie równania Poissona
 		sim.Step1ComputeElectronDensity()
 		sim.Step1ComputeIonDensity(t)
 		sim.Step2SolvePoisson(sim.Time)
 
+		// Kroki 3 i 4: Równoległe przesunięcie elektronów i jonów połączone z detekcją granic
 		sim.Step3MoveAndBoundariesElectrons(t_index)
 		sim.Step4MoveAndBoundariesIons(t_index, t)
 
+		// Kroki 5 i 6: Seryjna kompaktacja in-place usuniętych cząstek
 		sim.Step5CompactElectrons()
 		sim.Step6CompactIons(t)
 
+		// Kroki 7 i 8: Równoległe zderzenia Monte Carlo metodą Null-Collision
 		sim.Step7CollisionsElectrons()
 		sim.Step8CollisionIons(t)
 
+		// Krok 9: Zbieranie rozkładów czasoprzestrzennych XT
 		sim.Step9CollectXtData(t_index)
 
 		if (t % 1000) == 0 {
@@ -404,6 +337,14 @@ func (sim *SimulationState) DoOneCycle() {
 	fmt.Fprintf(sim.Datafile, "%8d  %8d  %8d\n", sim.Cycle, sim.N_e, sim.N_i)
 }
 
+// minInt zwraca mniejszą z dwóch liczb całkowitych.
+//
+// Parametry:
+//   - a: pierwsza liczba całkowita.
+//   - b: druga liczba całkowita.
+//
+// Zwraca:
+//   - mniejsza z wartości a i b.
 func minInt(a, b int) int {
 	if a < b {
 		return a

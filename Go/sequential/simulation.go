@@ -5,39 +5,48 @@ import (
 	"math"
 )
 
-// initialization of the simulation by placing a given number of
-// electrons and ions at random positions between the electrodes
-
+// InitParticles inicjalizuje populację początkową elektronów i jonów w obszarze wyładowczym,
+// rozmieszczając zadaną liczbę par makrocząstek jednorodnie w przestrzeni [0, L]
+// z zerowymi prędkościami początkowymi.
+//
+// Parametry:
+//   - nseed: liczba par elektron-jon tworzonych na starcie symulacji.
 func (sim *SimulationState) InitParticles(nseed int) {
 	for i := 0; i < nseed; i++ {
-		sim.X_e[i] = L * sim.R01() // initial random position of the electron
+		// Losowanie początkowej pozycji elektronu i wyzerowanie składowych prędkości 3V
+		sim.X_e[i] = L * sim.R01()
 		sim.Vx_e[i] = 0
 		sim.Vy_e[i] = 0
-		sim.Vz_e[i] = 0            // initial velocity components of the electron
-		sim.X_i[i] = L * sim.R01() // initial random position of the ion
+		sim.Vz_e[i] = 0
+		// Losowanie początkowej pozycji jonu i wyzerowanie składowych prędkości 3V
+		sim.X_i[i] = L * sim.R01()
 		sim.Vx_i[i] = 0
 		sim.Vy_i[i] = 0
-		sim.Vz_i[i] = 0 // initial velocity components of the ion
+		sim.Vz_i[i] = 0
 	}
-	sim.N_e = nseed // initial number of electrons
-	sim.N_i = nseed // initial number of ions
+	sim.N_e = nseed
+	sim.N_i = nseed
 }
 
-// simulation of one radiofrequency cycle
-
+// Step1ComputeElectronDensity wykonuje depozycję gęstości ładunku elektronów na siatkę
+// metodą liniowego ważenia Cloud-in-Cell (CIC) w każdym kroku czasowym oraz aktualizuje
+// tablicę skumulowanej gęstości Cumul_e_density.
 func (sim *SimulationState) Step1ComputeElectronDensity() {
 	var k, p int
 	var c0 float64
 
+	// Wyzerowanie chwilowej gęstości elektronów przed depozycją
 	for p = 0; p < N_G; p++ {
-		sim.E_density[p] = 0 // electron density - computed in every time step
+		sim.E_density[p] = 0
 	}
+	// Liniowa interpolacja ładunku każdego elektronu do dwóch sąsiednich węzłów siatki
 	for k = 0; k < sim.N_e; k++ {
 		c0 = sim.X_e[k] * INV_DX
 		p = int(c0)
 		sim.E_density[p] += (float64(p) + 1.0 - c0) * FACTOR_W
 		sim.E_density[p+1] += (c0 - float64(p)) * FACTOR_W
 	}
+	// Korekta objętości połowicznych komórek brzegowych na elektrodach (mnożnik 2.0)
 	sim.E_density[0] *= 2.0
 	sim.E_density[N_G-1] *= 2.0
 	for p = 0; p < N_G; p++ {
@@ -45,11 +54,17 @@ func (sim *SimulationState) Step1ComputeElectronDensity() {
 	}
 }
 
+// Step1ComputeIonDensity wykonuje depozycję gęstości ładunku jonów na siatkę metodą CIC
+// co N_SUB kroków czasowych (subcycling) oraz w każdym kroku akumuluje Cumul_i_density.
+//
+// Parametry:
+//   - t: indeks bieżącego podkroku czasowego w okresie RF (0 .. N_T-1).
 func (sim *SimulationState) Step1ComputeIonDensity(t int) {
 	var k, p int
 	var c0 float64
 
-	if (t % N_SUB) == 0 { // ion density - computed in every N_SUB-th time steps (subcycling)
+	// Obliczenie nowej gęstości jonów wykonywane co N_SUB kroków czasowych
+	if (t % N_SUB) == 0 {
 		for p = 0; p < N_G; p++ {
 			sim.I_density[p] = 0
 		}
@@ -67,19 +82,30 @@ func (sim *SimulationState) Step1ComputeIonDensity(t int) {
 	}
 }
 
+// Step2SolvePoisson wyznacza wypadkową gęstość ładunku przestrzennego rho = e * (n_i - n_e)
+// w węzłach siatki i rozwiązuje równanie Poissona dla zadanego czasu fizycznego.
+//
+// Parametry:
+//   - currentTime: aktualny fizyczny czas symulacji [s].
 func (sim *SimulationState) Step2SolvePoisson(currentTime float64) {
 	var rho Xvector
 	for p := 0; p < N_G; p++ {
-		rho[p] = E_CHARGE * (sim.I_density[p] - sim.E_density[p]) // get charge density
+		rho[p] = E_CHARGE * (sim.I_density[p] - sim.E_density[p])
 	}
-	sim.SolvePoisson(&rho, currentTime) // compute potential and electric field
+	sim.SolvePoisson(&rho, currentTime)
 }
 
+// Step3MoveElectrons przesuwa wszystkie elektrony w polu elektrycznym zgodnie ze schematem
+// całkowania Leap-Frog oraz (w trybie pomiarowym) gromadzi rozkłady czasoprzestrzenne XT i EEPF.
+//
+// Parametry:
+//   - t_index: indeks przedziału czasowego dla macierzy diagnostyk XT (t / N_BIN).
 func (sim *SimulationState) Step3MoveElectrons(t_index int) {
 	var k, p, energy_index int
 	var c0, c1, c2, e_x, mean_v, v_sqr, energy, velocity, rate float64
 
-	for k = 0; k < sim.N_e; k++ { // move all electrons in every time step
+	for k = 0; k < sim.N_e; k++ {
+		// Interpolacja natężenia pola elektrycznego z węzłów siatki do położenia elektronu
 		c0 = sim.X_e[k] * INV_DX
 		p = int(c0)
 		c1 = float64(p) + 1.0 - c0
@@ -87,7 +113,7 @@ func (sim *SimulationState) Step3MoveElectrons(t_index int) {
 		e_x = c1*sim.Efield[p] + c2*sim.Efield[p+1]
 
 		if sim.Measurement_mode {
-			// measurements: 'x' and 'v' are needed at the same time, i.e. old 'x' and mean 'v'
+			// Wyznaczenie prędkości w chwili całkowitej t na potrzeby diagnostyki
 			mean_v = sim.Vx_e[k] - 0.5*e_x*FACTOR_E
 			sim.Counter_e_xt[p][t_index] += c1
 			sim.Counter_e_xt[p+1][t_index] += c2
@@ -103,7 +129,7 @@ func (sim *SimulationState) Step3MoveElectrons(t_index int) {
 			sim.Ioniz_rate_xt[p][t_index] += c1 * rate
 			sim.Ioniz_rate_xt[p+1][t_index] += c2 * rate
 
-			// measure EEPF in the center
+			// Zliczanie histogramu EEPF w centralnym obszarze wyładowania (MIN_X < x < MAX_X)
 			if (MIN_X < sim.X_e[k]) && (sim.X_e[k] < MAX_X) {
 				energy_index = int(energy / DE_EEPF)
 				if energy_index < N_EEPF {
@@ -114,12 +140,18 @@ func (sim *SimulationState) Step3MoveElectrons(t_index int) {
 			}
 		}
 
-		// update velocity and position
+		// Aktualizacja prędkości i położenia elektronu w schemacie Leap-Frog
 		sim.Vx_e[k] -= e_x * FACTOR_E
 		sim.X_e[k] += sim.Vx_e[k] * DT_E
 	}
 }
 
+// Step4MoveIons przesuwa wszystkie jony w polu elektrycznym co N_SUB kroków czasowych (subcycling)
+// oraz (w trybie pomiarowym) gromadzi rozkłady prędkości i energii jonów w macierzach XT.
+//
+// Parametry:
+//   - t_index: indeks przedziału czasowego dla macierzy diagnostyk XT (t / N_BIN).
+//   - t: indeks bieżącego podkroku czasowego w okresie RF (0 .. N_T-1).
 func (sim *SimulationState) Step4MoveIons(t_index, t int) {
 	if (t % N_SUB) != 0 {
 		return
@@ -136,7 +168,7 @@ func (sim *SimulationState) Step4MoveIons(t_index, t int) {
 		e_x = c1*sim.Efield[p] + c2*sim.Efield[p+1]
 
 		if sim.Measurement_mode {
-			// measurements: 'x' and 'v' are needed at the same time, i.e. old 'x' and mean 'v'
+			// Wyznaczenie prędkości jonu w chwili całkowitej t na potrzeby diagnostyki
 			mean_v = sim.Vx_i[k] + 0.5*e_x*FACTOR_I
 			sim.Counter_i_xt[p][t_index] += c1
 			sim.Counter_i_xt[p+1][t_index] += c2
@@ -148,26 +180,31 @@ func (sim *SimulationState) Step4MoveIons(t_index, t int) {
 			sim.Meanei_xt[p+1][t_index] += c2 * energy
 		}
 
-		// update velocity and position and accumulate absorbed energy
+		// Aktualizacja prędkości i położenia jonu w kroku subcyclingu DT_I
 		sim.Vx_i[k] += e_x * FACTOR_I
 		sim.X_i[k] += sim.Vx_i[k] * DT_I
 	}
 }
 
+// Step5CheckBoundariesElectrons weryfikuje warunki brzegowe dla elektronów w każdym kroku czasowym.
+// Elektrony opuszczające obszar wyładowczy (x < 0 lub x > L) są zliczane jako zaabsorbowane
+// na odpowiedniej elektrodzie i usuwane z tablic przez nadpisanie ostatnim aktywnym elektronem.
 func (sim *SimulationState) Step5CheckBoundariesElectrons() {
 	var k int = 0
 	var out bool
-	for k < sim.N_e { // check boundaries for all electrons in every time step
+	for k < sim.N_e {
 		out = false
+		// Sprawdzenie absorpcji na elektrodzie zasilanej (x < 0) oraz uziemionej (x > L)
 		if sim.X_e[k] < 0 {
-			sim.N_e_abs_pow++ // the electron is out at the powered electrode
+			sim.N_e_abs_pow++
 			out = true
 		}
 		if sim.X_e[k] > L {
-			sim.N_e_abs_gnd++ // the electron is out at the grounded electrode
+			sim.N_e_abs_gnd++
 			out = true
 		}
-		if out { // remove the electron, if out
+		// Usunięcie zaabsorbowanego elektronu metodą zamiany z ostatnim elementem (swap-with-last)
+		if out {
 			sim.X_e[k] = sim.X_e[sim.N_e-1]
 			sim.Vx_e[k] = sim.Vx_e[sim.N_e-1]
 			sim.Vy_e[k] = sim.Vy_e[sim.N_e-1]
@@ -179,6 +216,12 @@ func (sim *SimulationState) Step5CheckBoundariesElectrons() {
 	}
 }
 
+// Step6CheckBoundariesIons weryfikuje warunki brzegowe dla jonów co N_SUB kroków czasowych.
+// Jony docierające do elektrod są rejestrowane w histogramach IFED (Ifed_pow, Ifed_gnd)
+// oraz usuwane z tablic przez nadpisanie ostatnim aktywnym jonem.
+//
+// Parametry:
+//   - t: indeks bieżącego podkroku czasowego w okresie RF (0 .. N_T-1).
 func (sim *SimulationState) Step6CheckBoundariesIons(t int) {
 	if (t % N_SUB) != 0 {
 		return
@@ -191,27 +234,30 @@ func (sim *SimulationState) Step6CheckBoundariesIons(t int) {
 	k = 0
 	for k < sim.N_i {
 		out = false
-		if sim.X_i[k] < 0 { // the ion is out at the powered electrode
+		// Absorpcja jonu na elektrodzie zasilanej (x < 0) i aktualizacja rozkładu IFED
+		if sim.X_i[k] < 0 {
 			sim.N_i_abs_pow++
 			out = true
 			v_sqr = sim.Vx_i[k]*sim.Vx_i[k] + sim.Vy_i[k]*sim.Vy_i[k] + sim.Vz_i[k]*sim.Vz_i[k]
 			energy = 0.5 * AR_MASS * v_sqr / EV_TO_J
 			energy_index = int(energy / DE_IFED)
 			if energy_index < N_IFED {
-				sim.Ifed_pow[energy_index]++ // save IFED at the powered electrode
+				sim.Ifed_pow[energy_index]++
 			}
 		}
-		if sim.X_i[k] > L { // the ion is out at the grounded electrode
+		// Absorpcja jonu na elektrodzie uziemionej (x > L) i aktualizacja rozkładu IFED
+		if sim.X_i[k] > L {
 			sim.N_i_abs_gnd++
 			out = true
 			v_sqr = sim.Vx_i[k]*sim.Vx_i[k] + sim.Vy_i[k]*sim.Vy_i[k] + sim.Vz_i[k]*sim.Vz_i[k]
 			energy = 0.5 * AR_MASS * v_sqr / EV_TO_J
 			energy_index = int(energy / DE_IFED)
 			if energy_index < N_IFED {
-				sim.Ifed_gnd[energy_index]++ // save IFED at the grounded electrode
+				sim.Ifed_gnd[energy_index]++
 			}
 		}
-		if out { // delete the ion, if out
+		// Usunięcie zaabsorbowanego jonu metodą zamiany z ostatnim elementem (swap-with-last)
+		if out {
 			sim.X_i[k] = sim.X_i[sim.N_i-1]
 			sim.Vx_i[k] = sim.Vx_i[sim.N_i-1]
 			sim.Vy_i[k] = sim.Vy_i[sim.N_i-1]
@@ -223,6 +269,11 @@ func (sim *SimulationState) Step6CheckBoundariesIons(t int) {
 	}
 }
 
+// Step9CollectXtData akumuluje chwilowe profile potencjału, pola elektrycznego oraz gęstości
+// cząstek do macierzy rozkładów czasoprzestrzennych XT, gdy aktywny jest tryb pomiarowy.
+//
+// Parametry:
+//   - t_index: indeks przedziału czasowego dla macierzy diagnostyk XT (t / N_BIN).
 func (sim *SimulationState) Step9CollectXtData(t_index int) {
 	if !sim.Measurement_mode {
 		return
@@ -236,27 +287,35 @@ func (sim *SimulationState) Step9CollectXtData(t_index int) {
 	}
 }
 
+// DoOneCycle wykonuje jeden pełny okres RF symulacji podzielony na N_T kroków czasowych DT_E.
+// W każdym kroku realizuje pełny cykl PIC/MCC: depozycję ładunku, rozwiązanie równania Poissona,
+// przesunięcie cząstek, obsługę granic, zderzenia Monte Carlo oraz diagnostykę.
 func (sim *SimulationState) DoOneCycle() {
 	var t int
 	var t_index int
 
-	for t = 0; t < N_T; t++ { // the RF period is divided into N_T equal time intervals (time step DT_E)
-		sim.Time += DT_E    // update of the total simulated time
-		t_index = t / N_BIN // index for XT distributions
+	for t = 0; t < N_T; t++ {
+		sim.Time += DT_E
+		t_index = t / N_BIN
 
+		// Krok 1 i 2: Depozycja ładunku na siatkę oraz rozwiązanie równania Poissona
 		sim.Step1ComputeElectronDensity()
 		sim.Step1ComputeIonDensity(t)
 		sim.Step2SolvePoisson(sim.Time)
 
+		// Krok 3 i 4: Przesunięcie elektronów i jonów w polu elektrycznym
 		sim.Step3MoveElectrons(t_index)
 		sim.Step4MoveIons(t_index, t)
 
+		// Krok 5 i 6: Sprawdzenie warunków brzegowych (absorpcja na elektrodach)
 		sim.Step5CheckBoundariesElectrons()
 		sim.Step6CheckBoundariesIons(t)
 
+		// Krok 7 i 8: Zderzenia Monte Carlo (MCC) dla elektronów i jonów
 		sim.Step7CollisionsElectrons()
 		sim.Step8CollisionIons(t)
 
+		// Krok 9: Zbieranie rozkładów czasoprzestrzennych XT
 		sim.Step9CollectXtData(t_index)
 
 		if (t % 1000) == 0 {
@@ -266,6 +325,14 @@ func (sim *SimulationState) DoOneCycle() {
 	fmt.Fprintf(sim.Datafile, "%8d  %8d  %8d\n", sim.Cycle, sim.N_e, sim.N_i)
 }
 
+// minInt zwraca mniejszą z dwóch liczb całkowitych.
+//
+// Parametry:
+//   - a: pierwsza liczba całkowita.
+//   - b: druga liczba całkowita.
+//
+// Zwraca:
+//   - mniejsza z wartości a i b.
 func minInt(a, b int) int {
 	if a < b {
 		return a

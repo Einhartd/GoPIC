@@ -9,12 +9,20 @@ import (
 	"time"
 )
 
-/*
-Główny punkt wejściowy programu symulacji GoPIC w architekturze parallel_optimized (Run).
-*/
+// Run stanowi główną funkcję sterującą przebiegiem równoległej symulacji GoPIC.
+// Parsuje flagi współbieżności (--workers, --threads) oraz argumenty pozycyjne wiersza poleceń,
+// inicjalizuje przekroje czynne, stan symulacji oraz pulę trwałych workerów, wykonuje zadaną
+// liczbę cykli RF i zapisuje stan końcowy oraz diagnostyki.
+//
+// Argumenty wiersza poleceń (os.Args):
+//   - --workers=N: opcjonalna liczba równoległych workerów (goroutines).
+//   - --threads=M: opcjonalna wartość GOMAXPROCS (liczba wątków systemowych).
+//   - arg[0]: liczba cykli RF do wykonania (0 oznacza uruchomienie cyklu inicjalizacyjnego).
+//   - arg[1]: opcjonalna flaga "m" włączająca tryb pomiarowy (gromadzenie i zapis diagnostyk).
 func Run() {
 	fmt.Println(">> GoPIC: starting (optimized)...")
 
+	// Walidacja obecności argumentów wiersza poleceń
 	if len(os.Args) == 1 {
 		fmt.Println(">> GoPIC: error = need starting_cycle argument")
 		os.Exit(1)
@@ -24,6 +32,7 @@ func Run() {
 	numThreads := 0
 	var positional []string
 
+	// Odczyt flag opcjonalnych (--workers, --threads) oraz argumentów pozycyjnych
 	for _, arg := range os.Args[1:] {
 		if strings.HasPrefix(arg, "--workers=") {
 			numWorkers, _ = strconv.Atoi(strings.TrimPrefix(arg, "--workers="))
@@ -63,21 +72,25 @@ func Run() {
 	fmt.Printf(">> GoPIC: GOMAXPROCS (OS threads) = %d\n", runtime.GOMAXPROCS(0))
 	fmt.Printf(">> GoPIC: NumWorkers (goroutines)  = %d\n", numWorkers)
 
+	// Utworzenie stanu symulacji oraz uruchomienie trwałych workerów w tle
 	sim := NewSimulationState(time.Now().UnixNano(), numWorkers)
 	defer sim.StopWorkers()
 	sim.Measurement_mode = measurement_mode
 	sim.Arg1 = arg1
 
+	// Inicjalizacja tablic przekrojów czynnych oraz parametrów Null-Collision
 	sim.SetElectronCrossSectionsAr()
 	sim.SetIonCrossSectionsAr()
 	sim.CalcTotalCrossSections()
 	sim.InitNullCollision()
 
+	// Otwarcie pliku zbieżności conv.dat w trybie dopisywania
 	sim.Datafile = openAppend("conv.dat")
 	defer sim.Datafile.Close()
 
 	start_time := time.Now()
 	if sim.Arg1 == 0 {
+		// Tryb inicjalizacyjny: sprawdzenie, czy nie istnieją już dane z wcześniejszej symulacji
 		if fileExists("picdata.bin") {
 			fmt.Println(">> GoPIC: Warning: Data from previous calculation are detected.")
 			fmt.Println("           To start a new simulation from the beginning, please delete all output files before running ./GoPIC 0")
@@ -86,12 +99,14 @@ func Run() {
 		}
 		sim.No_of_cycles = 1
 		sim.Cycle = 1
+		// Zasianie początkowych makrocząstek i wykonanie pierwszego cyklu RF
 		sim.InitParticles(N_INIT)
 		fmt.Println(">> GoPIC: running initializing cycle")
 		sim.Time = 0
 		sim.DoOneCycle()
 		sim.Cycles_done = 1
 	} else {
+		// Tryb kontynuacji: wczytanie stanu z pliku picdata.bin i wykonanie zadanej liczby cykli
 		sim.No_of_cycles = sim.Arg1
 		sim.LoadParticleData()
 		sim.UpdateChunkSizes()
@@ -101,6 +116,8 @@ func Run() {
 		}
 		sim.Cycles_done += sim.No_of_cycles
 	}
+
+	// Zapis stanu końcowego cząstek oraz opcjonalny zapis pełnej diagnostyki
 	sim.SaveParticleData()
 	if sim.Measurement_mode {
 		sim.CheckAndSaveInfo()
@@ -110,11 +127,25 @@ func Run() {
 	fmt.Printf(">> GoPIC: Simulation finished. Total elapsed time: %.3f s\n", elapsed)
 }
 
+// atoi usuwa białe znaki z napisu i konwertuje go na liczbę całkowitą.
+//
+// Parametry:
+//   - s: łańcuch znaków reprezentujący liczbę całkowitą.
+//
+// Zwraca:
+//   - skonwertowana wartość typu int.
 func atoi(s string) int {
 	i, _ := strconv.Atoi(strings.TrimSpace(s))
 	return i
 }
 
+// openAppend otwiera plik w trybie dopisywania na końcu lub tworzy go, jeśli nie istnieje.
+//
+// Parametry:
+//   - name: ścieżka lub nazwa pliku do otwarcia.
+//
+// Zwraca:
+//   - wskaźnik do otwartego deskryptora pliku os.File.
 func openAppend(name string) *os.File {
 	f, err := os.OpenFile(name, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
 	if err != nil {
@@ -123,6 +154,13 @@ func openAppend(name string) *os.File {
 	return f
 }
 
+// fileExists sprawdza, czy plik o podanej nazwie istnieje w systemie plików.
+//
+// Parametry:
+//   - name: ścieżka lub nazwa sprawdzanego pliku.
+//
+// Zwraca:
+//   - true, jeśli plik istnieje; false w przeciwnym przypadku.
 func fileExists(name string) bool {
 	_, err := os.Stat(name)
 	return err == nil
