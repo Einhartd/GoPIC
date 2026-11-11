@@ -63,4 +63,3 @@ if [ -f "${FLAME_DIR}/stackcollapse-perf.pl" ] && [ -f "${FLAME_DIR}/flamegraph.
 fi
 
 rm -f "${PERF_DATA}" "${BINARY}"
-echo ">> Zakończono pomyślnie. Wyniki w: ${DATA_DIR}"

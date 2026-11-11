@@ -56,7 +56,6 @@ fi
 cd "${DATA_DIR}"
 cp "${REPO_DIR}/golden_record/picdata.bin" ./picdata.bin
 
-echo ">> Profilowanie wywołań (perf record)..."
 perf record --max-size=100M -F 49 -g -o "${PERF_DATA}" -- "${BINARY}" "${N_CYCLES}" ${MEASURE_ARG}
 
 perf report -i "${PERF_DATA}" --stdio > "${DATA_DIR}/perf_report.txt"
@@ -69,4 +68,3 @@ if [ -f "${FLAME_DIR}/stackcollapse-perf.pl" ] && [ -f "${FLAME_DIR}/flamegraph.
 fi
 
 rm -f "${PERF_DATA}" "${BINARY}"
-echo ">> Zakończono pomyślnie. Wyniki w: ${DATA_DIR}"

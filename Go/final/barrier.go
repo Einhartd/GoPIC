@@ -20,7 +20,7 @@ type paddedInt64 struct {
 	_ [56]byte
 }
 
-// StarBarrier implementuje bezblokadową barierę synchronizacyjną w topologii gwiazdy (Star-Topology).
+// StarBarrier implementuje bezblokadową barierę synchronizacyjną.
 // Zastępuje standardowe kanały Go oraz sync.WaitGroup atomową sygnalizacją w pamięci L1/L2,
 // eliminując wywołania systemowe futex oraz narzut planisty goroutines wewnątrz kroków czasowych.
 //
@@ -39,7 +39,7 @@ type StarBarrier struct {
 	workerDone []paddedInt64
 }
 
-// NewStarBarrier tworzy i inicjalizuje nową strukturę StarBarrier dla zadanej liczby workerów.
+// NewStarBarrier tworzy i inicjalizuje nową strukturę dla zadanej liczby workerów.
 //
 // Parametry:
 //   - numWorkers: liczba workerów synchronizowanych przez barierę.

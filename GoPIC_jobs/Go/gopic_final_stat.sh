@@ -58,4 +58,3 @@ perf stat \
     "${BINARY}" --workers="${NUM_WORKERS}" "${N_CYCLES}" ${MEASURE_ARG}
 
 rm -f "${BINARY}"
-echo ">> Zakończono pomyślnie. Wyniki w: ${DATA_DIR}"
